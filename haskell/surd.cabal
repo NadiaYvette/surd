@@ -1,0 +1,57 @@
+cabal-version:   3.0
+name:            surd
+version:         0.1.0.0
+synopsis:        Symbolic radical denesting, complex root simplification, and exact trigonometry
+license:         BSD-3-Clause
+build-type:      Simple
+
+library
+  hs-source-dirs:   src
+  default-language: GHC2021
+  ghc-options:      -Wall -Wcompat
+  exposed-modules:
+    Surd.Types
+    Surd.Internal.Positive
+    Surd.Internal.PrimeFactors
+    Surd.Internal.Interval
+    Surd.Polynomial.Univariate
+    Surd.Polynomial.Cyclotomic
+    Surd.Polynomial.Factoring
+    Surd.Polynomial.MinimalPoly
+    Surd.Field.Extension
+    Surd.Radical.Expr
+    Surd.Radical.Eval
+    Surd.Radical.LaTeX
+    Surd.Radical.Normalize
+    Surd.Radical.NormalForm
+    Surd.Radical.Pretty
+    Surd.Radical.Denest
+    Surd.Radical.Denest.Sqrt
+    Surd.Radical.Denest.NthRoot
+    Surd.Radical.Equality
+    Surd.Radical.Order
+    Surd.Trig
+    Surd.Trig.RootOfUnity
+    Surd.Trig.Galois
+  build-depends:
+    base >= 4.18 && < 5,
+    containers >= 0.6,
+    vector >= 0.13
+
+test-suite surd-test
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Main.hs
+  default-language: GHC2021
+  ghc-options:      -Wall
+  other-modules:
+    Test.Polynomial
+    Test.Denest
+    Test.NormalForm
+    Test.Trig
+  build-depends:
+    base >= 4.18 && < 5,
+    surd,
+    tasty >= 1.4,
+    tasty-hunit >= 0.10,
+    tasty-quickcheck >= 0.10
