@@ -19,11 +19,13 @@ module Surd.Trig
   , TrigResult(..)
   ) where
 
+import Data.Complex (Complex(..), magnitude)
 import Surd.Types
 import Surd.Trig.RootOfUnity (cosOfUnity)
 import Surd.Polynomial.Univariate (Poly)
 import Surd.Polynomial.Cyclotomic (cyclotomic)
 import Surd.Radical.Normalize (normalize)
+import Surd.Radical.Eval (evalComplex)
 
 -- | Result of exact trig evaluation.
 data TrigResult
@@ -110,14 +112,44 @@ cosFirstQuadrant p q =
   in if k == 1
      then
        case cosOfUnity n of
-         Just e  -> Radical (normalize e)
+         Just e  -> Radical (safeNormalize e)
          Nothing -> MinPoly (cyclotomic n)
      else
        case cosOfUnity n of
          Just base ->
            let cheb = chebyshev k base
-           in Radical (normalize cheb)
+           in Radical (safeNormalize cheb)
          Nothing -> MinPoly (cyclotomic n)
+
+-- | Normalize, but verify the result. If normalization changes the
+-- numerical value (can happen with complex intermediates from Gauss
+-- period descent), return the original expression.
+--
+-- For very large expression trees (from Lagrange resolvents with q ≥ 5),
+-- normalize can be extremely slow, so we skip it if the tree is too deep.
+safeNormalize :: RadExpr Rational -> RadExpr Rational
+safeNormalize e
+  | exprDepth e > 30 = e
+  | otherwise =
+      let normed = normalize e
+          origVal = evalComplex e
+          normVal = evalComplex normed
+      in if magnitude (origVal - normVal) < 1e-8
+         then normed
+         else e
+
+-- | Approximate depth of an expression tree (capped for performance).
+exprDepth :: RadExpr k -> Int
+exprDepth = go 0
+  where
+    go d _ | d > 40 = d  -- cap to avoid traversing huge trees
+    go d (Lit _)      = d
+    go d (Add a b)    = max (go (d+1) a) (go (d+1) b)
+    go d (Mul a b)    = max (go (d+1) a) (go (d+1) b)
+    go d (Neg a)      = go (d+1) a
+    go d (Inv a)      = go (d+1) a
+    go d (Root _ a)   = go (d+1) a
+    go d (Pow a _)    = go (d+1) a
 
 -- | Chebyshev polynomial evaluation: T_k(x) computed symbolically.
 -- T_0(x) = 1, T_1(x) = x, T_{n+1}(x) = 2x·T_n(x) - T_{n-1}(x)

@@ -103,4 +103,38 @@ tests = testGroup "Trig"
               ("should be real but imaginary part is " ++ show (imagPart c))
           MinPoly _ -> assertFailure "expected radical"
     ]
+
+  , testGroup "Lagrange resolvent (q ≥ 5)"
+    [ testCase "cos(2π/11) — φ(11)=10=2×5, needs quintic resolvent" $ do
+        case cosExact 2 11 of
+          Radical e -> do
+            let v = realPart (evalComplex e)
+            abs (v - cos (2 * pi / 11)) < 1e-8 @?
+              ("cos(2π/11) should be " ++ show (cos (2*pi/11)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical via Lagrange resolvent"
+
+    , testCase "cos(2π/11) is real" $ do
+        case cosExact 2 11 of
+          Radical e -> do
+            let c = evalComplex e
+            abs (imagPart c) < 1e-6 @?
+              ("should be real but imaginary part is " ++ show (imagPart c))
+          MinPoly _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/23) — φ(23)=22=2×11, needs q=11 resolvent" $ do
+        case cosExact 2 23 of
+          Radical e -> do
+            let v = realPart (evalComplex e)
+            abs (v - cos (2 * pi / 23)) < 1e-8 @?
+              ("cos(2π/23) should be " ++ show (cos (2*pi/23)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical via Lagrange resolvent"
+
+    , testCase "cos(2π/31) — φ(31)=30=2×3×5" $ do
+        case cosExact 2 31 of
+          Radical e -> do
+            let v = realPart (evalComplex e)
+            abs (v - cos (2 * pi / 31)) < 1e-8 @?
+              ("cos(2π/31) should be " ++ show (cos (2*pi/31)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical via Lagrange resolvent"
+    ]
   ]

@@ -8,6 +8,10 @@ module Surd.Radical.Eval
   ) where
 
 import Data.Complex (Complex(..), magnitude, mkPolar)
+import Data.IORef (newIORef, readIORef, writeIORef)
+import qualified Data.IntMap.Strict as IntMap
+import System.IO.Unsafe (unsafePerformIO)
+import System.Mem.StableName (StableName, makeStableName, hashStableName, eqStableName)
 import Surd.Types
 import Surd.Internal.Interval (Interval(..))
 import qualified Surd.Internal.Interval as I
@@ -36,16 +40,41 @@ eval (Pow a n)  = eval a ^^ n
 --
 -- For example, @cos(2π\/7)@ is expressed using @√(-3)@ and cube roots
 -- of complex numbers, but the final result is real.
+--
+-- Uses StableName-based memoization to handle DAG-structured expressions
+-- efficiently (e.g., Chebyshev polynomial trees with shared sub-expressions).
 evalComplex :: RadExpr Rational -> Complex Double
-evalComplex (Lit r)    = fromRational r :+ 0
-evalComplex (Neg a)    = negate (evalComplex a)
-evalComplex (Add a b)  = evalComplex a + evalComplex b
-evalComplex (Mul a b)  = evalComplex a * evalComplex b
-evalComplex (Inv a)    = 1 / evalComplex a
-evalComplex (Root n a) = complexNthRoot n (evalComplex a)
-evalComplex (Pow a n)
-  | n >= 0    = evalComplex a ^ n
-  | otherwise = 1 / (evalComplex a ^ negate n)
+evalComplex expr = unsafePerformIO $ do
+  -- Cache: hash -> [(StableName, value)] for collision handling
+  cacheRef <- newIORef (IntMap.empty :: IntMap.IntMap [(StableName (RadExpr Rational), Complex Double)])
+  let go e = do
+        sn <- makeStableName e
+        let h = hashStableName sn
+        cache <- readIORef cacheRef
+        let bucket = maybe [] id (IntMap.lookup h cache)
+        case lookup' sn bucket of
+          Just v  -> return v
+          Nothing -> do
+            v <- case e of
+              Lit r    -> return $ fromRational r :+ 0
+              Neg a    -> negate <$> go a
+              Add a b  -> (+) <$> go a <*> go b
+              Mul a b  -> (*) <$> go a <*> go b
+              Inv a    -> (1 /) <$> go a
+              Root n a -> complexNthRoot n <$> go a
+              Pow a n
+                | n >= 0    -> (^ n) <$> go a
+                | otherwise -> (\x -> 1 / (x ^ negate n)) <$> go a
+            -- Re-read cache after recursive calls to get latest state
+            cache' <- readIORef cacheRef
+            let bucket' = maybe [] id (IntMap.lookup h cache')
+            writeIORef cacheRef (IntMap.insert h ((sn, v) : bucket') cache')
+            return v
+      lookup' _ [] = Nothing
+      lookup' sn ((sn', v) : rest)
+        | eqStableName sn sn' = Just v
+        | otherwise           = lookup' sn rest
+  go expr
 
 -- | Principal nth root of a complex number.
 -- Uses polar form: z = r·e^(iθ) → z^(1/n) = r^(1/n)·e^(iθ/n)

@@ -20,7 +20,7 @@ module Surd.Trig.Galois
   , modExp
   ) where
 
-import Data.Complex (Complex(..), magnitude, realPart)
+import Data.Complex (Complex(..), magnitude, realPart, imagPart)
 import Data.List (nub, sort)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
@@ -136,16 +136,16 @@ splitPeriod allPeriods q parent =
       -- Compute sub-period values as Complex Double (Gauss periods are complex)
       subPeriodValues = map (sumRootsOfUnity p) subPeriodElems
 
-      -- The elementary symmetric functions of the sub-periods are
-      -- expressible in terms of the current-level periods.
-      -- Crucially, these symmetric functions are REAL (often rational integers),
-      -- even though the individual periods are complex.
-      symFuncs = elementarySymmetricC subPeriodValues
-      coeffExprs = map (matchToPeriodExpr allPeriods p) symFuncs
-
       -- Solve the period equation to get radical expressions for sub-periods.
-      -- Use full complex values for assignment matching (real parts may coincide).
-      subPeriodExprs = solvePeriodEquation q (periodExpr parent) coeffExprs subPeriodValues
+      subPeriodExprs
+        | q <= 3 =
+            -- Quadratic/cubic: use elementary symmetric functions approach
+            let symFuncs = elementarySymmetricC subPeriodValues
+                coeffExprs = map (matchToPeriodExpr allPeriods p) symFuncs
+            in solvePeriodEquation q (periodExpr parent) coeffExprs subPeriodValues
+        | otherwise =
+            -- q >= 5: use Lagrange resolvent approach (DFT-based)
+            solvePeriodViaResolvent q allPeriods p (periodExpr parent) subPeriodValues
 
   in [ PeriodState { periodExpr = expr, periodElems = elms, periodP = p }
      | (expr, elms) <- zip subPeriodExprs subPeriodElems
@@ -181,9 +181,35 @@ matchToPeriodExpr periods p target =
      then Lit nearestRat
      else
        -- Try to express as integer + integer linear combination of periods
+       -- Try each period individually first (exactly determined system),
+       -- then try combinations. Prefer solutions with smaller coefficients
+       -- to minimize floating-point error amplification.
        let periodVals = map (sumRootsOfUnity p . periodElems) periods
-       in case findIntegerComboC target periodVals of
-            Just (constant, coeffs) ->
+           -- Try matching with each single period
+           singleMatches = mapMaybe (\(i, pv) ->
+             case matchSinglePeriod target pv of
+               Just (c, a) ->
+                 let err = magnitude (target - (fromIntegral c :+ 0) - (fromIntegral a :+ 0) * pv)
+                 in if err < 1e-6
+                    then Just (c, replicate i 0 ++ [a] ++ replicate (length periods - i - 1) 0, err)
+                    else Nothing
+               Nothing -> Nothing
+             ) (zip [0..] periodVals)
+           -- Try multi-period matching
+           multiMatch = case findIntegerComboC target periodVals of
+             Just (c, as) ->
+               let err = magnitude (target - (fromIntegral c :+ 0) -
+                           sum (zipWith (\a pv -> (fromIntegral a :+ 0) * pv) as periodVals))
+               in if err < 1e-6 then Just (c, as, err) else Nothing
+             Nothing -> Nothing
+           allMatches = singleMatches ++ maybe [] (:[]) multiMatch
+           -- Pick match with smallest max coefficient
+           bestMatch = case allMatches of
+             [] -> Nothing
+             ms -> Just $ foldl1 (\a b -> if maxCoeff a <= maxCoeff b then a else b) ms
+           maxCoeff (c, as, _) = maximum (abs c : map abs as)
+       in case bestMatch of
+            Just (constant, coeffs, _err) ->
               foldl Add (Lit (fromIntegral constant))
                 [ if c == 0 then Lit 0
                   else if c == 1 then periodExpr pi'
@@ -191,50 +217,100 @@ matchToPeriodExpr periods p target =
                 | (c, pi') <- zip coeffs periods
                 ]
             Nothing ->
-              -- Fall back to rational approximation (real part only)
-              Lit (toRational (realPart target))
+              -- Fall back to rational approximation preserving complex value
+              let re = toRational (realPart target)
+                  im = toRational (imagPart target)
+              in if abs (imagPart target) < 1e-12
+                 then Lit re
+                 else Add (Lit re) (Mul (Lit im) (Root 2 (Lit (-1))))
 
--- | Try to express a complex target as c + Σ aᵢ·xᵢ for small integers c, aᵢ.
+-- | Try to express target = c + a·v for integer c, a using a single period value.
+-- Exactly determined: a from Im, c from Re.
+matchSinglePeriod :: Complex Double -> Complex Double -> Maybe (Int, Int)
+matchSinglePeriod target v =
+  let a = if abs (imagPart v) > 1e-10
+          then round (imagPart target / imagPart v) :: Int
+          else if abs (realPart v) > 1e-10
+               then round (realPart target / realPart v)
+               else 0
+      remainder = target - (fromIntegral a :+ 0) * v
+      c = round (realPart remainder) :: Int
+      recon = (fromIntegral c :+ 0) + (fromIntegral a :+ 0) * v
+  in if magnitude (recon - target) < 1e-4
+     then Just (c, a)
+     else Nothing
+
+-- | Try to express a complex target as c + Σ aᵢ·xᵢ for integer c, aᵢ.
+--
+-- Uses direct linear algebra: solve the system
+--   Re(target) = c + Σ aᵢ · Re(xᵢ)
+--   Im(target) = Σ aᵢ · Im(xᵢ)
+-- For n period values, we have n+1 unknowns (c, a₁, ..., aₙ) and 2 equations.
+-- For 1 period value, the system is exactly determined.
+-- For 2+ periods, we use iterative solving (process imaginary part first).
 findIntegerComboC :: Complex Double -> [Complex Double] -> Maybe (Int, [Int])
-findIntegerComboC target vals =
-  let tryConst c =
-        let remainder = target - (fromIntegral c :+ 0)
-        in case findCoeffsC remainder vals of
-          Just as | verify c as -> Just (c, as)
-          _                     -> Nothing
-      verify c as =
-        let v = (fromIntegral c :+ 0) + sum (zipWith (\a x -> (fromIntegral a :+ 0) * x) as vals)
-        in magnitude (v - target) < 1e-6
-  in case mapMaybe tryConst [-20..20] of
-    (x:_) -> Just x
-    []    -> Nothing
+findIntegerComboC target vals = solveLinearIntegerC target vals
 
--- | Find integer coefficients aᵢ such that Σ aᵢ·xᵢ ≈ target (complex).
-findCoeffsC :: Complex Double -> [Complex Double] -> Maybe [Int]
-findCoeffsC _ []     = Just []
-findCoeffsC target vals
-  | [v] <- vals =
-      -- For a single complex value, a·v ≈ target means a ≈ Re(target/v)
-      -- (if v and target are proportional by a real integer)
-      let ratio = target / v
-          a = round (realPart ratio) :: Int
-      in if magnitude (target - (fromIntegral a :+ 0) * v) < 1e-6
-         then Just [a]
-         else Nothing
-  | otherwise =
-      let (v:vs) = vals
-          range = [-15..15]
-          attempts = [ (a, rest)
-                     | a <- range
-                     , let rem' = target - (fromIntegral a :+ 0) * v
-                     , Just rest <- [findCoeffsC rem' vs]
-                     , let total = (fromIntegral a :+ 0) * v
-                                 + sum (zipWith (\b x -> (fromIntegral b :+ 0) * x) rest vs)
-                     , magnitude (total - target) < 1e-6
-                     ]
-      in case attempts of
-        ((a, rest):_) -> Just (a : rest)
-        []            -> Nothing
+-- | Solve target = c + Σ aᵢ·xᵢ for integer c, aᵢ using the complex structure.
+solveLinearIntegerC :: Complex Double -> [Complex Double] -> Maybe (Int, [Int])
+solveLinearIntegerC target [] =
+  -- No periods: target should be a real integer
+  let c = round (realPart target) :: Int
+  in if magnitude (target - (fromIntegral c :+ 0)) < 1e-6
+     then Just (c, [])
+     else Nothing
+solveLinearIntegerC target [v] =
+  -- Single period: from Im(target) = a · Im(v), then c = Re(target) - a · Re(v)
+  let a = if abs (imagPart v) > 1e-10
+          then round (imagPart target / imagPart v) :: Int
+          else if abs (realPart v) > 1e-10
+               then round (realPart target / realPart v)
+               else 0
+      remainder = target - (fromIntegral a :+ 0) * v
+      c = round (realPart remainder) :: Int
+  in if magnitude (target - (fromIntegral c :+ 0) - (fromIntegral a :+ 0) * v) < 1e-4
+     then Just (c, [a])
+     else Nothing
+solveLinearIntegerC target (v:vs) =
+  -- Multiple periods: use imaginary part to constrain first coefficient,
+  -- then recurse on the remainder.
+  -- Im(target) = a · Im(v) + Σ aᵢ · Im(vᵢ)
+  -- If Im(v) is large enough, estimate a, then recurse.
+  if abs (imagPart v) > 1e-10
+  then
+    -- Estimate a from imaginary part (approximate, refine by trying nearby values)
+    let aEst = round (imagPart target / imagPart v) :: Int
+        tryA a =
+          let remainder = target - (fromIntegral a :+ 0) * v
+          in case solveLinearIntegerC remainder vs of
+               Just (c, as) ->
+                 let recon = (fromIntegral c :+ 0) + (fromIntegral a :+ 0) * v
+                           + sum (zipWith (\ai xi -> (fromIntegral ai :+ 0) * xi) as vs)
+                 in if magnitude (recon - target) < 1e-4
+                    then Just (c, a : as)
+                    else Nothing
+               Nothing -> Nothing
+    in case mapMaybe tryA [aEst-2..aEst+2] of
+         (x:_) -> Just x
+         []    -> Nothing
+  else
+    -- v has negligible imaginary part; try direct ratio
+    let aEst = if abs (realPart v) > 1e-10
+               then round (realPart target / realPart v) :: Int
+               else 0
+        tryA a =
+          let remainder = target - (fromIntegral a :+ 0) * v
+          in case solveLinearIntegerC remainder vs of
+               Just (c, as) ->
+                 let recon = (fromIntegral c :+ 0) + (fromIntegral a :+ 0) * v
+                           + sum (zipWith (\ai xi -> (fromIntegral ai :+ 0) * xi) as vs)
+                 in if magnitude (recon - target) < 1e-4
+                    then Just (c, a : as)
+                    else Nothing
+               Nothing -> Nothing
+    in case mapMaybe tryA [aEst-2..aEst+2] of
+         (x:_) -> Just x
+         []    -> Nothing
 
 -- | Solve a period equation of degree q to get radical expressions
 -- for the sub-periods.
@@ -304,32 +380,165 @@ solvePeriodEquation 3 _e1 coeffExprs numVals =
       root2 = Add (Add (Mul omegaBar u1) (Mul omega u2)) shift
   in assignByValue [root0, root1, root2] numVals
 
-solvePeriodEquation _q _e1 coeffExprs numVals =
-  -- General prime degree q: use Lagrange resolvents.
-  -- For a cyclic extension of prime degree q, the Lagrange resolvent is:
-  --   R = η₀ + ω·η₁ + ω²·η₂ + ... + ω^{q-1}·η_{q-1}
-  -- where ω = e^{2πi/q}.
-  -- Then R^q is expressible in terms of known quantities.
-  --
-  -- We need ω, which is itself a root of unity. For q ≤ 5, we can
-  -- express ω in radicals using the smaller cases.
-  --
-  -- For now, we use a general approach:
-  -- 1. Compute R^q numerically
-  -- 2. Express R^q as a radical expression (integer combo of periods)
-  -- 3. R = ⁿ√(R^q) (principal branch)
-  -- 4. η_k = (1/q) Σ ω^{-jk} R_j
-  --
-  -- This is the full generality, but the expressions get large.
-  -- For the initial implementation, handle q ≤ 3 explicitly above
-  -- and fall back to a numerical approximation for larger primes.
-  --
-  -- TODO: implement full Lagrange resolvent for q = 5, 7, etc.
-  -- For now, produce sub-periods from numerical approximation.
-  -- TODO: implement full Lagrange resolvent for q = 5, 7, etc.
-  -- coeffExprs are available for future use.
-  let _ = coeffExprs
-  in map (\v -> Lit (toRational (realPart v))) numVals
+solvePeriodEquation _q _e1 _coeffExprs numVals =
+  -- Fallback for any q not handled above (shouldn't be reached
+  -- since splitPeriod dispatches q >= 5 to solvePeriodViaResolvent)
+  map (\v -> Lit (toRational (realPart v))) numVals
+
+-- | Solve the period equation of prime degree q ≥ 5 via Lagrange resolvents.
+--
+-- For a cyclic extension of prime degree q, the Lagrange resolvent is:
+--   R_j = Σ_{k=0}^{q-1} ω^{jk} · η_k
+-- where ω = e^{2πi/q} is a primitive q-th root of unity.
+--
+-- Key property: η_k = (1/q) Σ_{j=0}^{q-1} ω^{-jk} · R_j  (DFT inversion)
+--
+-- R_j^q lives in K(ω_q) where K is the period field. We decompose it as:
+--   R_j^q = Σ_{s=0}^{q-1} d_s · ω^{js}
+-- where d_s = (1/q) Σ_j ω^{-js} R_j^q (inverse DFT of {R_j^q}).
+-- By Galois theory, each d_s ∈ K (the period field), so it can be
+-- matched to an integer linear combination of period expressions.
+solvePeriodViaResolvent :: Int             -- ^ Degree q (prime, ≥ 5)
+                        -> [PeriodState]   -- ^ All current-level periods
+                        -> Integer         -- ^ p (the prime)
+                        -> RadExpr Rational -- ^ Parent period expression (= R_0)
+                        -> [Complex Double] -- ^ Numerical sub-period values
+                        -> [RadExpr Rational]
+solvePeriodViaResolvent q allPeriods p parentExpr numVals =
+  let -- ω = e^{2πi/q} as Complex Double
+      omegaC = exp (0 :+ (2 * pi / fromIntegral q))
+
+      -- Compute resolvents R_j numerically
+      resolventVals = [ sum [ omegaC ^ (j * k) * (numVals !! k)
+                            | k <- [0..q-1] ]
+                      | j <- [0..q-1] ]
+
+      -- R_j^q for j = 0, ..., q-1
+      resolventPowersQ = [ (resolventVals !! j) ^ q | j <- [0..q-1] ]
+
+      -- Decompose R_j^q into period-field and ω components:
+      -- R_j^q = Σ_s d_s · ω^{js}, so d_s = (1/q) Σ_j ω^{-js} R_j^q
+      dCoeffs = [ let s' = fromIntegral s :: Int
+                  in (1 / fromIntegral q) *
+                     sum [ omegaC ^^ (negate (j * s')) * (resolventPowersQ !! j)
+                         | j <- [0..q-1] ]
+                | s <- [0..q-1 :: Int] ]
+
+      -- Each d_s should be in Q(periods). Match to period expressions.
+      dExprs = map (matchToPeriodExpr allPeriods p) dCoeffs
+
+      -- Get cos(2π/q) as a RadExpr
+      cosBaseExpr = case cosOfUnityViaGauss q of
+        Just e  -> e
+        Nothing -> error $ "solvePeriodViaResolvent: can't compute cos(2π/" ++ show q ++ ")"
+
+      -- Build ω^m as RadExpr for all needed m = 0, ..., q-1
+      omegaPowers = map (omegaPowerExpr q cosBaseExpr) [0..q-1]
+
+      -- R_j^q = Σ_s d_s · ω^{js} as RadExpr
+      resolventPowerExprs =
+        [ foldl1 Add [ Mul (dExprs !! s) (omegaPowers !! ((j * s) `mod` q))
+                      | s <- [0..q-1] ]
+        | j <- [1..q-1] ]
+
+      -- R_j = q-th root of R_j^q, with branch selection
+      resolventExprs = [ selectResolventBranch q omegaPowers
+                           (resolventPowerExprs !! (j-1))
+                           (resolventPowersQ !! j)
+                           (resolventVals !! j)
+                       | j <- [1..q-1] ]
+
+      -- All resolvents: R_0 = parent, R_1, ..., R_{q-1}
+      allResolvents = parentExpr : resolventExprs
+
+      -- Recover sub-periods: η_k = (1/q) Σ_{j=0}^{q-1} ω^{-jk} · R_j
+      subPeriodExprs =
+        [ Mul (Inv (Lit (fromIntegral q)))
+              (foldl1 Add [ Mul (omegaPowers !! ((q - ((j * k) `mod` q)) `mod` q))
+                                (allResolvents !! j)
+                          | j <- [0..q-1] ])
+        | k <- [0..q-1] ]
+
+      -- Compute numerical sub-period values directly from numerical resolvents
+      -- (avoids expensive evalComplex on the symbolic expressions)
+      allResolventVals = [resolventVals !! j | j <- [0..q-1]]
+      numSubPeriods =
+        [ (1 / fromIntegral q) *
+          sum [ omegaC ^^ (negate (j * k)) * (allResolventVals !! j)
+              | j <- [0..q-1] ]
+        | k <- [0..q-1] ]
+
+      result = assignByValueNum subPeriodExprs numSubPeriods numVals
+  in result
+
+-- | Express ω^m = e^{2πim/q} as a RadExpr, given cos(2π/q).
+--
+-- ω^m = cos(2πm/q) + i·sin(2πm/q)
+-- where cos(2πm/q) = T_m(cos(2π/q))  (Chebyshev polynomial)
+-- and   sin(2πm/q) = ±√(1 - cos²(2πm/q))
+-- with sign positive when 0 < 2πm/q < π (i.e., 2m < q).
+omegaPowerExpr :: Int -> RadExpr Rational -> Int -> RadExpr Rational
+omegaPowerExpr _ _ 0 = Lit 1
+omegaPowerExpr q cosBase m =
+  let m' = m `mod` q
+  in if m' == 0 then Lit 1
+     else
+       let cosM = chebyshevLocal m' cosBase
+           sin2M = Add (Lit 1) (Neg (Mul cosM cosM))
+           sinM = Root 2 sin2M
+           -- sin(2πm'/q) > 0 when 2m' < q (angle in first half of circle)
+           sinMSigned = if 2 * m' < q then sinM else Neg sinM
+           i = Root 2 (Lit (-1))
+       in Add cosM (Mul i sinMSigned)
+
+-- | Select the correct branch of the q-th root.
+--
+-- The q-th roots of z are: ω^k · ᵠ√z for k = 0, ..., q-1.
+-- Evaluate the principal root of the expression and find the ω^k
+-- correction that best matches the target numerical value.
+selectResolventBranch :: Int
+                      -> [RadExpr Rational]   -- ^ ω^k for k = 0, ..., q-1
+                      -> RadExpr Rational     -- ^ R_j^q expression
+                      -> Complex Double       -- ^ Numerical value of R_j^q (unused, kept for API)
+                      -> Complex Double       -- ^ Target numerical value of R_j
+                      -> RadExpr Rational
+selectResolventBranch q omegaPowers rjqExpr _rjqVal targetVal =
+  let principalRoot = Root q rjqExpr
+      -- Evaluate the actual principal root from the expression
+      principalVal = evalComplex principalRoot
+      -- Find the ω^k correction that best matches the target
+      omegaC = exp (0 :+ (2 * pi / fromIntegral q))
+      scored = [ (k, magnitude (omegaC ^ k * principalVal - targetVal))
+               | k <- [0..q-1] ]
+      bestK = fst $ foldl1 (\a b -> if snd a <= snd b then a else b) scored
+      bestErr = snd $ foldl1 (\a b -> if snd a <= snd b then a else b) scored
+      exprBranch = if bestK == 0 then principalRoot
+                   else Mul (omegaPowers !! bestK) principalRoot
+      -- If the expression can't match the target well (e.g., R_j is small and
+      -- R_j^q is dominated by d_s matching errors), fall back to numerical Lit
+      relErr = bestErr / max 1e-20 (magnitude targetVal)
+  in if relErr > 0.01
+     then -- Expression is too inaccurate; use numerical approximation
+       let re = toRational (realPart targetVal)
+           im = toRational (imagPart targetVal)
+       in if abs (imagPart targetVal) < 1e-15
+          then Lit re
+          else Add (Lit re) (Mul (Lit im) (Root 2 (Lit (-1))))
+     else exprBranch
+
+-- | Chebyshev polynomial T_k(x): T_0(x) = 1, T_1(x) = x,
+-- T_{n+1}(x) = 2x·T_n(x) - T_{n-1}(x).
+-- Local copy to avoid circular import with Surd.Trig.
+chebyshevLocal :: Int -> RadExpr Rational -> RadExpr Rational
+chebyshevLocal 0 _ = Lit 1
+chebyshevLocal 1 x = x
+chebyshevLocal k x = go 2 (Lit 1) x
+  where
+    go n t0 t1
+      | n > k     = t1
+      | otherwise  =
+          let t2 = Add (Mul (Mul (Lit 2) x) t1) (Neg t0)
+          in go (n + 1) t1 t2
 
 -- | Assign radical expressions to numerical values by matching.
 -- Each expression is evaluated numerically (as Complex Double) and
@@ -337,12 +546,23 @@ solvePeriodEquation _q _e1 coeffExprs numVals =
 assignByValue :: [RadExpr Rational] -> [Complex Double] -> [RadExpr Rational]
 assignByValue exprs vals =
   let exprVals = [(e, evalComplex e) | e <- exprs]
-      -- For each target value, find the closest expression
   in map (pickClosest exprVals) vals
   where
     pickClosest evs target =
       case evs of
         []     -> error "assignByValue: empty expression list"
+        (e:es) -> fst $ NE.head $ NE.sortBy (comparing (\(_, v) -> magnitude (v - target))) (e :| es)
+
+-- | Like 'assignByValue', but using pre-computed numerical values for expressions
+-- (avoids expensive evalComplex on large expression trees).
+assignByValueNum :: [RadExpr Rational] -> [Complex Double] -> [Complex Double] -> [RadExpr Rational]
+assignByValueNum exprs exprVals vals =
+  let paired = zip exprs exprVals
+  in map (pickClosest paired) vals
+  where
+    pickClosest evs target =
+      case evs of
+        []     -> error "assignByValueNum: empty expression list"
         (e:es) -> fst $ NE.head $ NE.sortBy (comparing (\(_, v) -> magnitude (v - target))) (e :| es)
 
 -- | Reorder prime factors of φ(n) for the Gauss period descent.
