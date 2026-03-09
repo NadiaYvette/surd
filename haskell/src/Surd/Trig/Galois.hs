@@ -29,7 +29,7 @@ import Data.Ord (comparing)
 import Surd.Types
 import Surd.Internal.Positive (Positive)
 import Surd.Internal.PrimeFactors (factorise)
-import Surd.Radical.Eval (evalComplex)
+import Surd.Radical.Eval (evalComplex, ExactReal, ExactComplex)
 
 -- | Compute cos(2π/n) as a radical expression via Gauss period descent.
 --
@@ -155,6 +155,17 @@ sumRootsOfUnity :: Integer -> [Integer] -> Complex Double
 sumRootsOfUnity n ks =
   sum [exp (0 :+ (2 * pi * fromIntegral k / fromIntegral n)) | k <- ks]
 
+-- | High-precision sum of roots of unity (~60 digits).
+sumRootsOfUnityExact :: Integer -> [Integer] -> ExactComplex
+sumRootsOfUnityExact n ks =
+  sum [let theta = 2 * pi * fromIntegral k / fromIntegral n
+       in cos theta :+ sin theta
+      | k <- ks]
+
+-- | Convert ExactComplex to Complex Double (lossy but retains ~15 digits).
+toDoubleC :: ExactComplex -> Complex Double
+toDoubleC (r :+ i) = fromRational (toRational r) :+ fromRational (toRational i)
+
 -- | Compute elementary symmetric polynomials from a list of complex values.
 elementarySymmetricC :: [Complex Double] -> [Complex Double]
 elementarySymmetricC xs = [elemSym k xs | k <- [1..length xs]]
@@ -222,6 +233,70 @@ matchToPeriodExpr periods p target =
               in if abs (imagPart target) < 1e-12
                  then Lit re
                  else Add (Lit re) (Mul (Lit im) (Root 2 (Lit (-1))))
+
+-- | Match an ExactComplex value to an integer linear combination of periods.
+-- Uses ~60 digits of precision for reliable coefficient recovery.
+-- Backtracking search: try ±2 around the best integer estimate for each
+-- coefficient, pruning early when the reconstruction error grows.
+matchToPeriodExprExact :: [PeriodState] -> [ExactComplex] -> ExactComplex -> RadExpr Rational
+matchToPeriodExprExact periods periodValsExact target =
+  let eIm (_ :+ y) = y
+      eRe (x :+ _) = x
+      -- Check if target is close to a real integer
+      nearestInt = round (eRe target) :: Integer
+  in if abs (eRe target - fromIntegral nearestInt) < 1e-30
+        && abs (eIm target) < 1e-30
+     then Lit (fromIntegral nearestInt)
+     else
+       case solveLinearIntegerExact target periodValsExact of
+         Just (c, coeffs) ->
+           foldl Add (Lit (fromIntegral c))
+             [ if a == 0 then Lit 0
+               else if a == 1 then periodExpr pi'
+               else Mul (Lit (fromIntegral a)) (periodExpr pi')
+             | (a, pi') <- zip coeffs periods
+             ]
+         Nothing ->
+           -- Fall back to Double-based matching
+           case periods of
+             (ps:_) -> matchToPeriodExpr periods (periodP ps) (toDoubleC target)
+             []     -> Lit (fromRational (toRational (eRe target)))
+
+-- | Solve target = c + Σ aᵢ·xᵢ for integer c, aᵢ using ExactComplex arithmetic.
+-- Backtracking search with ±2 window around the best estimate for each coefficient.
+-- With ~60 digits of precision, round() is extremely accurate, so ±2 is generous.
+solveLinearIntegerExact :: ExactComplex -> [ExactComplex] -> Maybe (Int, [Int])
+solveLinearIntegerExact target [] =
+  let eRe (x :+ _) = x
+      eIm (_ :+ y) = y
+      c = round (eRe target) :: Int
+      err = abs (eRe target - fromIntegral c) + abs (eIm target)
+  in if err < 1e-20 then Just (c, []) else Nothing
+solveLinearIntegerExact target (v:vs) =
+  let eRe (x :+ _) = x
+      eIm (_ :+ y) = y
+      -- Estimate coefficient from whichever component (Re or Im) is larger
+      aEst = if abs (eIm v) > abs (eRe v)
+             then round (eIm target / eIm v) :: Int
+             else if abs (eRe v) > 1e-30
+                  then round (eRe target / eRe v)
+                  else 0
+      tryA a =
+        let remainder = (eRe target - fromIntegral a * eRe v)
+                     :+ (eIm target - fromIntegral a * eIm v)
+        in case solveLinearIntegerExact remainder vs of
+             Just (c, as) ->
+               -- Verify full reconstruction with all coefficients
+               let recon = (fromIntegral c :+ 0)
+                         + (fromIntegral a :+ 0) * v
+                         + sum (zipWith (\ai xi -> (fromIntegral ai :+ 0) * xi) as vs)
+                   d = target - recon
+                   err = abs (eRe d) + abs (eIm d)
+               in if err < 1e-20 then Just (c, a : as) else Nothing
+             Nothing -> Nothing
+  in case mapMaybe tryA [aEst-2..aEst+2] of
+       (x:_) -> Just x
+       []    -> Nothing
 
 -- | Try to express target = c + a·v for integer c, a using a single period value.
 -- Exactly determined: a from Im, c from Re.
@@ -402,27 +477,44 @@ solvePeriodViaResolvent :: Int             -- ^ Degree q (prime, ≥ 5)
                         -> [Complex Double] -- ^ Numerical sub-period values
                         -> [RadExpr Rational]
 solvePeriodViaResolvent q allPeriods p parentExpr numVals =
-  let -- ω = e^{2πi/q} as Complex Double
-      omegaC = exp (0 :+ (2 * pi / fromIntegral q))
+  let -- Compute resolvents and d_s coefficients in ExactComplex (~60 digits)
+      -- to avoid precision loss in the R_j^q computation. The DFT chain
+      -- (sub-periods → resolvents → q-th powers → inverse DFT) can lose
+      -- 10+ digits of precision in Double when terms of magnitude ~10^6
+      -- cancel to ~10^2 in the d_s values.
+      numValsExact = map (\(r :+ i) -> fromRational (toRational r) :+ fromRational (toRational i) :: ExactComplex) numVals
 
-      -- Compute resolvents R_j numerically
-      resolventVals = [ sum [ omegaC ^ (j * k) * (numVals !! k)
-                            | k <- [0..q-1] ]
-                      | j <- [0..q-1] ]
+      -- ω = e^{2πi/q} in ExactComplex
+      omegaExact = let theta = 2 * pi / fromIntegral q
+                   in cos theta :+ sin theta :: ExactComplex
 
-      -- R_j^q for j = 0, ..., q-1
-      resolventPowersQ = [ (resolventVals !! j) ^ q | j <- [0..q-1] ]
+      -- Resolvents R_j in ExactComplex
+      resolventValsExact = [ sum [ omegaExact ^ (j * k) * (numValsExact !! k)
+                                 | k <- [0..q-1] ]
+                           | j <- [0..q-1] ]
 
-      -- Decompose R_j^q into period-field and ω components:
-      -- R_j^q = Σ_s d_s · ω^{js}, so d_s = (1/q) Σ_j ω^{-js} R_j^q
-      dCoeffs = [ let s' = fromIntegral s :: Int
-                  in (1 / fromIntegral q) *
-                     sum [ omegaC ^^ (negate (j * s')) * (resolventPowersQ !! j)
-                         | j <- [0..q-1] ]
-                | s <- [0..q-1 :: Int] ]
+      -- R_j^q in ExactComplex
+      resolventPowersQExact = [ (resolventValsExact !! j) ^ q | j <- [0..q-1] ]
+
+      -- d_s = (1/q) Σ_j ω^{-js} R_j^q in ExactComplex
+      -- Note: cannot use Complex CReal division (calls scaleFloat/exponent).
+      -- Instead, scale components by real 1/q.
+      recipQ = recip (fromIntegral q) :: ExactReal
+      scaleC (r :+ i) = (recipQ * r) :+ (recipQ * i)
+      dCoeffsExact = [ let s' = fromIntegral s :: Int
+                        in scaleC $
+                           sum [ omegaExact ^ ((q - ((j * s') `mod` q)) `mod` q) * (resolventPowersQExact !! j)
+                               | j <- [0..q-1] ]
+                      | s <- [0..q-1 :: Int] ]
+
+      -- Keep Complex Double resolvents for branch selection
+      resolventVals = map toDoubleC resolventValsExact
+      resolventPowersQ = map toDoubleC resolventPowersQExact
 
       -- Each d_s should be in Q(periods). Match to period expressions.
-      dExprs = map (matchToPeriodExpr allPeriods p) dCoeffs
+      -- Use ExactComplex period values for reliable integer coefficient recovery.
+      periodValsExact = map (sumRootsOfUnityExact p . periodElems) allPeriods
+      dExprs = map (matchToPeriodExprExact allPeriods periodValsExact) dCoeffsExact
 
       -- Get cos(2π/q) as a RadExpr
       cosBaseExpr = case cosOfUnityViaGauss q of
