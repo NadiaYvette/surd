@@ -67,7 +67,9 @@ tryTragerDenest n radicand =
        [] -> Nothing  -- radicand is rational, nothing to denest
        [(deg, rad)] -> tryDenestDepth1 n radicand deg rad
        [(d1, r1), (d2, r2)] -> tryDenestDepth2 n radicand (d1, r1) (d2, r2)
-       _ -> Nothing  -- deeper multi-radical denesting not yet implemented
+       [(d1, r1), (d2, r2), (d3, r3)] ->
+         tryDenestDepth3 n radicand (d1, r1) (d2, r2) (d3, r3)
+       _ -> Nothing  -- 4+ radicals not yet supported
 
 -- | Denest ⁿ√(expr) where expr involves a single radical α = ᵈ√r.
 tryDenestDepth1 :: Int -> RadExpr Rational -> Int -> RadExpr Rational -> Maybe (RadExpr Rational)
@@ -226,9 +228,11 @@ extElemToRadExpr _ _ (deg, rad) (ExtElem (Poly cs) _) =
     mkTerm 1 i a = Pow a i
     mkTerm c i a = Mul (Lit c) (Pow a i)
 
--- | Collect distinct radicals from an expression (simple version).
+-- | Collect distinct radicals from an expression, topologically sorted
+-- so that radicals with rational radicands come first, followed by
+-- radicals whose radicands depend only on earlier radicals.
 collectRadicalsSimple :: RadExpr Rational -> [(Int, RadExpr Rational)]
-collectRadicalsSimple = dedup . go
+collectRadicalsSimple = topoSort . nub . go
   where
     go (Lit _)    = []
     go (Neg a)    = go a
@@ -237,7 +241,24 @@ collectRadicalsSimple = dedup . go
     go (Inv a)    = go a
     go (Pow a _)  = go a
     go (Root n a) = go a ++ [(n, a)]
-    dedup = nub
+
+    topoSort rads = topoGo [] rads
+    topoGo sorted [] = sorted
+    topoGo sorted remaining =
+      let ready = [r | r <- remaining, allRootsIn sorted (snd r)]
+          remaining' = filter (`notElem` ready) remaining
+      in if null ready
+         then sorted ++ remaining  -- can't resolve more; append as-is
+         else topoGo (sorted ++ ready) remaining'
+
+    allRootsIn :: [(Int, RadExpr Rational)] -> RadExpr Rational -> Bool
+    allRootsIn _ (Lit _) = True
+    allRootsIn resolved (Neg a) = allRootsIn resolved a
+    allRootsIn resolved (Add a b) = allRootsIn resolved a && allRootsIn resolved b
+    allRootsIn resolved (Mul a b) = allRootsIn resolved a && allRootsIn resolved b
+    allRootsIn resolved (Inv a) = allRootsIn resolved a
+    allRootsIn resolved (Pow a _) = allRootsIn resolved a
+    allRootsIn resolved (Root n a) = (n, a) `elem` resolved
 
 -- | Evaluate a RadExpr in Q(α).
 evalInK :: ExtField Rational
@@ -376,6 +397,135 @@ evalInK2 field1 field2 alpha1 alpha2 rad1 rad2 = go
       | (n, a) == rad1 = alpha1
       | (n, a) == rad2 = alpha2
       | otherwise     = error "evalInK2: unexpected radical"
+    go (Pow a m)
+      | m >= 0    = go a ^ m
+      | otherwise = recip (go a ^ negate m)
+
+-- | Denest ⁿ√(expr) where expr involves three radicals.
+-- Builds a three-level extension Q(α₁)(α₂)(α₃) and factors x^n - a over it.
+tryDenestDepth3 :: Int -> RadExpr Rational
+               -> (Int, RadExpr Rational) -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
+               -> Maybe (RadExpr Rational)
+tryDenestDepth3 n radicand rad1@(d1, r1) rad2@(d2, r2) rad3@(d3, r3) =
+  case evalRat r1 of
+    Nothing -> Nothing  -- after topo sort, first radicand should be rational
+    Just q1 ->
+      let -- Level 1: Q(α₁) where α₁^d1 = q1
+          mp1 = mkPoly $ [-q1] ++ replicate (d1 - 1) 0 ++ [1]
+          field1 = mkExtField mp1 "α₁"
+          alpha1 = generator field1
+          -- Level 2: Q(α₁)(α₂) where α₂^d2 = r2 evaluated in Q(α₁)
+          r2InF1 = evalInK field1 alpha1 rad1 r2
+          mp2 = mkPoly $ [negate r2InF1] ++ replicate (d2 - 1) 0 ++ [embed field1 1]
+          field2 = mkExtField mp2 "α₂"
+          alpha2 = generator field2
+          alpha1InF2 = embed field2 alpha1
+          -- Level 3: Q(α₁)(α₂)(α₃) where α₃^d3 = r3 evaluated in Q(α₁)(α₂)
+          r3InF2 = evalInK2 field1 field2 alpha1InF2 alpha2 rad1 rad2 r3
+          mp3 = mkPoly $ [negate r3InF2] ++ replicate (d3 - 1) 0 ++ [embed field2 (embed field1 1)]
+          field3 = mkExtField mp3 "α₃"
+          alpha3 = generator field3
+          alpha1InF3 = embed field3 (embed field2 alpha1)
+          alpha2InF3 = embed field3 alpha2
+          -- Evaluate radicand in Q(α₁)(α₂)(α₃)
+          aInK = evalInK3 field1 field2 field3 alpha1InF3 alpha2InF3 alpha3 rad1 rad2 rad3 radicand
+          one3 = embed field3 (embed field2 (embed field1 1))
+          xnMinusA = mkPoly $ [negate aInK] ++ replicate (n - 1) 0 ++ [one3]
+          -- Factor over Q(α₁)(α₂)(α₃) using recursive Trager
+          factorOverK1 = factorSFOverExtension field1
+          factorOverK2 = factorSFOverExtensionK factorOverK1 field2
+          factors = factorSFOverExtensionK factorOverK2 field3 xnMinusA
+      in case [f | f <- factors, degree f > 0, degree f < n] of
+           [] -> Nothing
+           (f : _) -> extractRoot3 field1 field2 field3
+                        alpha1InF3 alpha2InF3 alpha3 rad1 rad2 rad3 f
+
+-- | Extract a radical expression from a factor over Q(α₁)(α₂)(α₃).
+extractRoot3 :: ExtField Rational
+             -> ExtField (ExtElem Rational)
+             -> ExtField (ExtElem (ExtElem Rational))
+             -> ExtElem (ExtElem (ExtElem Rational))  -- α₁ lifted
+             -> ExtElem (ExtElem (ExtElem Rational))  -- α₂ lifted
+             -> ExtElem (ExtElem (ExtElem Rational))  -- α₃
+             -> (Int, RadExpr Rational) -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
+             -> Poly (ExtElem (ExtElem (ExtElem Rational)))
+             -> Maybe (RadExpr Rational)
+extractRoot3 field1 _field2 _field3 alpha1 alpha2 alpha3 rad1 rad2 rad3 f =
+  extractRootGeneric toExpr f
+  where
+    toExpr = extElemToRadExpr3 field1 alpha1 alpha2 alpha3 rad1 rad2 rad3
+
+-- | Convert an ExtElem (ExtElem (ExtElem Rational)) back to a RadExpr.
+-- elem = Σᵢ Σⱼ Σₖ cᵢⱼₖ · α₁ⁱ · α₂ʲ · α₃ᵏ
+extElemToRadExpr3 :: ExtField Rational
+                  -> ExtElem (ExtElem (ExtElem Rational))  -- α₁ lifted
+                  -> ExtElem (ExtElem (ExtElem Rational))  -- α₂ lifted
+                  -> ExtElem (ExtElem (ExtElem Rational))  -- α₃
+                  -> (Int, RadExpr Rational)
+                  -> (Int, RadExpr Rational)
+                  -> (Int, RadExpr Rational)
+                  -> ExtElem (ExtElem (ExtElem Rational))
+                  -> RadExpr Rational
+extElemToRadExpr3 _field1 _alpha1 _alpha2 _alpha3 (d1, r1) (d2, r2) (d3, r3) (ExtElem (Poly outerCs) _) =
+  let rad1Expr = Root d1 r1
+      rad2Expr = Root d2 r2
+      rad3Expr = Root d3 r3
+      -- outerCs: coefficients of α₃, each is ExtElem (ExtElem Rational)
+      -- midCs:   coefficients of α₂, each is ExtElem Rational
+      -- innerCs: coefficients of α₁, each is Rational
+      allTerms = concatMap (\(k, ExtElem (Poly midCs) _) ->
+        concatMap (\(j, ExtElem (Poly innerCs) _) ->
+          [(c, i, j, k) | (i, c) <- zip [0 :: Int ..] innerCs, c /= 0])
+          (zip [0 :: Int ..] midCs))
+        (zip [0 :: Int ..] outerCs)
+  in case allTerms of
+       [] -> Lit 0
+       _  -> foldl1 Add [mkTerm3 c i j k rad1Expr rad2Expr rad3Expr | (c, i, j, k) <- allTerms]
+  where
+    mkTerm3 c i j k a b d =
+      let base = case (i, j, k) of
+                   (0, 0, 0) -> Nothing
+                   (_, 0, 0) -> Just (powExpr a i)
+                   (0, _, 0) -> Just (powExpr b j)
+                   (0, 0, _) -> Just (powExpr d k)
+                   (_, _, 0) -> Just (Mul (powExpr a i) (powExpr b j))
+                   (_, 0, _) -> Just (Mul (powExpr a i) (powExpr d k))
+                   (0, _, _) -> Just (Mul (powExpr b j) (powExpr d k))
+                   _         -> Just (Mul (Mul (powExpr a i) (powExpr b j)) (powExpr d k))
+      in case base of
+           Nothing -> Lit c
+           Just e  -> mulCoeff c e
+
+    mulCoeff 1 e = e
+    mulCoeff c e = Mul (Lit c) e
+
+    powExpr e 1 = e
+    powExpr e k = Pow e k
+
+-- | Evaluate a RadExpr in Q(α₁)(α₂)(α₃) given three radicals.
+evalInK3 :: ExtField Rational
+         -> ExtField (ExtElem Rational)
+         -> ExtField (ExtElem (ExtElem Rational))
+         -> ExtElem (ExtElem (ExtElem Rational))  -- α₁ lifted
+         -> ExtElem (ExtElem (ExtElem Rational))  -- α₂ lifted
+         -> ExtElem (ExtElem (ExtElem Rational))  -- α₃
+         -> (Int, RadExpr Rational)
+         -> (Int, RadExpr Rational)
+         -> (Int, RadExpr Rational)
+         -> RadExpr Rational
+         -> ExtElem (ExtElem (ExtElem Rational))
+evalInK3 field1 field2 field3 alpha1 alpha2 alpha3 rad1 rad2 rad3 = go
+  where
+    go (Lit r)    = embed field3 (embed field2 (embed field1 r))
+    go (Neg a)    = negate (go a)
+    go (Add a b)  = go a + go b
+    go (Mul a b)  = go a * go b
+    go (Inv a)    = recip (go a)
+    go (Root m a)
+      | (m, a) == rad1 = alpha1
+      | (m, a) == rad2 = alpha2
+      | (m, a) == rad3 = alpha3
+      | otherwise     = error "evalInK3: unexpected radical"
     go (Pow a m)
       | m >= 0    = go a ^ m
       | otherwise = recip (go a ^ negate m)

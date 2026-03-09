@@ -130,14 +130,5 @@ evalComplexInterval (Root n a) =
      then -- √(negative) = i·√(|x|)
           let pos = I.isqrt (Interval (negate (I.hi rePart)) (negate (I.lo rePart)))
           in ComplexInterval (I.fromRational' 0) pos
-     else -- General complex root: fall back to Double-based computation
-          -- and wrap in a small interval
-          let val = evalComplex (Root n a)
-              eps = 1e-10
-              re = toRational (realPart' val)
-              im = toRational (imagPart' val)
-          in ComplexInterval (Interval (re - eps) (re + eps))
-                             (Interval (im - eps) (im + eps))
-  where
-    realPart' (x :+ _) = x
-    imagPart' (_ :+ y) = y
+     else -- General complex root: use rigorous interval nth root
+          I.cinthroot n ci

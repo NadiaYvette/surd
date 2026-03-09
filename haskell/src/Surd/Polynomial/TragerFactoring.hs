@@ -165,12 +165,6 @@ divModPolyExt _ f g
   -- Use the generic divModPoly, which works because ExtElem has Fractional
   = divModPoly f g
 
--- | Make a polynomial over Q(α) monic.
-monicPolyExt :: ExtField Rational
-             -> Poly (ExtElem Rational)
-             -> Poly (ExtElem Rational)
-monicPolyExt _ = monicPoly
-
 -- | Check if a polynomial over Q(α) is zero.
 isZeroPolyExt :: Poly (ExtElem Rational) -> Bool
 isZeroPolyExt (Poly cs) = all (== 0) cs

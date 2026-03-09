@@ -25,7 +25,8 @@ import Surd.Polynomial.Factoring (factorSquareFree)
 import Surd.Polynomial.MinimalPoly (polyResultant)
 import Surd.Field.Extension
 import Surd.Radical.Eval (eval, evalComplex)
-import Data.Complex (Complex(..), realPart, magnitude)
+import Surd.Internal.PSLQ (findMinPoly)
+import Data.Complex (realPart)
 import Surd.Radical.Normalize (normalize)
 import Data.List (nub)
 
@@ -208,15 +209,14 @@ computeDeepFallback :: RadExpr Rational -> [(Int, RadExpr Rational)] -> Poly Rat
 computeDeepFallback expr radicals =
   -- Build a dependency chain: start with leaf radicals (rational radicands),
   -- then add radicals whose radicands only involve previously-added radicals.
-  let chain = buildChain radicals
-  in case length chain of
-       0 -> simpleAnnihilating expr
-       1 -> computeDepth1 expr (head chain)
-       2 -> computeDepth2 expr (chain !! 0) (chain !! 1)
-       3 -> computeDepth3 expr (chain !! 0) (chain !! 1) (chain !! 2)
-       4 -> computeDepth4 expr (chain !! 0) (chain !! 1) (chain !! 2) (chain !! 3)
-       5 -> computeDepth5 expr (chain !! 0) (chain !! 1) (chain !! 2) (chain !! 3) (chain !! 4)
-       _ -> simpleAnnihilating expr  -- truly deep tower, fallback
+  case buildChain radicals of
+    []                       -> simpleAnnihilating expr
+    [r1]                     -> computeDepth1 expr r1
+    [r1, r2]                 -> computeDepth2 expr r1 r2
+    [r1, r2, r3]             -> computeDepth3 expr r1 r2 r3
+    [r1, r2, r3, r4]         -> computeDepth4 expr r1 r2 r3 r4
+    [r1, r2, r3, r4, r5]     -> computeDepth5 expr r1 r2 r3 r4 r5
+    _                        -> simpleAnnihilating expr  -- truly deep tower, fallback
 
 -- | Build dependency chain: order radicals so that each radical's
 -- radicand only uses radicals earlier in the chain.
@@ -556,16 +556,12 @@ evalInExt5 field1 field2 field3 field4 field5
       | n >= 0    = go a ^ n
       | otherwise = recip (go a ^ negate n)
 
--- | Find the minimal polynomial of a radical expression numerically.
+-- | Find the minimal polynomial of a radical expression numerically
+-- using the PSLQ algorithm for integer relation finding.
 --
--- Strategy: evaluate the expression to Double, then for each candidate
--- degree d (from 1 up to maxDeg), search for an integer polynomial
--- of degree d that vanishes at the value. We fix the leading coefficient
--- and compute c₀ from the other coefficients, checking if it's close
--- to an integer.
---
--- For small degree and small coefficients, this is very fast.
--- Falls back to Nothing if no polynomial is found.
+-- Evaluates the expression to Double, then uses PSLQ to find an
+-- integer relation among (1, α, α², ..., αᵈ) for increasing degrees d.
+-- Much more robust than brute-force coefficient search.
 numericMinPoly :: RadExpr Rational -> Int -> Maybe (Poly Rational)
 numericMinPoly expr maxDeg =
   let alphaD = eval expr :: Double
@@ -573,80 +569,9 @@ numericMinPoly expr maxDeg =
       alpha = if isNaN alphaD
               then realPart (evalComplex expr)
               else alphaD
-  in tryDegrees alpha 1 (min maxDeg 20)
-
-tryDegrees :: Double -> Int -> Int -> Maybe (Poly Rational)
-tryDegrees _ d maxD | d > maxD = Nothing
-tryDegrees alpha d maxD =
-  case findMinPolyAtDegree alpha d of
-    Just p  -> Just p
-    Nothing -> tryDegrees alpha (d + 1) maxD
-
--- | Try to find a monic polynomial of degree d with integer coefficients
--- that vanishes at alpha.
-findMinPolyAtDegree :: Double -> Int -> Maybe (Poly Rational)
-findMinPolyAtDegree alpha d =
-  -- Search over leading coefficients lc and remaining coefficients
-  -- The polynomial is: lc * x^d + c_{d-1} * x^{d-1} + ... + c₀
-  -- We search over lc ∈ [1..maxLC] and c₁...c_{d-1} ∈ [-maxC..maxC],
-  -- computing c₀ from the constraint p(α) = 0.
-  let maxLC = 100
-      maxC = 1000 :: Int
-      powers = [alpha ^ i | i <- [0 :: Int .. d]]
-      -- For given (lc, c₁, ..., c_{d-1}), c₀ = -(lc·αᵈ + c_{d-1}·α^{d-1} + ... + c₁·α)
-      candidates = [(lc, cs) |
-                     lc <- [1..maxLC],
-                     cs <- smallCoeffSearch (d - 1) maxC,
-                     let rest = fromIntegral lc * (powers !! d)
-                              + sum [fromIntegral c * (powers !! i)
-                                    | (i, c) <- zip [1..] cs],
-                     let c0d = -rest,
-                     let c0 = round c0d :: Int,
-                     abs (fromIntegral c0 - c0d) < 1e-9,
-                     abs c0 <= maxC]
-      -- Build each candidate polynomial and verify immediately,
-      -- short-circuiting on the first valid match.
-      polys = [p |
-                (lc, cs) <- candidates,
-                let c0d = -(fromIntegral lc * (powers !! d)
-                          + sum [fromIntegral c * (powers !! i)
-                                | (i, c) <- zip [1..] cs]),
-                let c0 = round c0d :: Int,
-                let allCs = c0 : cs ++ [lc],
-                let p = mkPoly (map fromIntegral allCs),
-                degree p == d,
-                abs (evalPolyD p alpha) < 1e-8,
-                verifyMinPoly p alpha]
-  in case polys of
-       (p:_) -> Just p
-       []    -> Nothing
-
--- | Generate coefficient tuples of length n with |c| ≤ maxC.
--- For efficiency, generate in a structured way.
-smallCoeffSearch :: Int -> Int -> [[Int]]
-smallCoeffSearch 0 _ = [[]]
-smallCoeffSearch n maxC =
-  -- For d ≤ 3, search exhaustively with a reasonable bound
-  let bound = min maxC (if n <= 2 then 100 else 20)
-  in [c : rest | c <- [-bound..bound],
-                 rest <- smallCoeffSearch (n - 1) maxC]
-
--- | Evaluate a rational polynomial at a Double point.
-evalPolyD :: Poly Rational -> Double -> Double
-evalPolyD (Poly cs) x = foldr (\c acc -> fromRational c + x * acc) 0 cs
-
--- | Verify that a candidate polynomial is actually the minimal polynomial.
--- Check that it's irreducible (no proper factor also vanishes).
-verifyMinPoly :: Poly Rational -> Double -> Bool
-verifyMinPoly p alpha =
-  let factors = factorSquareFree (monicPoly p)
-  in case factors of
-       [_] -> True  -- irreducible
-       [] -> False
-       _ -> -- Multiple factors; find which one vanishes at alpha
-            let res = [(f, abs (evalPolyD f alpha)) | f <- factors]
-                vanishing = [f | (f, r) <- res, r < 1e-6]
-            in length vanishing == 1 && head vanishing == monicPoly p
+  in case findMinPoly alpha (min maxDeg 20) of
+       Just coeffs -> Just (mkPoly (map fromIntegral coeffs))
+       Nothing -> Nothing
 
 -- | Helper: make a polynomial in Q(α)[x] from coefficient list.
 mkPolyExt :: (Eq k, Fractional k) => ExtField k -> [ExtElem k] -> Poly (ExtElem k)
