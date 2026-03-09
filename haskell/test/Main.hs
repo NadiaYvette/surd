@@ -7,6 +7,7 @@ import qualified Test.NormalForm
 import qualified Test.Trig
 import qualified Test.Algebraic
 import qualified Test.Interval
+import qualified Test.Multivariate
 
 main :: IO ()
 main = defaultMain $ testGroup "surd"
@@ -16,4 +17,5 @@ main = defaultMain $ testGroup "surd"
   , Test.Trig.tests
   , Test.Algebraic.tests
   , Test.Interval.tests
+  , Test.Multivariate.tests
   ]

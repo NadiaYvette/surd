@@ -16,12 +16,14 @@ library
     Surd.Internal.Interval
     Surd.Internal.PSLQ
     Surd.Polynomial.Univariate
+    Surd.Polynomial.Multivariate
     Surd.Polynomial.Cyclotomic
     Surd.Polynomial.Factoring
     Surd.Polynomial.MinimalPoly
     Surd.Polynomial.MinimalPolyTower
     Surd.Polynomial.TragerFactoring
     Surd.Field.Extension
+    Surd.Field.Transcendental
     Surd.Field.Tower
     Surd.Algebraic.RootIsolation
     Surd.Algebraic.Number
@@ -59,6 +61,7 @@ test-suite surd-test
     Test.Trig
     Test.Algebraic
     Test.Interval
+    Test.Multivariate
   build-depends:
     base >= 4.18 && < 5,
     surd,
