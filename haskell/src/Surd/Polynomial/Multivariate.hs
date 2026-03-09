@@ -30,6 +30,11 @@ module Surd.Polynomial.Multivariate
   -- * Conversion
   , toUnivariate
   , fromUnivariate
+  -- * GCD
+  , gcdMPoly
+  , contentMPoly
+  , primPartMPoly
+  , exactDivMPoly
   ) where
 
 import Data.Map.Strict (Map)
@@ -205,3 +210,193 @@ instance (Eq k, Num k) => Num (MPoly k) where
   abs    = error "MPoly: abs not meaningful"
   signum = error "MPoly: signum not meaningful"
   fromInteger = constPoly . fromInteger
+
+-- ---------------------------------------------------------------------------
+-- Multivariate GCD over Q
+-- ---------------------------------------------------------------------------
+
+-- | GCD of two multivariate polynomials over 'Rational'.
+--
+-- Uses the recursive dense algorithm: pick a variable, view both polynomials
+-- as univariate in that variable with 'MPoly' coefficients, and compute the
+-- GCD via a pseudo-remainder sequence.  The base case (no variables) reduces
+-- to rational GCD.
+--
+-- The result is made primitive with positive leading coefficient.
+gcdMPoly :: MPoly Rational -> MPoly Rational -> MPoly Rational
+gcdMPoly a b
+  | isZero a  = monicMPoly b
+  | isZero b  = monicMPoly a
+  | otherwise =
+    case pickVar a b of
+      Nothing -> constPoly 1  -- both constants; GCD over Q is 1 (up to units)
+      Just v  ->
+        let ca  = contentMPoly v a
+            cb  = contentMPoly v b
+            cg  = gcdMPoly ca cb
+            pa  = primPartMPoly v a
+            pb  = primPartMPoly v b
+            ua  = toUnivariate v pa
+            ub  = toUnivariate v pb
+            ug  = pseudoGcdPoly ua ub
+            g0  = fromUnivariateM v ug
+            g1  = primPartMPoly v g0
+            g2  = mulPoly cg g1
+        in monicMPoly g2
+
+-- | Pick a variable to recurse on.
+pickVar :: MPoly k -> MPoly k -> Maybe Var
+pickVar a b =
+  let vs = Set.union (variables a) (variables b)
+  in if Set.null vs then Nothing else Just (Set.findMax vs)
+
+-- | Make an 'MPoly Rational' "monic": divide by the leading coefficient
+-- (coefficient of the largest monomial under 'Ord Mono').
+monicMPoly :: MPoly Rational -> MPoly Rational
+monicMPoly (MPoly m)
+  | Map.null m = zeroPoly
+  | otherwise  =
+    let lc = snd (Map.findMax m)
+    in if lc == 0 then zeroPoly
+       else clean (fmap (/ lc) m)
+
+-- | GCD of all coefficients when viewed as univariate in the given variable.
+-- The "coefficients" are multivariate polynomials in the remaining variables.
+contentMPoly :: Var -> MPoly Rational -> MPoly Rational
+contentMPoly v p =
+  let U.Poly cs = toUnivariate v p
+  in case filter (not . isZero) cs of
+       []       -> zeroPoly
+       [c]      -> monicMPoly c
+       (c:rest) -> foldl gcdMPoly c rest
+
+-- | Primitive part: @p / content(p)@ with respect to the given variable.
+primPartMPoly :: Var -> MPoly Rational -> MPoly Rational
+primPartMPoly v p =
+  let c = contentMPoly v p
+  in if isZero c then zeroPoly
+     else exactDivMPoly p c
+
+-- | Exact division of multivariate polynomials (assumes divisibility).
+-- For a constant divisor, just divides every coefficient.
+-- Otherwise, converts to univariate and performs exact polynomial division.
+exactDivMPoly :: MPoly Rational -> MPoly Rational -> MPoly Rational
+exactDivMPoly a b
+  | isZero b  = error "exactDivMPoly: division by zero"
+  | isConstMPoly b =
+    let c = constCoeffQ b
+    in fmap (/ c) a
+  | otherwise =
+    case pickVar a b of
+      Nothing ->
+        let ca = constCoeffQ a
+            cb = constCoeffQ b
+        in constPoly (ca / cb)
+      Just v  ->
+        let ua = toUnivariate v a
+            ub = toUnivariate v b
+        in fromUnivariateM v (exactDivUPoly ua ub)
+
+-- | Is this a constant polynomial (including zero)?
+isConstMPoly :: MPoly k -> Bool
+isConstMPoly (MPoly m) =
+  Map.null m || (Map.size m == 1 && all (Map.null . unMono) (Map.keys m))
+
+-- | Extract the constant coefficient.
+constCoeffQ :: Num k => MPoly k -> k
+constCoeffQ (MPoly m) = fromMaybe 0 (Map.lookup monoOne m)
+
+-- | Convert univariate poly with MPoly coefficients back to MPoly.
+fromUnivariateM :: (Eq k, Num k) => Var -> U.Poly (MPoly k) -> MPoly k
+fromUnivariateM v (U.Poly cs) =
+  foldl addPoly zeroPoly
+    [ mulPoly c (varPow v i)
+    | (i, c) <- zip [0..] cs
+    , not (isZero c)
+    ]
+  where
+    varPow _ 0 = onePoly
+    varPow w n = MPoly (Map.singleton (monoVar w n) 1)
+
+-- ---------------------------------------------------------------------------
+-- Pseudo-division and GCD for Poly (MPoly Rational)
+-- ---------------------------------------------------------------------------
+
+-- | Pseudo-remainder of @f@ by @g@.
+pseudoRemPoly :: U.Poly (MPoly Rational)
+              -> U.Poly (MPoly Rational)
+              -> U.Poly (MPoly Rational)
+pseudoRemPoly f g
+  | U.degree f < U.degree g = f
+  | U.degree g < 0          = error "pseudoRemPoly: division by zero"
+  | otherwise                = go f (U.degree f - U.degree g + 1)
+  where
+    lcG = case U.leadCoeff g of Just c -> c; Nothing -> error "impossible"
+    dg  = U.degree g
+
+    go r 0 = r
+    go r e
+      | U.degree r < dg = r
+      | otherwise =
+        let lcR = case U.leadCoeff r of Just c -> c; Nothing -> error "impossible"
+            d   = U.degree r - dg
+            -- lcG * r - lcR * x^d * g
+            r'  = U.subPoly (U.scalePoly lcG r)
+                            (U.mulPoly (U.mkPoly (replicate d zeroPoly ++ [lcR])) g)
+        in go r' (e - 1)
+
+-- | GCD via pseudo-remainder sequence for Poly (MPoly Rational).
+-- After each pseudo-remainder, make primitive to control coefficient growth.
+pseudoGcdPoly :: U.Poly (MPoly Rational)
+              -> U.Poly (MPoly Rational)
+              -> U.Poly (MPoly Rational)
+pseudoGcdPoly a b
+  | U.degree a < 0 = b
+  | U.degree b < 0 = a
+  | U.degree a < U.degree b = pseudoGcdPoly b a
+  | otherwise = go a b
+  where
+    go f g
+      | U.degree g < 0 = f
+      | otherwise =
+        let r = pseudoRemPoly f g
+        in if U.degree r < 0
+           then g
+           else go g (primPartUPoly r)
+
+-- | Make a Poly (MPoly Rational) primitive: divide out the GCD of its coefficients.
+primPartUPoly :: U.Poly (MPoly Rational) -> U.Poly (MPoly Rational)
+primPartUPoly (U.Poly []) = U.zeroPoly
+primPartUPoly (U.Poly cs) =
+  let nonzero = filter (not . isZero) cs
+  in case nonzero of
+       [] -> U.zeroPoly
+       (c0:rest) ->
+         let g = foldl gcdMPoly c0 rest
+         in if isZero g then U.Poly cs
+            else U.mkPoly (map (`exactDivMPoly` g) cs)
+
+-- | Exact polynomial division (no remainder) for Poly (MPoly Rational).
+exactDivUPoly :: U.Poly (MPoly Rational)
+              -> U.Poly (MPoly Rational)
+              -> U.Poly (MPoly Rational)
+exactDivUPoly f g
+  | U.degree g < 0 = error "exactDivUPoly: division by zero"
+  | U.degree f < U.degree g = U.zeroPoly
+  | U.degree f < 0 = U.zeroPoly
+  | otherwise = go f
+  where
+    dg  = U.degree g
+    lcG = case U.leadCoeff g of Just c -> c; Nothing -> error "impossible"
+
+    go r
+      | U.degree r < 0  = U.zeroPoly
+      | U.degree r < dg = U.zeroPoly
+      | otherwise =
+        let dr  = U.degree r
+            lcR = case U.leadCoeff r of Just lc -> lc; Nothing -> error "impossible"
+            d   = dr - dg
+            c   = exactDivMPoly lcR lcG
+            term = U.mkPoly (replicate d zeroPoly ++ [c])
+            r'  = U.subPoly r (U.mulPoly term g)
+        in U.addPoly term (go r')

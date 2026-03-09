@@ -176,26 +176,17 @@ elementarySymmetricC xs = [elemSym k xs | k <- [1..length xs]]
     choose _ []     = []
     choose k' (y:ys) = map (y:) (choose (k'-1) ys) ++ choose k' ys
 
--- | Match a complex numerical value to a linear combination of period expressions.
---
--- The symmetric functions of sub-periods at each level are expressible
--- as integer linear combinations of the periods at the current level.
--- We determine the coefficients numerically using complex arithmetic.
-matchToPeriodExpr :: [PeriodState] -> Integer -> Complex Double -> RadExpr Rational
-matchToPeriodExpr periods p target =
-  -- Try: target = c₀ + c₁·η₁ + c₂·η₂ + ... for small integer cᵢ
-  -- First check if target is close to a real integer
+-- | Try to match a complex numerical value to a linear combination of period
+-- expressions. Returns 'Just' the expression on success, 'Nothing' when the
+-- matching fails (indicating that ExactComplex precision may be needed).
+tryMatchToPeriodExpr :: [PeriodState] -> Integer -> Complex Double -> Maybe (RadExpr Rational)
+tryMatchToPeriodExpr periods p target =
   let nearestInt = round (realPart target) :: Integer
       relTol err = err / max 1 (magnitude target) < 1e-6
   in if magnitude (target - (fromIntegral nearestInt :+ 0)) < 1e-8
-     then Lit (fromIntegral nearestInt)
+     then Just (Lit (fromIntegral nearestInt))
      else
-       -- Try to express as integer + integer linear combination of periods
-       -- Try each period individually first (exactly determined system),
-       -- then try combinations. Prefer solutions with smaller coefficients
-       -- to minimize floating-point error amplification.
        let periodVals = map (sumRootsOfUnity p . periodElems) periods
-           -- Try matching with each single period
            singleMatches = mapMaybe (\(i, pv) ->
              case matchSinglePeriod target pv of
                Just (c, a) ->
@@ -205,7 +196,6 @@ matchToPeriodExpr periods p target =
                     else Nothing
                Nothing -> Nothing
              ) (zip [0..] periodVals)
-           -- Try multi-period matching
            multiMatch = case findIntegerComboC target periodVals of
              Just (c, as) ->
                let err = magnitude (target - (fromIntegral c :+ 0) -
@@ -213,26 +203,32 @@ matchToPeriodExpr periods p target =
                in if relTol err then Just (c, as, err) else Nothing
              Nothing -> Nothing
            allMatches = singleMatches ++ maybe [] (:[]) multiMatch
-           -- Pick match with smallest max coefficient
            bestMatch = case allMatches of
              [] -> Nothing
              ms -> Just $ foldl1 (\a b -> if maxCoeff a <= maxCoeff b then a else b) ms
            maxCoeff (c, as, _) = maximum (abs c : map abs as)
        in case bestMatch of
             Just (constant, coeffs, _err) ->
-              foldl Add (Lit (fromIntegral constant))
+              Just $ foldl Add (Lit (fromIntegral constant))
                 [ if c == 0 then Lit 0
                   else if c == 1 then periodExpr pi'
                   else Mul (Lit (fromIntegral c)) (periodExpr pi')
                 | (c, pi') <- zip coeffs periods
                 ]
-            Nothing ->
-              -- Fall back to rational approximation preserving complex value
-              let re = toRational (realPart target)
-                  im = toRational (imagPart target)
-              in if abs (imagPart target) < 1e-12
-                 then Lit re
-                 else Add (Lit re) (Mul (Lit im) (Root 2 (Lit (-1))))
+            Nothing -> Nothing
+
+-- | Match a complex numerical value to a linear combination of period expressions.
+-- Falls back to rational approximation if matching fails.
+matchToPeriodExpr :: [PeriodState] -> Integer -> Complex Double -> RadExpr Rational
+matchToPeriodExpr periods p target =
+  case tryMatchToPeriodExpr periods p target of
+    Just expr -> expr
+    Nothing ->
+      let re = toRational (realPart target)
+          im = toRational (imagPart target)
+      in if abs (imagPart target) < 1e-12
+         then Lit re
+         else Add (Lit re) (Mul (Lit im) (Root 2 (Lit (-1))))
 
 -- | Match an ExactComplex value to an integer linear combination of periods.
 -- Uses ~60 digits of precision for reliable coefficient recovery.
@@ -477,28 +473,33 @@ solvePeriodViaResolvent :: Int             -- ^ Degree q (prime, ≥ 5)
                         -> [Complex Double] -- ^ Numerical sub-period values
                         -> [RadExpr Rational]
 solvePeriodViaResolvent q allPeriods p parentExpr numVals =
-  let -- Compute resolvents and d_s coefficients in ExactComplex (~60 digits)
-      -- to avoid precision loss in the R_j^q computation. The DFT chain
-      -- (sub-periods → resolvents → q-th powers → inverse DFT) can lose
-      -- 10+ digits of precision in Double when terms of magnitude ~10^6
-      -- cancel to ~10^2 in the d_s values.
-      numValsExact = map (\(r :+ i) -> fromRational (toRational r) :+ fromRational (toRational i) :: ExactComplex) numVals
+  let -- Step 1: Compute DFT chain in Double first (fast path).
+      omegaD = exp (0 :+ (2 * pi / fromIntegral q)) :: Complex Double
 
-      -- ω = e^{2πi/q} in ExactComplex
+      resolventVals = [ sum [ omegaD ^ (j * k) * (numVals !! k)
+                            | k <- [0..q-1] ]
+                      | j <- [0..q-1] ]
+
+      resolventPowersQ = [ (resolventVals !! j) ^ q | j <- [0..q-1] ]
+
+      dCoeffsDouble = [ let s' = fromIntegral s :: Int
+                         in (1 / fromIntegral q :+ 0) *
+                            sum [ omegaD ^ ((q - ((j * s') `mod` q)) `mod` q) * (resolventPowersQ !! j)
+                                | j <- [0..q-1] ]
+                       | s <- [0..q-1 :: Int] ]
+
+      -- Step 2: Try matching each d_s in Double. Only use ExactComplex
+      -- for d_s values where Double matching fails.
+      dMatchResults = map (tryMatchToPeriodExpr allPeriods p) dCoeffsDouble
+
+      -- ExactComplex values (lazy — only computed if any dMatchResults are Nothing)
+      numValsExact = map (\(r :+ i) -> fromRational (toRational r) :+ fromRational (toRational i) :: ExactComplex) numVals
       omegaExact = let theta = 2 * pi / fromIntegral q
                    in cos theta :+ sin theta :: ExactComplex
-
-      -- Resolvents R_j in ExactComplex
       resolventValsExact = [ sum [ omegaExact ^ (j * k) * (numValsExact !! k)
                                  | k <- [0..q-1] ]
                            | j <- [0..q-1] ]
-
-      -- R_j^q in ExactComplex
       resolventPowersQExact = [ (resolventValsExact !! j) ^ q | j <- [0..q-1] ]
-
-      -- d_s = (1/q) Σ_j ω^{-js} R_j^q in ExactComplex
-      -- Note: cannot use Complex CReal division (calls scaleFloat/exponent).
-      -- Instead, scale components by real 1/q.
       recipQ = recip (fromIntegral q) :: ExactReal
       scaleC (r :+ i) = (recipQ * r) :+ (recipQ * i)
       dCoeffsExact = [ let s' = fromIntegral s :: Int
@@ -506,22 +507,23 @@ solvePeriodViaResolvent q allPeriods p parentExpr numVals =
                            sum [ omegaExact ^ ((q - ((j * s') `mod` q)) `mod` q) * (resolventPowersQExact !! j)
                                | j <- [0..q-1] ]
                       | s <- [0..q-1 :: Int] ]
-
-      -- Keep Complex Double resolvents for branch selection
-      resolventVals = map toDoubleC resolventValsExact
-      resolventPowersQ = map toDoubleC resolventPowersQExact
-
-      -- Each d_s should be in Q(periods). Match to period expressions.
-      -- Use ExactComplex period values for reliable integer coefficient recovery.
       periodValsExact = map (sumRootsOfUnityExact p . periodElems) allPeriods
-      dExprs = map (matchToPeriodExprExact allPeriods periodValsExact) dCoeffsExact
+
+      -- Build final dExprs: use Double match where available, ExactComplex fallback
+      dExprs = [ case mr of
+                   Just expr -> expr
+                   Nothing   -> matchToPeriodExprExact allPeriods periodValsExact
+                                  (dCoeffsExact !! s)
+               | (s, mr) <- zip [0..] dMatchResults ]
 
       -- Get cos(2π/q) as a RadExpr
       cosBaseExpr = case cosOfUnityViaGauss q of
         Just e  -> e
         Nothing -> error $ "solvePeriodViaResolvent: can't compute cos(2π/" ++ show q ++ ")"
 
-      -- Build ω^m as RadExpr for all needed m = 0, ..., q-1
+      -- Build ω^m as RadExpr for all needed m = 0, ..., q-1.
+      -- Uses Chebyshev polynomials: O(m) depth per power but pure tree structure
+      -- avoids the exponential blowup from iterative cos/sin addition.
       omegaPowers = map (omegaPowerExpr q cosBaseExpr) [0..q-1]
 
       -- R_j^q = Σ_s d_s · ω^{js} as RadExpr
@@ -573,6 +575,22 @@ omegaPowerExpr q cosBase m =
            i = Root 2 (Lit (-1))
        in Add cosM (Mul i sinMSigned)
 
+-- | Chebyshev polynomial T_k(x): T_0(x) = 1, T_1(x) = x,
+-- T_{n+1}(x) = 2x·T_n(x) - T_{n-1}(x).
+-- Local copy to avoid circular import with Surd.Trig.
+chebyshevLocal :: Int -> RadExpr Rational -> RadExpr Rational
+chebyshevLocal 0 _ = Lit 1
+chebyshevLocal 1 x = x
+chebyshevLocal k x = go 2 (Lit 1) x
+  where
+    go n t0 t1
+      | n > k     = t1
+      | otherwise  =
+          let t2 = Add (Mul (Mul (Lit 2) x) t1) (Neg t0)
+          in go (n + 1) t1 t2
+
+
+
 -- | Select the correct branch of the q-th root.
 --
 -- The q-th roots of z are: ω^k · ᵠ√z for k = 0, ..., q-1.
@@ -615,20 +633,6 @@ selectResolventBranch q omegaPowers rjqExpr rjqVal targetVal =
               bestK = fst (NE.head sorted)
           in if bestK == 0 then principalRoot
              else Mul (omegaPowers !! bestK) principalRoot
-
--- | Chebyshev polynomial T_k(x): T_0(x) = 1, T_1(x) = x,
--- T_{n+1}(x) = 2x·T_n(x) - T_{n-1}(x).
--- Local copy to avoid circular import with Surd.Trig.
-chebyshevLocal :: Int -> RadExpr Rational -> RadExpr Rational
-chebyshevLocal 0 _ = Lit 1
-chebyshevLocal 1 x = x
-chebyshevLocal k x = go 2 (Lit 1) x
-  where
-    go n t0 t1
-      | n > k     = t1
-      | otherwise  =
-          let t2 = Add (Mul (Mul (Lit 2) x) t1) (Neg t0)
-          in go (n + 1) t1 t2
 
 -- | Assign radical expressions to numerical values by matching.
 -- Each expression is evaluated numerically (as ExactComplex) and

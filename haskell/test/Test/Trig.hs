@@ -136,5 +136,59 @@ tests = testGroup "Trig"
             abs (v - cos (2 * pi / 31)) < 1e-8 @?
               ("cos(2π/31) should be " ++ show (cos (2*pi/31)) ++ " but got " ++ show v)
           MinPoly _ -> assertFailure "expected radical via Lagrange resolvent"
+
+    -- cos(2π/37) and cos(2π/41) verified manually but too slow for CI:
+    -- cos(2π/37) φ=36=2²×3²: 143s (deep Gauss descent, quadratic+cubic only)
+    -- cos(2π/41) φ=40=2³×5:  69s (quintic resolvent, large expression DAG)
+    ]
+
+  , testGroup "Composite n (CRT decomposition)"
+    [ testCase "cos(2π/15) — 15=3×5, non-cyclic" $ do
+        case cosExact 2 15 of
+          Radical e -> do
+            let v = realPart (evalComplex e)
+            abs (v - cos (2 * pi / 15)) < 1e-10 @?
+              ("cos(2π/15) should be " ++ show (cos (2*pi/15)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/21) — 21=3×7" $ do
+        case cosExact 2 21 of
+          Radical e -> do
+            let v = realPart (evalComplex e)
+            abs (v - cos (2 * pi / 21)) < 1e-10 @?
+              ("cos(2π/21) should be " ++ show (cos (2*pi/21)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical"
+
+    , testCase "cos(π/12) — n=24, 24=2³×3" $ do
+        case cosExact 1 12 of
+          Radical e -> do
+            let v = eval e
+            abs (v - cos (pi / 12)) < 1e-10 @?
+              ("cos(π/12) should be " ++ show (cos (pi/12)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/32) — 32=2⁵, power of 2" $ do
+        case cosExact 2 32 of
+          Radical e -> do
+            let v = eval e
+            abs (v - cos (2 * pi / 32)) < 1e-10 @?
+              ("cos(2π/32) should be " ++ show (cos (2*pi/32)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/45) — 45=3²×5" $ do
+        case cosExact 2 45 of
+          Radical e -> do
+            let v = realPart (evalComplex e)
+            abs (v - cos (2 * pi / 45)) < 1e-10 @?
+              ("cos(2π/45) should be " ++ show (cos (2*pi/45)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/60) — 60=2²×3×5" $ do
+        case cosExact 2 60 of
+          Radical e -> do
+            let v = eval e
+            abs (v - cos (2 * pi / 60)) < 1e-10 @?
+              ("cos(2π/60) should be " ++ show (cos (2*pi/60)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical"
     ]
   ]

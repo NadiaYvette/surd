@@ -1,10 +1,12 @@
 -- | Transcendental extension field Q(x₁,...,xₙ).
 --
 -- Elements are rational functions (ratios of multivariate polynomials).
--- Equality uses cross-multiplication (no multivariate GCD required).
+-- When the coefficient type is 'Rational', fractions can be reduced to
+-- lowest terms using 'reduceFrac'.
 module Surd.Field.Transcendental
   ( RatFunc(..)
   , mkRatFunc
+  , reduceFrac
   , constRF
   , varRF
   , isConstRF
@@ -17,8 +19,7 @@ import Surd.Polynomial.Multivariate
 -- | An element of Q(x₁,...,xₙ): a ratio of multivariate polynomials.
 --
 -- Invariant: denominator is non-zero.
--- Fractions are NOT reduced to lowest terms (no multivariate GCD).
--- Equality uses cross-multiplication.
+-- For 'Rational' coefficients, use 'reduceFrac' to reduce to lowest terms.
 data RatFunc k = RatFunc
   { rfNum :: !(MPoly k)
   , rfDen :: !(MPoly k)
@@ -28,6 +29,17 @@ data RatFunc k = RatFunc
 mkRatFunc :: MPoly k -> MPoly k -> RatFunc k
 mkRatFunc _ d | isZero d = error "RatFunc: zero denominator"
 mkRatFunc n d = RatFunc n d
+
+-- | Reduce a rational function over 'Rational' to lowest terms by dividing
+-- out the GCD of numerator and denominator.
+reduceFrac :: RatFunc Rational -> RatFunc Rational
+reduceFrac (RatFunc n d)
+  | isZero n  = RatFunc zeroPoly (constPoly 1)
+  | otherwise =
+    let g = gcdMPoly n d
+    in if isZero g || g == constPoly 1
+       then RatFunc n d
+       else RatFunc (exactDivMPoly n g) (exactDivMPoly d g)
 
 -- | Constant rational function.
 constRF :: (Eq k, Num k) => k -> RatFunc k

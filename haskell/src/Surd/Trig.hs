@@ -24,6 +24,7 @@ import Surd.Trig.RootOfUnity (cosOfUnity)
 import Surd.Polynomial.Univariate (Poly)
 import Surd.Polynomial.Cyclotomic (cyclotomic)
 import Surd.Radical.Normalize (normalize)
+import Surd.Radical.Denest (denest)
 import Surd.Radical.Eval (evalInterval)
 import Surd.Internal.Interval (width, overlaps)
 
@@ -112,14 +113,35 @@ cosFirstQuadrant p q =
   in if k == 1
      then
        case cosOfUnity n of
-         Just e  -> Radical (safeNormalize e)
+         Just e  -> Radical (safeDenestAndNormalize e)
          Nothing -> MinPoly (cyclotomic n)
      else
        case cosOfUnity n of
          Just base ->
            let cheb = chebyshev k base
-           in Radical (safeNormalize cheb)
+           in Radical (safeDenestAndNormalize cheb)
          Nothing -> MinPoly (cyclotomic n)
+
+-- | Try denesting followed by normalization.
+-- Only attempts denesting on small expressions where Landau's algorithm
+-- has a chance of simplifying. Falls back to normalization-only for
+-- medium expressions, and skips entirely for large expression DAGs.
+--
+-- Uses a bounded traversal (exprMetrics caps at depth 60, size 6000)
+-- so it never diverges on exponential DAGs from Gauss period descent.
+safeDenestAndNormalize :: RadExpr Rational -> RadExpr Rational
+safeDenestAndNormalize e =
+  let (d, s) = exprMetrics e
+  in if d > 50 || s > 5000
+     then e  -- Expression too large (DAG appears exponential as tree); skip
+     else if d <= 20 && s <= 500
+     then
+       -- Small expression: try denesting, then normalize with verification
+       let denested = denest e
+           (_, sDen) = exprMetrics denested
+           best = if sDen < s then denested else e
+       in safeNormalize best
+     else safeNormalize e
 
 -- | Normalize, but verify the result. If normalization changes the
 -- numerical value (can happen with complex intermediates from Gauss

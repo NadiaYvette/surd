@@ -13,6 +13,7 @@ import Surd.Field.Extension (ExtField(..), ExtElem(..), mkExtField, generator, e
 tests :: TestTree
 tests = testGroup "Tier 4"
   [ mpolyTests
+  , gcdTests
   , ratFuncTests
   , integrationTests
   ]
@@ -77,6 +78,93 @@ mpolyTests = testGroup "Multivariate polynomials"
           -- Coefficients should be constant multivariate polys
           Poly cs = uniP
       length cs @?= 3  -- degree 2
+  ]
+
+-- | Helper: test that two MPoly Rational are equal up to scalar multiple.
+-- Uses gcdMPoly to normalize both to monic form (since gcdMPoly p p
+-- returns p made monic).
+assertAssociate :: MPoly Rational -> MPoly Rational -> Assertion
+assertAssociate a b
+  | isZero a && isZero b = return ()
+  | isZero a || isZero b = assertFailure $
+      "expected associate but one is zero: " ++ show a ++ " vs " ++ show b
+  | otherwise =
+    let monicA = gcdMPoly a a  -- gcdMPoly normalizes to monic
+        monicB = gcdMPoly b b
+    in monicA @?= monicB
+
+gcdTests :: TestTree
+gcdTests = testGroup "Multivariate GCD"
+  [ testCase "gcd(x*(x+1), x*(x-1)) = x" $ do
+      let a = x * (x + 1)
+          b = x * (x - 1)
+          g = gcdMPoly a b
+      assertAssociate g x
+
+  , testCase "gcd(x²y, xy²) = xy" $ do
+      let a = x * x * y
+          b = x * y * y
+          g = gcdMPoly a b
+      assertAssociate g (x * y)
+
+  , testCase "gcd(x+1, y+1) = 1 (coprime)" $ do
+      let g = gcdMPoly (x + 1) (y + 1)
+      assertAssociate g (constPoly 1)
+
+  , testCase "gcd((x+y)²(x-y), (x+y)(x+1)) = x+y" $ do
+      let a = (x + y) * (x + y) * (x - y)
+          b = (x + y) * (x + 1)
+          g = gcdMPoly a b
+      assertAssociate g (x + y)
+
+  , testCase "gcd(0, f) = f" $ do
+      let f = x * x + y
+          g = gcdMPoly zeroPoly f
+      assertAssociate g f
+
+  , testCase "gcd(f, 0) = f" $ do
+      let f = x + y + 1
+          g = gcdMPoly f zeroPoly
+      assertAssociate g f
+
+  , testCase "gcd(0, 0) = 0" $
+      gcdMPoly zeroPoly zeroPoly @?= (zeroPoly :: MPoly Rational)
+
+  , testCase "gcd(5, 10) = 1 (constants over Q)" $ do
+      let g = gcdMPoly (constPoly 5) (constPoly 10)
+      assertAssociate g (constPoly 1)
+
+  , testCase "gcd(2x, 4x²) = x" $ do
+      let g = gcdMPoly (2 * x) (4 * x * x)
+      assertAssociate g x
+
+  , testCase "gcd with three variables" $ do
+      let a = x * y * z
+          b = x * z * (y + 1)
+          g = gcdMPoly a b
+      assertAssociate g (x * z)
+
+  , testCase "contentMPoly extracts y-content" $ do
+      -- x²y + xy = xy(x + 1), content in x is y
+      let p = x * x * y + x * y  -- = xy(x+1)
+          c = contentMPoly (Var 0) p
+      assertAssociate c y
+
+  , testCase "primPartMPoly removes content" $ do
+      -- p = x²y + xy, viewed as univariate in x: y·x² + y·x
+      -- content in x = y, so prim part = x² + x
+      let p = x * x * y + x * y
+          pp = primPartMPoly (Var 0) p
+      assertAssociate pp (x * x + x)
+
+  , testCase "reduceFrac (x²-1)/(x+1) = (x-1)/1" $ do
+      let n = x * x - 1                        -- x² - 1 = (x+1)(x-1)
+          d = x + 1
+          rf = reduceFrac (RatFunc n d)
+      -- After reduction, numerator should be x-1 (up to scalar),
+      -- denominator should be 1 (up to scalar)
+      assertAssociate (rfNum rf) (x - 1)
+      assertAssociate (rfDen rf) (constPoly 1)
   ]
 
 ratFuncTests :: TestTree
