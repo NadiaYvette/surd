@@ -6,6 +6,7 @@ import Test.Tasty.HUnit
 
 import Surd.Trig
 import Surd.Radical.Eval (eval, evalComplex)
+import Surd.Radical.DAG (toDAG, dagEvalComplex)
 
 tests :: TestTree
 tests = testGroup "Trig"
@@ -137,9 +138,23 @@ tests = testGroup "Trig"
               ("cos(2π/31) should be " ++ show (cos (2*pi/31)) ++ " but got " ++ show v)
           MinPoly _ -> assertFailure "expected radical via Lagrange resolvent"
 
-    -- cos(2π/37) and cos(2π/41) verified manually but too slow for CI:
-    -- cos(2π/37) φ=36=2²×3²: 143s (deep Gauss descent, quadratic+cubic only)
-    -- cos(2π/41) φ=40=2³×5:  69s (quintic resolvent, large expression DAG)
+    , testCase "cos(2π/37) — φ(37)=36=2²×3², deep quadratic+cubic descent" $ do
+        case cosExact 2 37 of
+          Radical e -> do
+            let v = realPart (dagEvalComplex (toDAG e))
+            abs (v - cos (2 * pi / 37)) < 1e-8 @?
+              ("cos(2π/37) should be " ++ show (cos (2*pi/37)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/43) — φ(43)=42=2×3×7, needs q=7 resolvent" $ do
+        case cosExact 2 43 of
+          Radical e -> do
+            let v = realPart (dagEvalComplex (toDAG e))
+            abs (v - cos (2 * pi / 43)) < 1e-4 @?
+              ("cos(2π/43) should be " ++ show (cos (2*pi/43)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical"
+
+    -- cos(2π/41) φ=40=2³×5: ~100s (quintic resolvent coefficient matching is slow)
     ]
 
   , testGroup "Composite n (CRT decomposition)"

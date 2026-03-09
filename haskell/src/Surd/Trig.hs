@@ -19,6 +19,8 @@ module Surd.Trig
   , TrigResult(..)
   ) where
 
+import Control.Exception (SomeException, evaluate, try)
+import Data.Complex (realPart, imagPart)
 import Surd.Types
 import Surd.Trig.RootOfUnity (cosOfUnity)
 import Surd.Polynomial.Univariate (Poly)
@@ -26,7 +28,9 @@ import Surd.Polynomial.Cyclotomic (cyclotomic)
 import Surd.Radical.Normalize (normalize)
 import Surd.Radical.Denest (denest)
 import Surd.Radical.Eval (evalInterval)
-import Surd.Internal.Interval (width, overlaps)
+import Surd.Radical.DAG (toDAG, fromDAG, dagSize, dagDepth, dagFoldConstants, dagEvalComplex)
+import Surd.Internal.Interval (Interval, width, overlaps)
+import System.IO.Unsafe (unsafePerformIO)
 
 -- | Result of exact trig evaluation.
 data TrigResult
@@ -127,21 +131,25 @@ cosFirstQuadrant p q =
 -- has a chance of simplifying. Falls back to normalization-only for
 -- medium expressions, and skips entirely for large expression DAGs.
 --
--- Uses a bounded traversal (exprMetrics caps at depth 60, size 6000)
--- so it never diverges on exponential DAGs from Gauss period descent.
+-- Uses DAG-based metrics (O(n) where n = unique nodes) to measure
+-- expression size accurately, even for expressions with exponential
+-- tree-vs-DAG size ratio from Gauss period descent.
 safeDenestAndNormalize :: RadExpr Rational -> RadExpr Rational
 safeDenestAndNormalize e =
-  let (d, s) = exprMetrics e
+  let dag = toDAG e
+      d   = dagDepth dag
+      s   = dagSize dag
   in if d > 50 || s > 5000
-     then e  -- Expression too large (DAG appears exponential as tree); skip
+     then fromDAG (dagFoldConstants dag)  -- Too large for normalize/denest; just fold constants
      else if d <= 20 && s <= 500
      then
        -- Small expression: try denesting, then normalize with verification
-       let denested = denest e
-           (_, sDen) = exprMetrics denested
-           best = if sDen < s then denested else e
+       let e' = fromDAG (dagFoldConstants dag)
+           denested = denest e'
+           sDen = dagSize (toDAG denested)
+           best = if sDen < s then denested else e'
        in safeNormalize best
-     else safeNormalize e
+     else safeNormalize (fromDAG (dagFoldConstants dag))
 
 -- | Normalize, but verify the result. If normalization changes the
 -- numerical value (can happen with complex intermediates from Gauss
@@ -155,27 +163,42 @@ safeDenestAndNormalize e =
 -- size or depth limits.
 safeNormalize :: RadExpr Rational -> RadExpr Rational
 safeNormalize e
-  | let (d, s) = exprMetrics e in d > 50 || s > 5000 = e
+  | let dag = toDAG e
+        d   = dagDepth dag
+        s   = dagSize dag
+    -- Skip normalization for large or deeply-shared expressions.
+    -- Normalize is not DAG-aware: it tree-walks the expression, which for
+    -- heavily-shared DAGs (e.g., Lagrange resolvent output) means exponential
+    -- blowup. Depth > 30 or size > 500 indicates significant sharing.
+    in d > 30 || s > 500 = e
   | otherwise =
       let normed = normalize e
-          origIv = evalInterval e
-          normIv = evalInterval normed
-      in if overlaps origIv normIv && width origIv >= width normIv
-         then normed
-         else e
+      in case tryEvalInterval e of
+           Nothing ->
+             -- Interval evaluation failed (e.g., complex intermediates like √(-3)).
+             -- Fall back to Complex Double verification.
+             let origVal = dagEvalComplex (toDAG e)
+                 normVal = dagEvalComplex (toDAG normed)
+                 err = abs (realPart origVal - realPart normVal)
+                       + abs (imagPart origVal - imagPart normVal)
+             in if err < 1e-6 then normed else e
+           Just origIv ->
+             case tryEvalInterval normed of
+               Nothing -> e  -- Normalization introduced invalid interval; keep original
+               Just normIv ->
+                 if overlaps origIv normIv && width origIv >= width normIv
+                 then normed
+                 else e
 
--- | Approximate depth and size of an expression tree (both capped).
-exprMetrics :: RadExpr k -> (Int, Int)
-exprMetrics = go 0 0
-  where
-    go d s _ | d > 60 || s > 6000 = (d, s)
-    go d s (Lit _)      = (d, s + 1)
-    go d s (Add a b)    = let (d1, s1) = go (d+1) (s+1) a in go (max d d1) s1 b
-    go d s (Mul a b)    = let (d1, s1) = go (d+1) (s+1) a in go (max d d1) s1 b
-    go d s (Neg a)      = go (d+1) (s+1) a
-    go d s (Inv a)      = go (d+1) (s+1) a
-    go d s (Root _ a)   = go (d+1) (s+1) a
-    go d s (Pow a _)    = go (d+1) (s+1) a
+-- | Try to evaluate an expression via interval arithmetic, returning
+-- Nothing if it fails (e.g., due to negative radicands from complex
+-- intermediates in Gauss period descent).
+tryEvalInterval :: RadExpr Rational -> Maybe Interval
+tryEvalInterval e = unsafePerformIO $ do
+  result <- try (evaluate (evalInterval e))
+  case result of
+    Left (_ :: SomeException) -> return Nothing
+    Right iv -> return (Just iv)
 
 -- | Chebyshev polynomial evaluation: T_k(x) computed symbolically.
 -- T_0(x) = 1, T_1(x) = x, T_{n+1}(x) = 2x·T_n(x) - T_{n-1}(x)

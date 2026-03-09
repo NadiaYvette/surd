@@ -29,6 +29,7 @@ library
     Surd.Algebraic.Number
     Surd.Algebraic.Convert
     Surd.Radical.Expr
+    Surd.Radical.DAG
     Surd.Radical.Eval
     Surd.Radical.LaTeX
     Surd.Radical.Normalize
