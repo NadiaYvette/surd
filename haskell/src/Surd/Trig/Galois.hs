@@ -21,11 +21,11 @@ module Surd.Trig.Galois
   ) where
 
 import Data.Complex (Complex(..), magnitude, realPart, imagPart, mkPolar, phase)
-import Data.List (nub, sort)
+import Data.List (nub, sort, sortBy)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
 import Data.Maybe (mapMaybe)
-import Data.Ord (comparing)
+import Data.Ord (comparing, Down(..))
 import Surd.Types
 import Surd.Internal.Positive (Positive)
 import Surd.Internal.PrimeFactors (factorise)
@@ -288,7 +288,12 @@ findIntegerComboC :: Complex Double -> [Complex Double] -> Maybe (Int, [Int])
 findIntegerComboC target vals = solveLinearIntegerC target vals
 
 -- | Solve target = c + Σ aᵢ·xᵢ for integer c, aᵢ using the complex structure.
--- Uses relative tolerance for robustness with large values.
+--
+-- Uses a greedy O(n log n) algorithm instead of exponential backtracking:
+-- 1. Sort periods by |Im(xᵢ)| descending (most distinctive first)
+-- 2. Greedily assign each coefficient from Im(residual)/Im(xᵢ)
+-- 3. Determine constant c from Re(residual)
+-- 4. Verify, with local perturbation fallback if needed
 solveLinearIntegerC :: Complex Double -> [Complex Double] -> Maybe (Int, [Int])
 solveLinearIntegerC target [] =
   let c = round (realPart target) :: Int
@@ -296,61 +301,71 @@ solveLinearIntegerC target [] =
   in if err / max 1 (magnitude target) < 1e-6
      then Just (c, [])
      else Nothing
-solveLinearIntegerC target [v] =
-  let a = if abs (imagPart v) > 1e-10
-          then round (imagPart target / imagPart v) :: Int
-          else if abs (realPart v) > 1e-10
-               then round (realPart target / realPart v)
-               else 0
-      remainder = target - (fromIntegral a :+ 0) * v
-      c = round (realPart remainder) :: Int
-      err = magnitude (target - (fromIntegral c :+ 0) - (fromIntegral a :+ 0) * v)
-  in if err / max 1 (magnitude target) < 1e-6
-     then Just (c, [a])
-     else Nothing
-solveLinearIntegerC target (v:vs) =
-  let tol = max 1 (magnitude target) * 1e-6
-      -- Window size trades accuracy for speed. Wider windows help with
-      -- imprecise estimates but create exponential search space.
-      -- For many periods (>3), keep window small to avoid blowup:
-      -- 4 periods × window 5 = 11^4 ≈ 14K (ok)
-      -- 6 periods × window 5 = 11^6 ≈ 1.8M (too slow)
-      window = if length vs <= 1 then 2
-               else if length vs <= 3 then 3
-               else 1  -- Many periods: trust the estimate
-  in if abs (imagPart v) > 1e-10
-  then
-    let aEst = round (imagPart target / imagPart v) :: Int
-        tryA a =
-          let remainder = target - (fromIntegral a :+ 0) * v
-          in case solveLinearIntegerC remainder vs of
-               Just (c, as) ->
-                 let recon = (fromIntegral c :+ 0) + (fromIntegral a :+ 0) * v
-                           + sum (zipWith (\ai xi -> (fromIntegral ai :+ 0) * xi) as vs)
-                 in if magnitude (recon - target) < tol
-                    then Just (c, a : as)
-                    else Nothing
-               Nothing -> Nothing
-    in case mapMaybe tryA [aEst-window..aEst+window] of
-         (x:_) -> Just x
-         []    -> Nothing
-  else
-    let aEst = if abs (realPart v) > 1e-10
-               then round (realPart target / realPart v) :: Int
-               else 0
-        tryA a =
-          let remainder = target - (fromIntegral a :+ 0) * v
-          in case solveLinearIntegerC remainder vs of
-               Just (c, as) ->
-                 let recon = (fromIntegral c :+ 0) + (fromIntegral a :+ 0) * v
-                           + sum (zipWith (\ai xi -> (fromIntegral ai :+ 0) * xi) as vs)
-                 in if magnitude (recon - target) < tol
-                    then Just (c, a : as)
-                    else Nothing
-               Nothing -> Nothing
-    in case mapMaybe tryA [aEst-window..aEst+window] of
-         (x:_) -> Just x
-         []    -> Nothing
+solveLinearIntegerC target vals =
+  let n = length vals
+      tol = max 1 (magnitude target) * 1e-6
+
+      -- Pair each value with its original index
+      indexed = zip [0..] vals
+
+      -- Separate into imaginary-heavy and real-only periods
+      (imHeavy, realOnly) = foldr (\iv@(_, v) (ih, ro) ->
+        if abs (imagPart v) > 1e-10 then (iv : ih, ro) else (ih, iv : ro)) ([], []) indexed
+
+      -- Sort imaginary-heavy by |Im| descending for numerical stability
+      sortedIm = sortBy (comparing (Down . abs . imagPart . snd)) imHeavy
+
+      -- Greedy assignment: process imaginary-heavy periods first
+      (resid1, coeffs1) = foldl (\(resid, cs) (i, v) ->
+        let a = round (imagPart resid / imagPart v) :: Int
+        in (resid - (fromIntegral a :+ 0) * v, (i, a) : cs)
+        ) (target, []) sortedIm
+
+      -- Then real-only periods
+      (resid2, coeffs2) = foldl (\(resid, cs) (i, v) ->
+        let a = if abs (realPart v) > 1e-10
+                then round (realPart resid / realPart v) :: Int
+                else 0
+        in (resid - (fromIntegral a :+ 0) * v, (i, a) : cs)
+        ) (resid1, coeffs1) realOnly
+
+      c = round (realPart resid2) :: Int
+
+      -- Build coefficient array in original order
+      buildCoeffs cs = map snd $ sort [(i, a) | (i, a) <- cs]
+      coeffs = buildCoeffs coeffs2
+
+      -- Verify
+      recon = (fromIntegral c :+ 0) +
+              sum (zipWith (\a v -> (fromIntegral a :+ 0) * v) coeffs vals)
+
+  in if magnitude (recon - target) < tol
+     then Just (c, coeffs)
+     else -- Perturbation fallback: try ±1 on each coefficient
+          tryPerturbation target vals tol n c coeffs
+
+-- | Try perturbing each coefficient by ±1 to find a valid decomposition.
+-- O(n) instead of O(3^n) — handles rounding ambiguity for at most one coefficient.
+tryPerturbation :: Complex Double -> [Complex Double] -> Double
+               -> Int -> Int -> [Int] -> Maybe (Int, [Int])
+tryPerturbation target vals tol n _c0 coeffs0 =
+  let verify c cs =
+        let recon = (fromIntegral c :+ 0) +
+                    sum (zipWith (\a v -> (fromIntegral a :+ 0) * v) cs vals)
+        in magnitude (recon - target) < tol
+
+      -- For each coefficient position, try ±1 perturbation
+      perturb i delta =
+        let cs = [ if j == i then a + delta else a | (j, a) <- zip [0..] coeffs0 ]
+            resid = target - sum (zipWith (\a v -> (fromIntegral a :+ 0) * v) cs vals)
+            c = round (realPart resid) :: Int
+        in if verify c cs then Just (c, cs) else Nothing
+
+      attempts = [ perturb i d | i <- [0..n-1], d <- [-1, 1] ]
+
+  in case mapMaybe id attempts of
+       (x:_) -> Just x
+       []    -> Nothing
 
 -- | Solve a period equation of degree q to get radical expressions
 -- for the sub-periods.

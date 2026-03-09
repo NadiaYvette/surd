@@ -154,7 +154,29 @@ tests = testGroup "Trig"
               ("cos(2π/43) should be " ++ show (cos (2*pi/43)) ++ " but got " ++ show v)
           MinPoly _ -> assertFailure "expected radical"
 
-    -- cos(2π/41) φ=40=2³×5: ~100s (quintic resolvent coefficient matching is slow)
+    , testCase "cos(2π/41) — φ(41)=40=2³×5, quintic resolvent" $ do
+        case cosExact 2 41 of
+          Radical e -> do
+            let v = realPart (dagEvalComplex (toDAG e))
+            abs (v - cos (2 * pi / 41)) < 1e-8 @?
+              ("cos(2π/41) should be " ++ show (cos (2*pi/41)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/61) — φ(61)=60=2²×3×5, deep quintic" $ do
+        case cosExact 2 61 of
+          Radical e -> do
+            let v = realPart (dagEvalComplex (toDAG e))
+            abs (v - cos (2 * pi / 61)) < 1e-8 @?
+              ("cos(2π/61) should be " ++ show (cos (2*pi/61)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/97) — φ(97)=96=2⁵×3, many periods" $ do
+        case cosExact 2 97 of
+          Radical e -> do
+            let v = realPart (dagEvalComplex (toDAG e))
+            abs (v - cos (2 * pi / 97)) < 1e-8 @?
+              ("cos(2π/97) should be " ++ show (cos (2*pi/97)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical"
     ]
 
   , testGroup "Composite n (CRT decomposition)"

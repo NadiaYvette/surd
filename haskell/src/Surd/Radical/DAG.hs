@@ -31,9 +31,12 @@ import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntMap.Lazy as IntMapL
 import Data.IntMap.Strict (IntMap)
 import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.Ratio (numerator, denominator)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Mem.StableName (StableName, makeStableName, hashStableName, eqStableName)
 import Surd.Types
+import Surd.Internal.Positive (Positive)
+import Surd.Internal.PrimeFactors (factorise)
 
 type NodeId = Int
 
@@ -150,39 +153,41 @@ dagDepth (RadDAG nodes rootId) = depths IntMap.! rootId
     computeDepth _ (NRoot _ a) = 1 + depths IntMap.! a
     computeDepth _ (NPow a _)  = 1 + depths IntMap.! a
 
--- | Constant folding on the DAG. Each node is processed exactly once.
+-- | DAG simplification pass. Each node is processed exactly once in O(n).
 --
--- Simplifications:
+-- Performs constant folding, power simplification, and perfect power extraction:
 -- - Lit r op Lit s → Lit (r op s)
 -- - Add (Lit 0) x, Add x (Lit 0) → x
 -- - Mul (Lit 0) _, Mul _ (Lit 0) → Lit 0
 -- - Mul (Lit 1) x, Mul x (Lit 1) → x
--- - Neg (Neg x) → x
--- - Inv (Inv x) → x
--- - Neg (Lit r) → Lit (negate r)
--- - Inv (Lit r) → Lit (1/r) when r /= 0
+-- - Neg (Neg x) → x, Inv (Inv x) → x
+-- - Neg (Lit r) → Lit (negate r), Inv (Lit r) → Lit (1/r)
+-- - Pow (Root n a) n → a, Root n (Pow a n) → a
+-- - Pow (Pow a m) n → Pow a (m*n)
+-- - Root m (Root n a) → Root (m*n) a
+-- - Mul (Root 2 a) (Root 2 a) → a  (same node: √x·√x = x)
+-- - Root n (Lit r) → Lit coeff * Root n (Lit inner) (perfect power extraction)
 --
 -- Returns a new DAG with the same or fewer nodes.
 dagFoldConstants :: RadDAG Rational -> RadDAG Rational
 dagFoldConstants (RadDAG nodes rootId) =
-  let -- Process nodes in ascending NodeId order (topological order).
-      -- For each node, compute: (newNodeId, newNodes, nextFreeId)
-      -- where newNodeId might be a pre-existing node (if the node
-      -- was eliminated by folding).
-      (remap, finalNodes, _) =
+  let (remap, finalNodes, _) =
         IntMap.foldlWithKey' step (IntMap.empty, IntMap.empty, 0) nodes
 
       step (rm, ns, nxt) oldId op =
-        let -- Remap children to their simplified versions
-            r x = rm IntMap.! x
+        let r x = rm IntMap.! x
             op' = remapOp r op
-        in case simplify ns op' of
+        in case simplify ns nxt op' of
              Left existingId ->
-               -- This node simplifies to an existing node
                (IntMap.insert oldId existingId rm, ns, nxt)
-             Right newOp ->
-               -- This node becomes a new (simplified) node
-               (IntMap.insert oldId nxt rm, IntMap.insert nxt newOp ns, nxt + 1)
+             Right newOps ->
+               let (finalId, ns', nxt') = allocChain ns nxt newOps
+               in (IntMap.insert oldId finalId rm, ns', nxt')
+
+      allocChain ns nxt [] = (nxt - 1, ns, nxt)
+      allocChain ns nxt [op] = (nxt, IntMap.insert nxt op ns, nxt + 1)
+      allocChain ns nxt (op:ops) =
+        allocChain (IntMap.insert nxt op ns) (nxt + 1) ops
 
   in RadDAG finalNodes (remap IntMap.! rootId)
   where
@@ -194,42 +199,91 @@ dagFoldConstants (RadDAG nodes rootId) =
     remapOp r (NRoot n a) = NRoot n (r a)
     remapOp r (NPow a n)  = NPow (r a) n
 
-    -- Try to simplify a node given the current set of built nodes.
-    -- Left nid  = this node is equivalent to existing node nid
-    -- Right op  = this node should be created with this op
-    simplify ns (NNeg a) = case ns IntMap.! a of
-      NLit r  -> Right (NLit (negate r))
-      NNeg a' -> Left a'   -- double negation
-      _       -> Right (NNeg a)
+    -- Try to simplify a node. Takes the current node map and next free ID.
+    -- Left nid   = reuse existing node
+    -- Right ops  = allocate these nodes in order (last is result)
+    simplify :: IntMap (RadNodeOp Rational) -> NodeId -> RadNodeOp Rational
+             -> Either NodeId [RadNodeOp Rational]
+    simplify ns _ (NNeg a) = case ns IntMap.! a of
+      NLit r  -> Right [NLit (negate r)]
+      NNeg a' -> Left a'
+      _       -> Right [NNeg a]
 
-    simplify ns (NAdd a b) = case (ns IntMap.! a, ns IntMap.! b) of
-      (NLit r, NLit s) -> Right (NLit (r + s))
+    simplify ns _ (NAdd a b) = case (ns IntMap.! a, ns IntMap.! b) of
+      (NLit r, NLit s) -> Right [NLit (r + s)]
       (NLit 0, _)      -> Left b
       (_, NLit 0)      -> Left a
-      _                -> Right (NAdd a b)
+      _                -> Right [NAdd a b]
 
-    simplify ns (NMul a b) = case (ns IntMap.! a, ns IntMap.! b) of
-      (NLit r, NLit s) -> Right (NLit (r * s))
-      (NLit 0, _)      -> Right (NLit 0)
-      (_, NLit 0)      -> Right (NLit 0)
-      (NLit 1, _)      -> Left b
-      (_, NLit 1)      -> Left a
-      (NLit (-1), _)   -> Right (NNeg b)
-      (_, NLit (-1))   -> Right (NNeg a)
-      _                -> Right (NMul a b)
+    simplify ns _ (NMul a b) = case (ns IntMap.! a, ns IntMap.! b) of
+      (NLit r, NLit s)         -> Right [NLit (r * s)]
+      (NLit 0, _)              -> Right [NLit 0]
+      (_, NLit 0)              -> Right [NLit 0]
+      (NLit 1, _)              -> Left b
+      (_, NLit 1)              -> Left a
+      (NLit (-1), _)           -> Right [NNeg b]
+      (_, NLit (-1))           -> Right [NNeg a]
+      -- √a · √a = a (same node)
+      (NRoot 2 ra, NRoot 2 rb) | ra == rb -> Left ra
+      _                        -> Right [NMul a b]
 
-    simplify ns (NInv a) = case ns IntMap.! a of
-      NLit r | r /= 0 -> Right (NLit (1 / r))
-      NInv a'          -> Left a'   -- double inverse
-      _                -> Right (NInv a)
+    simplify ns _ (NInv a) = case ns IntMap.! a of
+      NLit r | r /= 0 -> Right [NLit (1 / r)]
+      NInv a'          -> Left a'
+      _                -> Right [NInv a]
 
-    simplify ns (NRoot n a) = case ns IntMap.! a of
-      NLit 0 -> Right (NLit 0)
-      NLit 1 -> Right (NLit 1)
-      _      -> Right (NRoot n a)
+    simplify ns nxt (NRoot n a) = case ns IntMap.! a of
+      NLit 0             -> Right [NLit 0]
+      NLit 1             -> Right [NLit 1]
+      NLit r | r > 0     -> extractPerfectPowerDAG nxt n r
+      NRoot m a'         -> Right [NRoot (m * n) a']
+      NPow a' m | m == n -> Left a'
+      _                  -> Right [NRoot n a]
 
-    simplify _ op@(NLit _)  = Right op
-    simplify _ op@(NPow _ _) = Right op
+    simplify ns _ (NPow a n) = case ns IntMap.! a of
+      _ | n == 0            -> Right [NLit 1]
+      _ | n == 1            -> Left a
+      NLit r                -> Right [NLit (r ^^ n)]
+      NPow a' m             -> Right [NPow a' (m * n)]
+      NRoot nr a' | nr == n -> Left a'
+      _                     -> Right [NPow a n]
+
+    simplify _ _ op@(NLit _) = Right [op]
+
+    -- Extract perfect nth powers from Root n (Lit r) where r > 0.
+    -- Uses nxt to assign correct NodeIds for multi-node chains.
+    extractPerfectPowerDAG :: NodeId -> Int -> Rational
+                           -> Either NodeId [RadNodeOp Rational]
+    extractPerfectPowerDAG nxt n r =
+      let num = numerator r
+          den = denominator r
+          (numOut, numIn) = extractNthPower n num
+          (denOut, denIn) = extractNthPower n den
+          (outerCoeff, innerRat)
+            | denIn == 1 = (numOut / denOut, numIn)
+            | otherwise  =
+                let newInner = numIn * denIn ^ (n - 1 :: Int)
+                    newOuter = numOut / (denOut * denIn)
+                    (numOut2, numIn2) = extractNthPower n (numerator newInner)
+                in (newOuter * numOut2, numIn2)
+      in case (outerCoeff == 1, innerRat == 1) of
+           (True, True)  -> Right [NLit 1]
+           (True, False) -> Right [NLit innerRat, NRoot n nxt]
+           (_, True)     -> Right [NLit outerCoeff]
+           _             -> Right [ NLit innerRat               -- nxt
+                                  , NRoot n nxt                  -- nxt+1
+                                  , NLit outerCoeff              -- nxt+2
+                                  , NMul (nxt + 2) (nxt + 1)    -- nxt+3
+                                  ]
+
+-- | Given n and a positive integer m, extract the largest perfect nth power
+-- that divides m. Returns (extracted, remainder) so m = extracted^n * remainder.
+extractNthPower :: Int -> Integer -> (Rational, Rational)
+extractNthPower n m =
+  let fs = factorise (fromInteger (abs m) :: Positive)
+      extracted = product [ p ^ (e `div` n) | (p, e) <- fs ]
+      remainder = product [ p ^ (e `mod` n) | (p, e) <- fs ]
+  in (fromInteger extracted, fromInteger remainder)
 
 -- | Evaluate a DAG to Complex Double. Each node evaluated exactly once.
 dagEvalComplex :: RadDAG Rational -> Complex Double

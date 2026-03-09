@@ -4,6 +4,7 @@
 -- They do NOT denest — see "Surd.Radical.Denest" for that.
 module Surd.Radical.Normalize
   ( normalize
+  , normalizeOnce
   , flattenArith
   , foldConstants
   , simplifyPowers
@@ -25,15 +26,20 @@ import Surd.Internal.PrimeFactors (factorise)
 -- | Apply all normalization passes, iterated to a fixed point.
 normalize :: RadExpr Rational -> RadExpr Rational
 normalize = fixN 10 normalizeOnce
-  where
-    normalizeOnce = collectTerms
-                  . collectCoefficients
-                  . distribute
-                  . sortCommutative
-                  . extractPerfectPowers
-                  . simplifyPowers
-                  . foldConstants
-                  . flattenArith
+
+-- | A single normalization pass (all sub-passes composed once).
+-- Useful when iterating to a fixed point would be too expensive
+-- (e.g., on large DAG-structured expressions where each pass
+-- breaks sharing and rebuilds the tree).
+normalizeOnce :: RadExpr Rational -> RadExpr Rational
+normalizeOnce = collectTerms
+              . collectCoefficients
+              . distribute
+              . sortCommutative
+              . extractPerfectPowers
+              . simplifyPowers
+              . foldConstants
+              . flattenArith
 
 -- | Iterate a function until fixed point or fuel runs out.
 fixN :: Eq a => Int -> (a -> a) -> a -> a

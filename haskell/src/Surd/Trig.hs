@@ -158,25 +158,20 @@ safeDenestAndNormalize e =
 -- Uses interval arithmetic for rigorous verification instead of
 -- Double-based comparison.
 --
--- For very large expression trees (from Lagrange resolvents with q ≥ 5),
--- normalize can be extremely slow, so we skip it if the tree exceeds
--- size or depth limits.
+-- Tree-based normalize is not DAG-aware: it tree-walks, breaking thunk
+-- sharing and causing exponential blowup. Only applied to small expressions
+-- (d ≤ 30, s ≤ 500). For larger expressions, dagFoldConstants (which now
+-- includes simplifyPowers and extractPerfectPowers) handles the heavy lifting.
 safeNormalize :: RadExpr Rational -> RadExpr Rational
 safeNormalize e
   | let dag = toDAG e
         d   = dagDepth dag
         s   = dagSize dag
-    -- Skip normalization for large or deeply-shared expressions.
-    -- Normalize is not DAG-aware: it tree-walks the expression, which for
-    -- heavily-shared DAGs (e.g., Lagrange resolvent output) means exponential
-    -- blowup. Depth > 30 or size > 500 indicates significant sharing.
     in d > 30 || s > 500 = e
   | otherwise =
       let normed = normalize e
       in case tryEvalInterval e of
            Nothing ->
-             -- Interval evaluation failed (e.g., complex intermediates like √(-3)).
-             -- Fall back to Complex Double verification.
              let origVal = dagEvalComplex (toDAG e)
                  normVal = dagEvalComplex (toDAG normed)
                  err = abs (realPart origVal - realPart normVal)
@@ -184,7 +179,7 @@ safeNormalize e
              in if err < 1e-6 then normed else e
            Just origIv ->
              case tryEvalInterval normed of
-               Nothing -> e  -- Normalization introduced invalid interval; keep original
+               Nothing -> e
                Just normIv ->
                  if overlaps origIv normIv && width origIv >= width normIv
                  then normed
