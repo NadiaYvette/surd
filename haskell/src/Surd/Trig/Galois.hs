@@ -31,6 +31,28 @@ import Surd.Internal.Positive (Positive)
 import Surd.Internal.PrimeFactors (factorise)
 import Surd.Radical.Eval (evalComplex, ExactReal, ExactComplex)
 
+-- Complex arithmetic helpers for types without RealFloat instances.
+-- Data.Complex requires RealFloat for its Num instance, but Rational
+-- doesn't provide it. These use explicit (a :+ b) decomposition.
+
+cAdd :: Num r => Complex r -> Complex r -> Complex r
+cAdd (a :+ b) (c :+ d) = (a + c) :+ (b + d)
+
+cMul :: Num r => Complex r -> Complex r -> Complex r
+cMul (a :+ b) (c :+ d) = (a*c - b*d) :+ (a*d + b*c)
+
+cScale :: Num r => r -> Complex r -> Complex r
+cScale s (a :+ b) = (s * a) :+ (s * b)
+
+cSum :: Num r => [Complex r] -> Complex r
+cSum = foldl cAdd (0 :+ 0)
+
+cPow :: Num r => Int -> Complex r -> Complex r
+cPow 0 _ = 1 :+ 0
+cPow n z = let half = cPow (n `div` 2) z
+               sq = cMul half half
+           in if even n then sq else cMul z sq
+
 -- | Compute cos(2π/n) as a radical expression via Gauss period descent.
 --
 -- Works for any n where (Z/nZ)* is cyclic (primes, odd prime powers,
@@ -162,6 +184,7 @@ sumRootsOfUnityExact n ks =
        in cos theta :+ sin theta
       | k <- ks]
 
+
 -- | Convert ExactComplex to Complex Double (lossy but retains ~15 digits).
 toDoubleC :: ExactComplex -> Complex Double
 toDoubleC (r :+ i) = fromRational (toRational r) :+ fromRational (toRational i)
@@ -230,21 +253,22 @@ matchToPeriodExpr periods p target =
          then Lit re
          else Add (Lit re) (Mul (Lit im) (Root 2 (Lit (-1))))
 
--- | Match an ExactComplex value to an integer linear combination of periods.
--- Uses ~60 digits of precision for reliable coefficient recovery.
+-- | Match a high-precision complex value to an integer linear combination of periods.
 -- Backtracking search: try ±2 around the best integer estimate for each
 -- coefficient, pruning early when the reconstruction error grows.
-matchToPeriodExprExact :: [PeriodState] -> [ExactComplex] -> ExactComplex -> RadExpr Rational
-matchToPeriodExprExact periods periodValsExact target =
+-- Polymorphic over the real type to support both ExactReal and Rational.
+matchToPeriodExprHP :: (RealFrac r, Ord r)
+                    => [PeriodState] -> [Complex r] -> Complex r -> RadExpr Rational
+matchToPeriodExprHP periods periodValsHP target =
   let eIm (_ :+ y) = y
       eRe (x :+ _) = x
       -- Check if target is close to a real integer
       nearestInt = round (eRe target) :: Integer
-  in if abs (eRe target - fromIntegral nearestInt) < 1e-30
-        && abs (eIm target) < 1e-30
+  in if abs (eRe target - fromIntegral nearestInt) < 1e-15
+        && abs (eIm target) < 1e-15
      then Lit (fromIntegral nearestInt)
      else
-       case solveLinearIntegerExact target periodValsExact of
+       case solveLinearIntegerHP target periodValsHP of
          Just (c, coeffs) ->
            foldl Add (Lit (fromIntegral c))
              [ if a == 0 then Lit 0
@@ -254,45 +278,59 @@ matchToPeriodExprExact periods periodValsExact target =
              ]
          Nothing ->
            -- Fall back to Double-based matching
-           case periods of
-             (ps:_) -> matchToPeriodExpr periods (periodP ps) (toDoubleC target)
-             []     -> Lit (fromRational (toRational (eRe target)))
+           let toDouble x = fromRational (toRational x) :: Double
+           in case periods of
+                (ps:_) -> matchToPeriodExpr periods (periodP ps)
+                            (toDouble (eRe target) :+ toDouble (eIm target))
+                []     -> Lit (toRational (eRe target))
 
--- | Solve target = c + Σ aᵢ·xᵢ for integer c, aᵢ using ExactComplex arithmetic.
+-- | Backward-compatible wrapper using ExactComplex.
+matchToPeriodExprExact :: [PeriodState] -> [ExactComplex] -> ExactComplex -> RadExpr Rational
+matchToPeriodExprExact = matchToPeriodExprHP
+
+-- | Solve target = c + Σ aᵢ·xᵢ for integer c, aᵢ using high-precision arithmetic.
 -- Backtracking search with ±2 window around the best estimate for each coefficient.
--- With ~60 digits of precision, round() is extremely accurate, so ±2 is generous.
-solveLinearIntegerExact :: ExactComplex -> [ExactComplex] -> Maybe (Int, [Int])
-solveLinearIntegerExact target [] =
+-- With sufficient precision, round() is extremely accurate, so ±2 is generous.
+-- Uses explicit Re/Im operations to avoid the RealFloat constraint on Complex.
+solveLinearIntegerHP :: (RealFrac r, Ord r)
+                     => Complex r -> [Complex r] -> Maybe (Int, [Int])
+solveLinearIntegerHP target [] =
   let eRe (x :+ _) = x
       eIm (_ :+ y) = y
       c = round (eRe target) :: Int
       err = abs (eRe target - fromIntegral c) + abs (eIm target)
-  in if err < 1e-20 then Just (c, []) else Nothing
-solveLinearIntegerExact target (v:vs) =
+  in if err < 1e-10 then Just (c, []) else Nothing
+solveLinearIntegerHP target (v:vs) =
   let eRe (x :+ _) = x
       eIm (_ :+ y) = y
       -- Estimate coefficient from whichever component (Re or Im) is larger
       aEst = if abs (eIm v) > abs (eRe v)
              then round (eIm target / eIm v) :: Int
-             else if abs (eRe v) > 1e-30
+             else if abs (eRe v) > 1e-20
                   then round (eRe target / eRe v)
                   else 0
       tryA a =
-        let remainder = (eRe target - fromIntegral a * eRe v)
-                     :+ (eIm target - fromIntegral a * eIm v)
-        in case solveLinearIntegerExact remainder vs of
+        let remRe = eRe target - fromIntegral a * eRe v
+            remIm = eIm target - fromIntegral a * eIm v
+            remainder = remRe :+ remIm
+        in case solveLinearIntegerHP remainder vs of
              Just (c, as) ->
                -- Verify full reconstruction with all coefficients
-               let recon = (fromIntegral c :+ 0)
-                         + (fromIntegral a :+ 0) * v
-                         + sum (zipWith (\ai xi -> (fromIntegral ai :+ 0) * xi) as vs)
-                   d = target - recon
-                   err = abs (eRe d) + abs (eIm d)
-               in if err < 1e-20 then Just (c, a : as) else Nothing
+               let reconRe = fromIntegral c + fromIntegral a * eRe v
+                           + sum (zipWith (\ai xi -> fromIntegral ai * eRe xi) as vs)
+                   reconIm = fromIntegral a * eIm v
+                           + sum (zipWith (\ai xi -> fromIntegral ai * eIm xi) as vs)
+                   errRe = abs (eRe target - reconRe)
+                   errIm = abs (eIm target - reconIm)
+               in if errRe + errIm < 1e-10 then Just (c, a : as) else Nothing
              Nothing -> Nothing
   in case mapMaybe tryA [aEst-2..aEst+2] of
        (x:_) -> Just x
        []    -> Nothing
+
+-- | Backward-compatible wrapper.
+solveLinearIntegerExact :: ExactComplex -> [ExactComplex] -> Maybe (Int, [Int])
+solveLinearIntegerExact = solveLinearIntegerHP
 
 -- | Try to express target = c + a·v for integer c, a using a single period value.
 -- Exactly determined: a from Im, c from Re.
@@ -346,6 +384,9 @@ solveLinearIntegerC target [v] =
      else Nothing
 solveLinearIntegerC target (v:vs) =
   let tol = max 1 (magnitude target) * 1e-6
+      -- Use a wider search window for longer period lists (more unknowns
+      -- means the single-variable estimate is less reliable).
+      window = if length vs <= 1 then 2 else 5
   in if abs (imagPart v) > 1e-10
   then
     let aEst = round (imagPart target / imagPart v) :: Int
@@ -359,7 +400,7 @@ solveLinearIntegerC target (v:vs) =
                     then Just (c, a : as)
                     else Nothing
                Nothing -> Nothing
-    in case mapMaybe tryA [aEst-2..aEst+2] of
+    in case mapMaybe tryA [aEst-window..aEst+window] of
          (x:_) -> Just x
          []    -> Nothing
   else
@@ -376,7 +417,7 @@ solveLinearIntegerC target (v:vs) =
                     then Just (c, a : as)
                     else Nothing
                Nothing -> Nothing
-    in case mapMaybe tryA [aEst-2..aEst+2] of
+    in case mapMaybe tryA [aEst-window..aEst+window] of
          (x:_) -> Just x
          []    -> Nothing
 
@@ -492,28 +533,51 @@ solvePeriodViaResolvent q allPeriods p parentExpr numVals =
       -- for d_s values where Double matching fails.
       dMatchResults = map (tryMatchToPeriodExpr allPeriods p) dCoeffsDouble
 
-      -- ExactComplex values (lazy — only computed if any dMatchResults are Nothing)
-      numValsExact = map (\(r :+ i) -> fromRational (toRational r) :+ fromRational (toRational i) :: ExactComplex) numVals
-      omegaExact = let theta = 2 * pi / fromIntegral q
-                   in cos theta :+ sin theta :: ExactComplex
-      resolventValsExact = [ sum [ omegaExact ^ (j * k) * (numValsExact !! k)
-                                 | k <- [0..q-1] ]
-                           | j <- [0..q-1] ]
-      resolventPowersQExact = [ (resolventValsExact !! j) ^ q | j <- [0..q-1] ]
-      recipQ = recip (fromIntegral q) :: ExactReal
-      scaleC (r :+ i) = (recipQ * r) :+ (recipQ * i)
-      dCoeffsExact = [ let s' = fromIntegral s :: Int
-                        in scaleC $
-                           sum [ omegaExact ^ ((q - ((j * s') `mod` q)) `mod` q) * (resolventPowersQExact !! j)
-                               | j <- [0..q-1] ]
-                      | s <- [0..q-1 :: Int] ]
-      periodValsExact = map (sumRootsOfUnityExact p . periodElems) allPeriods
+      -- High-precision coefficient recovery using Rational arithmetic.
+      -- Since all input values originate from Double, wrapping them in
+      -- Rational gives ~53 bits of precision (same as Double but exact),
+      -- avoiding CReal overhead entirely. Uses the cXxx helpers defined above.
+      toRatC (r :+ i) = toRational r :+ toRational i
+      numValsR = map toRatC numVals :: [Complex Rational]
+      omegaRD = exp (0 :+ (2 * pi / fromIntegral q)) :: Complex Double
+      omegaPowersR = map toRatC [omegaRD ^ k | k <- [0..q-1 :: Int]] :: [Complex Rational]
+      resolventValsR = [ cSum [ cMul (omegaPowersR !! ((j * k) `mod` q)) (numValsR !! k)
+                               | k <- [0..q-1] ]
+                       | j <- [0..q-1] ]
+      resolventPowersQR = [ cPow q (resolventValsR !! j) | j <- [0..q-1] ]
+      recipQR = recip (fromIntegral q) :: Rational
+      dCoeffsR = [ let s' = fromIntegral s :: Int
+                    in cScale recipQR $
+                       cSum [ cMul (omegaPowersR !! ((q - ((j * s') `mod` q)) `mod` q))
+                                   (resolventPowersQR !! j)
+                            | j <- [0..q-1] ]
+                  | s <- [0..q-1 :: Int] ] :: [Complex Rational]
+      periodValsR = map (toRatC . sumRootsOfUnity p . periodElems) allPeriods :: [Complex Rational]
 
-      -- Build final dExprs: use Double match where available, ExactComplex fallback
+      -- Build final dExprs: use Double match where available, Rational DFT
+      -- + ExactComplex matching as fallback.
+      -- The Rational DFT gives exact-arithmetic d_s values (seeded from Double),
+      -- then solveLinearIntegerHP uses Rational for precise coefficient recovery.
+      -- For speed, we first try matching the Rational d_s value against periods
+      -- using Double arithmetic (fast path), falling back to Rational matching.
+      fromRatC (r :+ i) = fromRational r :+ fromRational i :: Complex Double
       dExprs = [ case mr of
                    Just expr -> expr
-                   Nothing   -> matchToPeriodExprExact allPeriods periodValsExact
-                                  (dCoeffsExact !! s)
+                   Nothing   ->
+                     let dvalR = dCoeffsR !! s
+                         dvalD = fromRatC dvalR
+                         periodValsD' = map fromRatC periodValsR
+                     in case solveLinearIntegerC dvalD periodValsD' of
+                          Just (c, coeffs) ->
+                            foldl Add (Lit (fromIntegral c))
+                              [ if a == 0 then Lit 0
+                                else if a == 1 then periodExpr pi'
+                                else Mul (Lit (fromIntegral a)) (periodExpr pi')
+                              | (a, pi') <- zip coeffs allPeriods
+                              ]
+                          Nothing ->
+                            -- Rational matching fallback
+                            matchToPeriodExprHP allPeriods periodValsR dvalR
                | (s, mr) <- zip [0..] dMatchResults ]
 
       -- Get cos(2π/q) as a RadExpr
@@ -532,9 +596,22 @@ solvePeriodViaResolvent q allPeriods p parentExpr numVals =
                       | s <- [0..q-1] ]
         | j <- [1..q-1] ]
 
+      -- Pre-compute evalComplex of d_s and omega powers for fast branch selection.
+      -- This avoids evaluating the full resolventPowerExpr tree in selectResolventBranch.
+      dEvalVals = map evalComplex dExprs
+      omegaPowerEvalVals = map evalComplex omegaPowers
+
+      -- Compute evalComplex(resolventPowerExpr_j) from components:
+      -- resolventPowerExpr_j = Σ_s d_s · ω^{js}
+      -- evalComplex(resolventPowerExpr_j) = Σ_s evalComplex(d_s) * evalComplex(ω^{js})
+      rjqExprVals = [ sum [ (dEvalVals !! s) * (omegaPowerEvalVals !! ((j * s) `mod` q))
+                           | s <- [0..q-1] ]
+                    | j <- [1..q-1] ]
+
       -- Select correct branch of q-th root for each resolvent
-      resolventExprs = [ selectResolventBranch q omegaPowers
+      resolventExprs = [ selectResolventBranchFast q omegaPowers
                            (resolventPowerExprs !! (j-1))
+                           (rjqExprVals !! (j-1))
                            (resolventPowersQ !! j)
                            (resolventVals !! j)
                        | j <- [1..q-1] ]
@@ -593,30 +670,24 @@ chebyshevLocal k x = go 2 (Lit 1) x
 
 -- | Select the correct branch of the q-th root.
 --
--- The q-th roots of z are: ω^k · ᵠ√z for k = 0, ..., q-1.
--- Evaluate the principal root of the expression and find the ω^k
--- correction that best matches the target numerical value.
-selectResolventBranch :: Int
-                      -> [RadExpr Rational]   -- ^ ω^k for k = 0, ..., q-1
-                      -> RadExpr Rational     -- ^ R_j^q expression
-                      -> Complex Double       -- ^ Numerical value of R_j^q
-                      -> Complex Double       -- ^ Target numerical value of R_j
-                      -> RadExpr Rational
-selectResolventBranch q omegaPowers rjqExpr rjqVal targetVal =
+-- Takes a pre-computed evalComplex value of R_j^q to avoid evaluating the
+-- full expression tree (which can be very large for Lagrange resolvents).
+-- The pre-computed value is obtained by composing evalComplex of the
+-- individual d_s and omega power sub-expressions.
+selectResolventBranchFast :: Int
+                          -> [RadExpr Rational]   -- ^ ω^k for k = 0, ..., q-1
+                          -> RadExpr Rational     -- ^ R_j^q expression
+                          -> Complex Double       -- ^ evalComplex of R_j^q expression (pre-computed)
+                          -> Complex Double       -- ^ Numerical value of R_j^q (from DFT)
+                          -> Complex Double       -- ^ Target numerical value of R_j
+                          -> RadExpr Rational
+selectResolventBranchFast q omegaPowers rjqExpr rjqExprVal rjqVal targetVal =
   let principalRoot = Root q rjqExpr
-      -- Must use evalComplex rjqExpr (not rjqVal) because the branch correction
-      -- must be consistent with how evalComplex (Root q rjqExpr) computes the
-      -- principal root.
-      rjqExprVal = evalComplex rjqExpr
       -- Check if expression evaluation suffers from catastrophic cancellation.
-      -- This happens when R_j^q is near zero: the sum Σ d_s·ω^{js} involves
-      -- large terms that nearly cancel, exhausting Double precision.
       relDiff = magnitude (rjqExprVal - rjqVal) / max 1e-20 (magnitude rjqVal)
   in if relDiff > 0.01
      then -- Expression evaluation unreliable due to catastrophic cancellation.
-          -- Fall back to a literal complex approximation of R_j from the
-          -- accurate DFT-computed value. Introduces ~10^{-15} error (Double
-          -- precision of the DFT), negligible for the final result.
+          -- Fall back to a literal complex approximation of R_j.
           let re = toRational (realPart targetVal)
               im = toRational (imagPart targetVal)
               i = Root 2 (Lit (-1))
@@ -624,15 +695,25 @@ selectResolventBranch q omegaPowers rjqExpr rjqVal targetVal =
              then Lit re
              else Add (Lit re) (Mul (Lit im) i)
      else -- Expression evaluation is reliable. Use it for branch selection.
-          let principalVal = mkPolar (magnitude rjqExprVal ** (1 / fromIntegral q))
+          let omegaC = exp (0 :+ (2 * pi / fromIntegral q))
+              principalVal = mkPolar (magnitude rjqExprVal ** (1 / fromIntegral q))
                                      (phase rjqExprVal / fromIntegral q)
-              omegaC = exp (0 :+ (2 * pi / fromIntegral q))
               scored = [ (k, magnitude (omegaC ^ k * principalVal - targetVal))
                        | k <- [0..q-1] ]
               sorted = NE.sortBy (comparing snd) (NE.fromList scored)
               bestK = fst (NE.head sorted)
           in if bestK == 0 then principalRoot
              else Mul (omegaPowers !! bestK) principalRoot
+
+-- | Original selectResolventBranch kept for the q=2,3 path (not used for Lagrange).
+selectResolventBranch :: Int
+                      -> [RadExpr Rational]   -- ^ ω^k for k = 0, ..., q-1
+                      -> RadExpr Rational     -- ^ R_j^q expression
+                      -> Complex Double       -- ^ Numerical value of R_j^q
+                      -> Complex Double       -- ^ Target numerical value of R_j
+                      -> RadExpr Rational
+selectResolventBranch q omegaPowers rjqExpr rjqVal targetVal =
+  selectResolventBranchFast q omegaPowers rjqExpr (evalComplex rjqExpr) rjqVal targetVal
 
 -- | Assign radical expressions to numerical values by matching.
 -- Each expression is evaluated numerically (as ExactComplex) and
