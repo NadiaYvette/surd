@@ -5,6 +5,7 @@ import qualified Test.Polynomial
 import qualified Test.Denest
 import qualified Test.NormalForm
 import qualified Test.Trig
+import qualified Test.Algebraic
 
 main :: IO ()
 main = defaultMain $ testGroup "surd"
@@ -12,4 +13,5 @@ main = defaultMain $ testGroup "surd"
   , Test.Denest.tests
   , Test.NormalForm.tests
   , Test.Trig.tests
+  , Test.Algebraic.tests
   ]

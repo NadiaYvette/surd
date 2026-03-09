@@ -3,6 +3,10 @@
 --
 -- Elements of K(α) are represented as polynomials in α of degree
 -- less than the degree of the minimal polynomial.
+--
+-- 'ExtElem' has 'Num' and 'Fractional' instances, enabling natural
+-- arithmetic syntax and nesting for field towers:
+-- @ExtElem (ExtElem Rational)@ represents Q(α)(β).
 module Surd.Field.Extension
   ( ExtField(..)
   , ExtElem(..)
@@ -17,6 +21,7 @@ module Surd.Field.Extension
   , extDiv
   , extPow
   , extEq
+  , isSentinelField
   ) where
 
 import Surd.Polynomial.Univariate
@@ -56,7 +61,9 @@ generator field = ExtElem monoX field
 
 -- | Reduce a polynomial modulo the minimal polynomial.
 reduce :: (Eq k, Fractional k) => ExtField k -> Poly k -> Poly k
-reduce field p = snd $ divModPoly p (genMinPoly field)
+reduce field p
+  | isSentinelField field = p  -- no reduction needed for literals
+  | otherwise = snd $ divModPoly p (genMinPoly field)
 
 extAdd :: (Eq k, Fractional k) => ExtElem k -> ExtElem k -> ExtElem k
 extAdd (ExtElem a f) (ExtElem b _) = ExtElem (reduce f $ addPoly a b) f
@@ -91,6 +98,40 @@ extPow e n
 
 extEq :: (Eq k, Num k) => ExtElem k -> ExtElem k -> Bool
 extEq (ExtElem a _) (ExtElem b _) = a == b
+
+-- | A sentinel field used by 'fromInteger' / 'fromRational'.
+-- Binary operations will pick the non-sentinel field from either operand.
+sentinelField :: ExtField k
+sentinelField = ExtField (Poly []) 0 "<literal>"
+
+-- | Check whether a field is the sentinel (placeholder for literals).
+isSentinelField :: ExtField k -> Bool
+isSentinelField f = extDegree f == 0
+
+-- | Pick the "real" field from two operands. Prefers non-sentinel.
+pickField :: ExtField k -> ExtField k -> ExtField k
+pickField f g
+  | isSentinelField f = g
+  | otherwise         = f
+
+instance (Eq k, Fractional k) => Eq (ExtElem k) where
+  (==) = extEq
+
+instance (Eq k, Fractional k) => Num (ExtElem k) where
+  ExtElem a fa + ExtElem b fb =
+    let f = pickField fa fb
+    in ExtElem (reduce f $ addPoly a b) f
+  ExtElem a fa * ExtElem b fb =
+    let f = pickField fa fb
+    in ExtElem (reduce f $ mulPoly a b) f
+  negate (ExtElem a f) = ExtElem (scalePoly (-1) a) f
+  abs    = error "ExtElem: abs not meaningful for field elements"
+  signum = error "ExtElem: signum not meaningful for field elements"
+  fromInteger n = ExtElem (constPoly (fromInteger n)) sentinelField
+
+instance (Eq k, Fractional k) => Fractional (ExtElem k) where
+  recip = extInv
+  fromRational r = ExtElem (constPoly (fromRational r)) sentinelField
 
 -- | Extended Euclidean algorithm for polynomials.
 -- Returns (g, s, t) such that g = s*a + t*b, with g = gcd(a, b) made monic.

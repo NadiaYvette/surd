@@ -6,6 +6,7 @@
 module Surd.Polynomial.MinimalPoly
   ( minimalPoly
   , annihilatingPoly
+  , polyResultant
   ) where
 
 import Data.List.NonEmpty (NonEmpty(..))

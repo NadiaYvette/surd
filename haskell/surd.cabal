@@ -18,7 +18,13 @@ library
     Surd.Polynomial.Cyclotomic
     Surd.Polynomial.Factoring
     Surd.Polynomial.MinimalPoly
+    Surd.Polynomial.MinimalPolyTower
+    Surd.Polynomial.TragerFactoring
     Surd.Field.Extension
+    Surd.Field.Tower
+    Surd.Algebraic.RootIsolation
+    Surd.Algebraic.Number
+    Surd.Algebraic.Convert
     Surd.Radical.Expr
     Surd.Radical.Eval
     Surd.Radical.LaTeX
@@ -28,6 +34,7 @@ library
     Surd.Radical.Denest
     Surd.Radical.Denest.Sqrt
     Surd.Radical.Denest.NthRoot
+    Surd.Radical.Denest.Landau
     Surd.Radical.Equality
     Surd.Radical.Order
     Surd.Trig
@@ -49,6 +56,7 @@ test-suite surd-test
     Test.Denest
     Test.NormalForm
     Test.Trig
+    Test.Algebraic
   build-depends:
     base >= 4.18 && < 5,
     surd,
