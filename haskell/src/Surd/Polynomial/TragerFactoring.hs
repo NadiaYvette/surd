@@ -7,7 +7,9 @@
 module Surd.Polynomial.TragerFactoring
   ( factorOverExtension
   , factorSFOverExtension
+  , factorSFOverExtensionK
   , normPoly
+  , normPolyK
   ) where
 
 import Surd.Polynomial.Univariate
@@ -34,8 +36,8 @@ factorSFOverExtension :: ExtField Rational
                       -> Poly (ExtElem Rational)
                       -> [Poly (ExtElem Rational)]
 factorSFOverExtension field f
-  | polyDegExt f <= 0 = []
-  | polyDegExt f == 1 = [monicPolyExt field f]
+  | degree f <= 0 = []
+  | degree f == 1 = [monicPoly f]
   | otherwise = tragerFactor field f 0
 
 tragerFactor :: ExtField Rational
@@ -57,7 +59,7 @@ tragerFactor field f s
            -- Factor N(x) over Q
            let nFactors = factorSquareFree (monicPoly n)
            in if length nFactors <= 1
-              then [monicPolyExt field f]  -- f is irreducible over Q(α)
+              then [monicPoly f]  -- f is irreducible over Q(α)
               else
                 -- Lift each factor back
                 let lifted = liftFactors field f sAlpha nFactors
@@ -74,7 +76,7 @@ tragerFactor field f s
 -- then interpolate. The degree of N is deg(f) * deg(m).
 normPoly :: ExtField Rational -> Poly (ExtElem Rational) -> Poly Rational
 normPoly field f =
-  let df = polyDegExt f
+  let df = degree f
       dm = extDegree field
       resultDeg = df * dm
       -- Evaluate at 0, 1, 2, ..., resultDeg
@@ -122,16 +124,16 @@ liftFactors field f sAlpha qFactors = go f qFactors
   where
     go _ [] = []
     go remaining (g : gs)
-      | polyDegExt remaining <= 0 = []
+      | degree remaining <= 0 = []
       | otherwise =
           -- g_i(x - s·α) as a polynomial in Q(α)[x]
           let gLifted = liftQPoly field g
               gUnshifted = shiftPoly gLifted (negate sAlpha)
               -- gcd(remaining, gUnshifted) in Q(α)[x]
               h = gcdPolyExt field remaining gUnshifted
-          in if polyDegExt h > 0
+          in if degree h > 0
              then let (q, _) = divModPolyExt field remaining h
-                  in monicPolyExt field h : go q gs
+                  in monicPoly h : go q gs
              else go remaining gs
 
 -- | Lift a Q[x] polynomial to Q(α)[x] by embedding coefficients.
@@ -151,7 +153,7 @@ gcdPolyExt :: ExtField Rational
            -> Poly (ExtElem Rational)
            -> Poly (ExtElem Rational)
 gcdPolyExt field a b
-  | isZeroPolyExt b = monicPolyExt field a
+  | isZeroPolyExt b = monicPoly a
   | otherwise = gcdPolyExt field b (snd $ divModPolyExt field a b)
 
 -- | Division of polynomials over Q(α).
@@ -168,10 +170,6 @@ monicPolyExt :: ExtField Rational
              -> Poly (ExtElem Rational)
              -> Poly (ExtElem Rational)
 monicPolyExt _ = monicPoly
-
--- | Degree of a polynomial over Q(α).
-polyDegExt :: Poly (ExtElem Rational) -> Int
-polyDegExt = degree
 
 -- | Check if a polynomial over Q(α) is zero.
 isZeroPolyExt :: Poly (ExtElem Rational) -> Bool
@@ -192,3 +190,138 @@ lagrangeInterp points = foldl addPoly zeroPoly terms
       let others = filter (/= xi) xs
       in foldl mulPoly (constPoly 1)
            [scalePoly (1 / (xi - xj)) (mkPoly [-xj, 1]) | xj <- others]
+
+-- | Generalized Lagrange interpolation over any field.
+lagrangeInterpK :: (Eq k, Fractional k) => [(k, k)] -> Poly k
+lagrangeInterpK points = foldl addPoly zeroPoly terms
+  where
+    terms = [scalePoly yi (lagrangeBasis xi (map fst points)) | (xi, yi) <- points]
+    lagrangeBasis xi xs =
+      let others = filter (/= xi) xs
+      in foldl mulPoly (constPoly 1)
+           [scalePoly (recip (xi - xj)) (mkPoly [-xj, 1]) | xj <- others]
+
+-- | Resultant of two polynomials over any field.
+polyResultantK :: (Eq k, Fractional k) => Poly k -> Poly k -> k
+polyResultantK f g
+  | degree f < 0 || degree g < 0 = 0
+  | degree g == 0 = case leadCoeff g of
+      Just c  -> c ^ degree f
+      Nothing -> 0
+  | otherwise =
+      let (_, r) = divModPoly f g
+          df = degree f
+          dg = degree g
+          lg = case leadCoeff g of Just c -> c; Nothing -> 1
+          dr = degree r
+          sign = if odd (df * dg) then -1 else 1
+      in if degree r < 0
+         then 0
+         else sign * (lg ^ (df - dr)) * polyResultantK g r
+
+-- | Compute the norm of f(x) ∈ K(α)[x] over any base field K.
+-- N(x) = Res_t(m(t), f_lifted(x, t)) ∈ K[x].
+normPolyK :: (Eq k, Fractional k) => ExtField k -> Poly (ExtElem k) -> Poly k
+normPolyK field f =
+  let df = degree f
+      dm = extDegree field
+      resultDeg = df * dm
+      m = genMinPoly field
+      points = [fromInteger i | i <- [0..fromIntegral resultDeg]]
+      values = [normAtPointK m (evalPolyExtK f x0) | (x0 :: k) <- points]
+  in lagrangeInterpK (zip points values)
+
+-- | Evaluate f(x₀) where f has ExtElem k coefficients and x₀ ∈ k.
+evalPolyExtK :: (Eq k, Fractional k) => Poly (ExtElem k) -> k -> Poly k
+evalPolyExtK (Poly []) _ = zeroPoly
+evalPolyExtK (Poly cs) x0 =
+  foldl (\acc (i, ExtElem p _) ->
+           addPoly acc (scalePoly (x0 ^ i) p))
+        zeroPoly
+        (zip [0 :: Int ..] cs)
+
+-- | Compute Res_t(m(t), g(t)) over any field k.
+normAtPointK :: (Eq k, Fractional k) => Poly k -> Poly k -> k
+normAtPointK = polyResultantK
+
+-- | Factor a square-free polynomial over K(α) given a factoring function for K.
+--
+-- This is the generalized Trager algorithm. The @factorBaseK@ parameter
+-- provides factoring over the base field K (e.g., @factorSquareFree@ for Q,
+-- or @factorSFOverExtension field1@ for K = Q(α₁)).
+factorSFOverExtensionK :: (Eq k, Fractional k)
+                       => (Poly k -> [Poly k])  -- ^ Factor over base field K
+                       -> ExtField k
+                       -> Poly (ExtElem k)
+                       -> [Poly (ExtElem k)]
+factorSFOverExtensionK factorBaseK field f
+  | degree f <= 0 = []
+  | degree f == 1 = [monicPoly f]
+  | otherwise = tragerFactorK factorBaseK field f 0
+
+tragerFactorK :: (Eq k, Fractional k)
+              => (Poly k -> [Poly k])
+              -> ExtField k
+              -> Poly (ExtElem k)
+              -> Int
+              -> [Poly (ExtElem k)]
+tragerFactorK factorBaseK field f s
+  | s > 20 = [f]
+  | otherwise =
+      let alpha = generator field
+          sAlpha = embed field (fromInteger (fromIntegral s)) * alpha
+          fShifted = shiftPoly f sAlpha
+          n = normPolyK field fShifted
+      in if not (isSquareFreeK n)
+         then tragerFactorK factorBaseK field f (s + 1)
+         else
+           let nFactors = factorBaseK (monicPoly n)
+           in if length nFactors <= 1
+              then [monicPoly f]
+              else liftFactorsK field f sAlpha nFactors
+
+-- | Check if a polynomial over k is square-free.
+isSquareFreeK :: (Eq k, Fractional k) => Poly k -> Bool
+isSquareFreeK p =
+  let p' = diffPoly p
+      g = gcdPolyK p p'
+  in degree g <= 0
+
+-- | GCD over any field.
+gcdPolyK :: (Eq k, Fractional k) => Poly k -> Poly k -> Poly k
+gcdPolyK a b
+  | isZeroPoly b = monicPoly a
+  | otherwise = gcdPolyK b (snd $ divModPoly a b)
+  where
+    isZeroPoly (Poly cs) = all (== 0) cs
+
+-- | Lift base-field factors back to K(α)-factors via GCD (generalized).
+liftFactorsK :: (Eq k, Fractional k)
+             => ExtField k
+             -> Poly (ExtElem k)
+             -> ExtElem k
+             -> [Poly k]
+             -> [Poly (ExtElem k)]
+liftFactorsK field f sAlpha kFactors = go f kFactors
+  where
+    go _ [] = []
+    go remaining (g : gs)
+      | degree remaining <= 0 = []
+      | otherwise =
+          let gLifted = liftKPoly field g
+              gUnshifted = shiftPoly gLifted (negate sAlpha)
+              h = gcdPolyGeneric remaining gUnshifted
+          in if degree h > 0
+             then let (q, _) = divModPoly remaining h
+                  in monicPoly h : go q gs
+             else go remaining gs
+
+-- | GCD of two polynomials (generic, for ExtElem k).
+gcdPolyGeneric :: (Eq a, Fractional a) => Poly a -> Poly a -> Poly a
+gcdPolyGeneric a b
+  | all (== 0) (unPoly b) = monicPoly a
+  | otherwise = gcdPolyGeneric b (snd $ divModPoly a b)
+
+-- | Lift a K[x] polynomial to K(α)[x].
+liftKPoly :: (Eq k, Num k) => ExtField k -> Poly k -> Poly (ExtElem k)
+liftKPoly field (Poly cs) = Poly (map (embed field) cs)

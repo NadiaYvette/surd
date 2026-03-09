@@ -9,6 +9,7 @@ import Surd.Algebraic.Number (AlgNum(..), algFromRational, algNeg, algAdd, algMu
 import Surd.Radical.Pretty (pretty)
 import Data.List (isInfixOf)
 import Surd.Algebraic.Convert
+import Surd.Radical.Eval (eval, evalComplex)
 import Surd.Algebraic.RootIsolation (isolateRealRoots, rootInInterval, sturmCount)
 import Surd.Polynomial.MinimalPolyTower (minimalPolyTower, collectRadicals)
 import Surd.Polynomial.TragerFactoring (factorSFOverExtension)
@@ -187,6 +188,44 @@ tests = testGroup "Algebraic"
             putStrLn $ "  Simplified radicals: " ++ show (length simpRads)
             assertBool "simplified has fewer radicals" (length simpRads < length (collectRadicals e))
           MinPoly _ -> assertFailure "expected Radical"
+    ]
+  , testGroup "Degree 4 (Ferrari)"
+    [ testCase "√(2+√3) is degree 4" $ do
+        -- √(2+√3) has minpoly x⁴ - 4x² + 1
+        let e = Root 2 (Add (Lit 2) (Root 2 (Lit 3))) :: RadExpr Rational
+            a = radExprToAlgNum e
+        degree (anMinPoly a) @?= 4
+    , testCase "√(2+√3) round-trips via Ferrari" $ do
+        let e = Root 2 (Add (Lit 2) (Root 2 (Lit 3))) :: RadExpr Rational
+            a = radExprToAlgNum e
+        case algNumToRadExpr a of
+          Just rad -> do
+            let orig = eval e :: Double
+                new  = eval rad :: Double
+            assertBool "values match" (abs (orig - new) < 1e-8)
+          Nothing -> assertFailure "Ferrari should produce a radical for degree 4"
+    , testCase "√2 + √3 is degree 4, round-trips" $ do
+        let e = Add (Root 2 (Lit 2)) (Root 2 (Lit 3)) :: RadExpr Rational
+            a = radExprToAlgNum e
+        degree (anMinPoly a) @?= 4
+        case algNumToRadExpr a of
+          Just rad -> do
+            let orig = eval e :: Double
+                new  = eval rad :: Double
+            assertBool "values match" (abs (orig - new) < 1e-8)
+          Nothing -> assertFailure "Ferrari should produce a radical for degree 4"
+    , testCase "cos(π/8) is degree 4" $ do
+        case cosExact 1 8 of
+          Radical e -> do
+            let a = radExprToAlgNum e
+            degree (anMinPoly a) @?= 4
+            case algNumToRadExpr a of
+              Just rad -> do
+                let orig = cos (pi/8 :: Double)
+                    new  = eval rad :: Double
+                assertBool "cos(π/8) value matches" (abs (orig - new) < 1e-8)
+              Nothing -> assertFailure "Ferrari should handle cos(π/8)"
+          MinPoly _ -> assertFailure "expected radical"
     ]
   , testGroup "Trager factoring"
     [ testCase "x^2 - 3 factors over Q(sqrt(3))" $ do

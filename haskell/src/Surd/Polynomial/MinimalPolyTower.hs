@@ -27,7 +27,7 @@ import Surd.Field.Extension
 import Surd.Radical.Eval (eval, evalComplex)
 import Data.Complex (Complex(..), realPart, magnitude)
 import Surd.Radical.Normalize (normalize)
-import Data.List (minimumBy)
+import Data.List (minimumBy, nub)
 import Data.Ord (comparing)
 
 -- | Compute the minimal polynomial of a radical expression over Q,
@@ -73,7 +73,7 @@ collectRadicals = dedup . go . normalize
     go (Pow a _)  = go a
     go (Root n a) = go a ++ [(n, a)]  -- a is already normalized by outer normalize
 
-    dedup = foldr (\x acc -> if x `elem` acc then acc else acc ++ [x]) []
+    dedup = nub
 
 -- | Try to evaluate a RadExpr as a pure rational (no radicals).
 evalRational :: RadExpr Rational -> Maybe Rational

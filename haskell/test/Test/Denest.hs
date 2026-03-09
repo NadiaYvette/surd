@@ -5,11 +5,18 @@ import Test.Tasty.HUnit
 
 import Surd.Types
 import Surd.Radical.Denest.Sqrt
+import Surd.Radical.Denest.Landau (denestLandau, denestRadical)
 import Surd.Radical.Eval (eval)
 import Surd.Radical.Normalize (normalize)
 
 tests :: TestTree
-tests = testGroup "Radical.Denest.Sqrt"
+tests = testGroup "Denesting"
+  [ sqrtDenestTests
+  , landauDenestTests
+  ]
+
+sqrtDenestTests :: TestTree
+sqrtDenestTests = testGroup "Sqrt"
   [ testCase "√(3 + 2√2) = 1 + √2" $ do
       -- √(3 + 2√2) should denest to √1 + √2 = 1 + √2
       let result = trySqrtDenest 3 2 2
@@ -80,4 +87,57 @@ tests = testGroup "Radical.Denest.Sqrt"
             normed = eval (normalize (Root 2 (Lit r))) :: Double
         abs (orig - normed) < 1e-10 @? ("√(" ++ show r ++ ") value mismatch")
         ) cases
+  ]
+
+landauDenestTests :: TestTree
+landauDenestTests = testGroup "Landau"
+  [ testCase "denestRadical: √(3+2√2) over Q(√2)" $ do
+      -- √(3+2√2) = 1+√2, which is linear in √2
+      -- The radicand involves one radical (√2), so depth-1 Trager should work.
+      let radicand = Add (Lit 3) (Mul (Lit 2) (Root 2 (Lit 2))) :: RadExpr Rational
+      case denestRadical 2 radicand of
+        Just denested -> do
+          let orig = eval (Root 2 radicand) :: Double
+              new  = eval denested :: Double
+          abs (orig - new) < 1e-10 @? "denested value should match"
+        Nothing -> assertFailure "should denest √(3+2√2)"
+
+  , testCase "denestLandau: √(3+2√2) recursive" $ do
+      let expr = Root 2 (Add (Lit 3) (Mul (Lit 2) (Root 2 (Lit 2)))) :: RadExpr Rational
+          denested = denestLandau expr
+          orig = eval expr :: Double
+          new  = eval denested :: Double
+      abs (orig - new) < 1e-10 @? "denested value should match"
+
+  , testCase "denestRadical: √(5+2√6) over Q(√6)" $ do
+      -- √(5+2√6) = √2+√3, factors as (x-√2-√3)(x+√2-√3)... actually
+      -- over Q(√6): radicand = 5+2α where α=√6, x²-(5+2α) = 0 has disc 4(5+2α)
+      -- This needs Q(√6) extension, and x²-a doesn't factor linearly.
+      -- Actually let's just test it
+      let radicand = Add (Lit 5) (Mul (Lit 2) (Root 2 (Lit 6))) :: RadExpr Rational
+      case denestRadical 2 radicand of
+        Just denested -> do
+          let orig = eval (Root 2 radicand) :: Double
+              new  = eval denested :: Double
+          abs (orig - new) < 1e-10 @? "denested value should match"
+        Nothing -> return ()  -- may not denest over Q(√6) alone
+
+  , testCase "denestRadical: multi-radical radicand (depth 2)" $ do
+      -- √(√2 + √3) — radicand has two radicals
+      -- This shouldn't denest (it's truly nested), but should not crash
+      let radicand = Add (Root 2 (Lit 2)) (Root 2 (Lit 3)) :: RadExpr Rational
+      case denestRadical 2 radicand of
+        Just denested -> do
+          let orig = eval (Root 2 radicand) :: Double
+              new  = eval denested :: Double
+          abs (orig - new) < 1e-10 @? "denested value should match"
+        Nothing -> return ()  -- ok, not denestable
+
+  , testCase "denestLandau preserves value on non-denestable" $ do
+      -- √(1 + √2) cannot be denested
+      let expr = Root 2 (Add (Lit 1) (Root 2 (Lit 2))) :: RadExpr Rational
+          denested = denestLandau expr
+          orig = eval expr :: Double
+          new  = eval denested :: Double
+      abs (orig - new) < 1e-10 @? "should preserve value even when not denested"
   ]

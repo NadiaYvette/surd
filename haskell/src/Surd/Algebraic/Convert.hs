@@ -75,6 +75,7 @@ algNumToRadExpr a =
               _       -> Nothing
        2 -> solveQuadratic cs approx
        3 -> solveCubic cs approx
+       4 -> solveQuartic cs approx
        _ -> Nothing
 
 -- | Simplify a radical expression by converting to canonical form
@@ -189,6 +190,127 @@ solveCubic [d, c, b, _a] _approx =
            root = Add (Add u v) shift
        in Just root
 solveCubic _ _ = Nothing
+
+-- | Solve x⁴ + ax³ + bx² + cx + d = 0 (monic quartic) via Ferrari's method.
+--
+-- 1. Depress: substitute x = t - a/4 to get t⁴ + pt² + qt + r = 0
+-- 2. Solve the resolvent cubic for y
+-- 3. Factor the depressed quartic into two quadratics using y
+-- 4. Solve each quadratic, pick the root closest to approx
+solveQuartic :: [Rational] -> Double -> Maybe (RadExpr Rational)
+solveQuartic [e, d, c, b, _a] approx =
+  -- Polynomial is x⁴ + bx³ + cx² + dx + e (monic)
+  -- Depress: x = t - b/4
+  let p = c - 3*b*b/8
+      q = d - b*c/2 + b*b*b/8
+      r = e - b*d/4 + b*b*c/16 - 3*b*b*b*b/256
+      shiftBack expr = Add expr (Neg (Lit (b/4)))
+  in if q == 0
+     then -- Biquadratic: t⁴ + pt² + r = 0, solve as quadratic in t²
+       let disc = p*p - 4*r
+       in if disc < 0
+          then Nothing
+          else
+            let sqrtDisc = Root 2 (Lit disc)
+                t2_1 = Mul (Inv (Lit 2)) (Add (Neg (Lit p)) sqrtDisc)
+                t2_2 = Mul (Inv (Lit 2)) (Add (Neg (Lit p)) (Neg sqrtDisc))
+                -- t = ±√(t²)
+                roots = [ shiftBack (Root 2 t2_1)
+                        , shiftBack (Neg (Root 2 t2_1))
+                        , shiftBack (Root 2 t2_2)
+                        , shiftBack (Neg (Root 2 t2_2))
+                        ]
+                scored = [(root, abs (realPart (evalComplex root) - approx)) | root <- roots]
+                best = fst $ foldl1 (\x y -> if snd x <= snd y then x else y) scored
+            in Just best
+     else
+       -- General case: solve resolvent cubic y³ - py² - 4ry + (4pr - q²) = 0
+       let rcCs = [4*p*r - q*q, -4*r, -p, 1]
+           -- Use solveCubic to get a resolvent root
+           -- We need any root, so use a dummy approx (we'll try all later)
+       in case solveCubic rcCs 0 of
+            Nothing -> Nothing
+            Just yExpr ->
+              -- Evaluate y numerically
+              let y = realPart (evalComplex yExpr)
+                  -- y² - 4r should be non-negative for the factoring to work
+                  -- If not, try another resolvent root
+                  disc2 = y*y - 4 * fromRational r
+              in if disc2 < -1e-10
+                 then trySolveQuarticAlternate p q r b approx
+                 else solveQuarticWithY p q r b yExpr approx
+solveQuartic _ _ = Nothing
+
+-- | Given the depressed quartic t⁴ + pt² + qt + r = 0 and a resolvent root y,
+-- factor into two quadratics and solve.
+solveQuarticWithY :: Rational -> Rational -> Rational -> Rational
+                  -> RadExpr Rational -> Double
+                  -> Maybe (RadExpr Rational)
+solveQuarticWithY p q _r b yExpr approx =
+  -- We need s² = y - p, so s = √(y - p)
+  -- Then the quartic factors as:
+  -- (t² + s·t + (y/2 - q/(2s)))(t² - s·t + (y/2 + q/(2s))) = 0
+  --
+  -- In radical expressions:
+  let sSquared = Add yExpr (Neg (Lit p))  -- y - p
+      s = Root 2 sSquared                  -- √(y - p)
+      halfY = Mul (Inv (Lit 2)) yExpr     -- y/2
+      -- q/(2s) = q / (2·√(y-p))
+      qOver2s = Mul (Lit (q/2)) (Inv s)   -- q/(2·√(y-p))
+      -- Quadratic 1: t² + s·t + (y/2 - q/(2s)) = 0
+      -- roots: t = (-s ± √(s² - 4(y/2 - q/(2s)))) / 2
+      c1 = Add halfY (Neg qOver2s)         -- y/2 - q/(2s)
+      -- Quadratic 2: t² - s·t + (y/2 + q/(2s)) = 0
+      -- roots: t = (s ± √(s² - 4(y/2 + q/(2s)))) / 2
+      c2 = Add halfY qOver2s               -- y/2 + q/(2s)
+
+      -- Discriminants
+      disc1 = Add sSquared (Mul (Lit (-4)) c1)  -- s² - 4c1 = (y-p) - 4(y/2 - q/(2s))
+      disc2 = Add sSquared (Mul (Lit (-4)) c2)  -- s² - 4c2
+
+      sqD1 = Root 2 disc1
+      sqD2 = Root 2 disc2
+
+      shift expr = Add expr (Neg (Lit (b/4)))
+
+      -- Four roots (before un-depressing):
+      -- t1,t2 from quadratic 1: t = (-s ± √disc1) / 2
+      -- t3,t4 from quadratic 2: t = (s ± √disc2) / 2
+      t1 = Mul (Inv (Lit 2)) (Add (Neg s) sqD1)
+      t2 = Mul (Inv (Lit 2)) (Add (Neg s) (Neg sqD1))
+      t3 = Mul (Inv (Lit 2)) (Add s sqD2)
+      t4 = Mul (Inv (Lit 2)) (Add s (Neg sqD2))
+
+      roots = map shift [t1, t2, t3, t4]
+
+      -- Pick the root closest to the target
+      scored = [(root, abs (realPart (evalComplex root) - approx)) | root <- roots]
+      best = fst $ foldl1 (\x y -> if snd x <= snd y then x else y) scored
+  in Just best
+
+-- | Alternative quartic solving when the first resolvent root gives y < p.
+-- Try all three resolvent roots.
+trySolveQuarticAlternate :: Rational -> Rational -> Rational -> Rational -> Double
+                        -> Maybe (RadExpr Rational)
+trySolveQuarticAlternate p q r b approx =
+  -- Resolvent cubic: y³ - py² - 4ry + (4pr - q²) = 0
+  let rcCs = [4*p*r - q*q, -4*r, -p, 1]
+      poly = mkPoly rcCs
+      -- Try rational roots first
+      rats = rationalRoots poly
+  in case rats of
+       (rat:_) ->
+         let yExpr = Lit rat
+         in solveQuarticWithY p q r b yExpr approx
+       [] ->
+         -- Get all three cubic roots and try each
+         let approxRoots = [0, 10, -10] :: [Double]  -- different starting points
+             attempts = [do yE <- solveCubic rcCs a
+                            solveQuarticWithY p q r b yE approx
+                        | a <- approxRoots]
+         in case [r' | Just r' <- attempts] of
+              (x:_) -> Just x
+              []    -> Nothing
 
 -- | Display a polynomial in a readable format.
 showPoly :: Poly Rational -> String
