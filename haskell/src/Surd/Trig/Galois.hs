@@ -20,7 +20,7 @@ module Surd.Trig.Galois
   , modExp
   ) where
 
-import Data.Complex (Complex(..), magnitude, realPart, imagPart)
+import Data.Complex (Complex(..), magnitude, realPart, imagPart, mkPolar, phase)
 import Data.List (nub, sort)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
@@ -60,7 +60,7 @@ cosOfUnityViaGauss n
               -- For prime n: Σ_{k=1}^{n-1} ζ^k = -1
               -- For general n: Σ_{k coprime to n} ζ^k = μ(n) (Ramanujan sum)
               coprimeElems = [modExp g k n' | k <- [0..phi-1]]
-              initSum = sum [cos (2 * pi * fromIntegral k / fromIntegral n') | k <- coprimeElems]
+              initSum = sum [cos (2 * pi * fromIntegral k / fromIntegral n') | k <- coprimeElems] :: Double
               initExpr = Lit (toRational (fromIntegral (round initSum :: Integer) :: Double))
               initPeriod = PeriodState
                 { periodExpr  = initExpr
@@ -177,6 +177,11 @@ matchToPeriodExpr periods p target =
   -- First check if target is close to a real integer
   let nearestInt = round (realPart target) :: Integer
       nearestRat = toRational (fromIntegral nearestInt :: Double)
+      -- Use relative tolerance: absolute error / max(1, |target|).
+      -- For large d_s values (millions in q=11 resolvents), absolute
+      -- error from floating-point arithmetic can be ~0.01, but the
+      -- relative error is still ~1e-9.
+      relTol err = err / max 1 (magnitude target) < 1e-6
   in if magnitude (target - (fromIntegral nearestInt :+ 0)) < 1e-8
      then Lit nearestRat
      else
@@ -190,7 +195,7 @@ matchToPeriodExpr periods p target =
              case matchSinglePeriod target pv of
                Just (c, a) ->
                  let err = magnitude (target - (fromIntegral c :+ 0) - (fromIntegral a :+ 0) * pv)
-                 in if err < 1e-6
+                 in if relTol err
                     then Just (c, replicate i 0 ++ [a] ++ replicate (length periods - i - 1) 0, err)
                     else Nothing
                Nothing -> Nothing
@@ -200,7 +205,7 @@ matchToPeriodExpr periods p target =
              Just (c, as) ->
                let err = magnitude (target - (fromIntegral c :+ 0) -
                            sum (zipWith (\a pv -> (fromIntegral a :+ 0) * pv) as periodVals))
-               in if err < 1e-6 then Just (c, as, err) else Nothing
+               in if relTol err then Just (c, as, err) else Nothing
              Nothing -> Nothing
            allMatches = singleMatches ++ maybe [] (:[]) multiMatch
            -- Pick match with smallest max coefficient
@@ -236,7 +241,11 @@ matchSinglePeriod target v =
       remainder = target - (fromIntegral a :+ 0) * v
       c = round (realPart remainder) :: Int
       recon = (fromIntegral c :+ 0) + (fromIntegral a :+ 0) * v
-  in if magnitude (recon - target) < 1e-4
+      err = magnitude (recon - target)
+      -- Relative tolerance: for large targets (millions in high-degree
+      -- resolvents), absolute error can be ~0.01 from Double arithmetic
+      relErr = err / max 1 (magnitude target)
+  in if relErr < 1e-6
      then Just (c, a)
      else Nothing
 
@@ -252,11 +261,13 @@ findIntegerComboC :: Complex Double -> [Complex Double] -> Maybe (Int, [Int])
 findIntegerComboC target vals = solveLinearIntegerC target vals
 
 -- | Solve target = c + Σ aᵢ·xᵢ for integer c, aᵢ using the complex structure.
+-- Uses relative tolerance for robustness with large values.
 solveLinearIntegerC :: Complex Double -> [Complex Double] -> Maybe (Int, [Int])
 solveLinearIntegerC target [] =
   -- No periods: target should be a real integer
   let c = round (realPart target) :: Int
-  in if magnitude (target - (fromIntegral c :+ 0)) < 1e-6
+      err = magnitude (target - (fromIntegral c :+ 0))
+  in if err / max 1 (magnitude target) < 1e-6
      then Just (c, [])
      else Nothing
 solveLinearIntegerC target [v] =
@@ -268,15 +279,15 @@ solveLinearIntegerC target [v] =
                else 0
       remainder = target - (fromIntegral a :+ 0) * v
       c = round (realPart remainder) :: Int
-  in if magnitude (target - (fromIntegral c :+ 0) - (fromIntegral a :+ 0) * v) < 1e-4
+      err = magnitude (target - (fromIntegral c :+ 0) - (fromIntegral a :+ 0) * v)
+  in if err / max 1 (magnitude target) < 1e-6
      then Just (c, [a])
      else Nothing
 solveLinearIntegerC target (v:vs) =
   -- Multiple periods: use imaginary part to constrain first coefficient,
   -- then recurse on the remainder.
-  -- Im(target) = a · Im(v) + Σ aᵢ · Im(vᵢ)
-  -- If Im(v) is large enough, estimate a, then recurse.
-  if abs (imagPart v) > 1e-10
+  let tol = max 1 (magnitude target) * 1e-6
+  in if abs (imagPart v) > 1e-10
   then
     -- Estimate a from imaginary part (approximate, refine by trying nearby values)
     let aEst = round (imagPart target / imagPart v) :: Int
@@ -286,7 +297,7 @@ solveLinearIntegerC target (v:vs) =
                Just (c, as) ->
                  let recon = (fromIntegral c :+ 0) + (fromIntegral a :+ 0) * v
                            + sum (zipWith (\ai xi -> (fromIntegral ai :+ 0) * xi) as vs)
-                 in if magnitude (recon - target) < 1e-4
+                 in if magnitude (recon - target) < tol
                     then Just (c, a : as)
                     else Nothing
                Nothing -> Nothing
@@ -304,7 +315,7 @@ solveLinearIntegerC target (v:vs) =
                Just (c, as) ->
                  let recon = (fromIntegral c :+ 0) + (fromIntegral a :+ 0) * v
                            + sum (zipWith (\ai xi -> (fromIntegral ai :+ 0) * xi) as vs)
-                 in if magnitude (recon - target) < 1e-4
+                 in if magnitude (recon - target) < tol
                     then Just (c, a : as)
                     else Nothing
                Nothing -> Nothing
@@ -441,7 +452,7 @@ solvePeriodViaResolvent q allPeriods p parentExpr numVals =
                       | s <- [0..q-1] ]
         | j <- [1..q-1] ]
 
-      -- R_j = q-th root of R_j^q, with branch selection
+      -- Select correct branch of q-th root for each resolvent
       resolventExprs = [ selectResolventBranch q omegaPowers
                            (resolventPowerExprs !! (j-1))
                            (resolventPowersQ !! j)
@@ -459,17 +470,9 @@ solvePeriodViaResolvent q allPeriods p parentExpr numVals =
                           | j <- [0..q-1] ])
         | k <- [0..q-1] ]
 
-      -- Compute numerical sub-period values directly from numerical resolvents
-      -- (avoids expensive evalComplex on the symbolic expressions)
-      allResolventVals = [resolventVals !! j | j <- [0..q-1]]
-      numSubPeriods =
-        [ (1 / fromIntegral q) *
-          sum [ omegaC ^^ (negate (j * k)) * (allResolventVals !! j)
-              | j <- [0..q-1] ]
-        | k <- [0..q-1] ]
-
-      result = assignByValueNum subPeriodExprs numSubPeriods numVals
-  in result
+      -- Match expressions to target sub-period values
+      exprEvals = map evalComplex subPeriodExprs
+  in assignByValueNum subPeriodExprs exprEvals numVals
 
 -- | Express ω^m = e^{2πim/q} as a RadExpr, given cos(2π/q).
 --
@@ -499,13 +502,24 @@ omegaPowerExpr q cosBase m =
 selectResolventBranch :: Int
                       -> [RadExpr Rational]   -- ^ ω^k for k = 0, ..., q-1
                       -> RadExpr Rational     -- ^ R_j^q expression
-                      -> Complex Double       -- ^ Numerical value of R_j^q (unused, kept for API)
+                      -> Complex Double       -- ^ Numerical value of R_j^q
                       -> Complex Double       -- ^ Target numerical value of R_j
                       -> RadExpr Rational
 selectResolventBranch q omegaPowers rjqExpr _rjqVal targetVal =
   let principalRoot = Root q rjqExpr
-      -- Evaluate the actual principal root from the expression
-      principalVal = evalComplex principalRoot
+      -- Evaluate the expression to get the principal root.
+      -- We use the EXPRESSION's evaluation (not the precomputed numerical
+      -- value) because the principal branch depends on the phase angle,
+      -- and when R_j^q is near the branch cut at -π, a tiny phase
+      -- difference between the expression and numerical values can put
+      -- the principal root in different sectors, causing wrong branch
+      -- selection.
+      --
+      -- This is fast because rjqExpr is a shallow sum-of-products tree
+      -- (not the deep nested expression we had before).
+      rjqExprVal = evalComplex rjqExpr
+      principalVal = mkPolar (magnitude rjqExprVal ** (1 / fromIntegral q))
+                             (phase rjqExprVal / fromIntegral q)
       -- Find the ω^k correction that best matches the target
       omegaC = exp (0 :+ (2 * pi / fromIntegral q))
       scored = [ (k, magnitude (omegaC ^ k * principalVal - targetVal))
