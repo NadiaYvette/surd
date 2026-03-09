@@ -1,7 +1,7 @@
 -- | Ordering of real radical expressions.
 --
--- Uses numerical evaluation with sufficient precision to determine
--- the ordering between two expressions.
+-- Uses algebraic number comparison with Sturm-based interval
+-- refinement for rigorous results.
 module Surd.Radical.Order
   ( radicalCompare
   , radicalLt
@@ -11,25 +11,16 @@ module Surd.Radical.Order
   ) where
 
 import Surd.Types
-import Surd.Radical.Eval (eval)
-import Surd.Radical.Equality (radicalEq)
+import Surd.Algebraic.Convert (radExprToAlgNum)
+import Surd.Algebraic.Number (algCompare)
 
 -- | Compare two radical expressions.
 --
--- First checks equality (via minimal polynomials), then uses
--- numerical evaluation to determine ordering.
---
--- For rigorous comparison, we would refine interval arithmetic
--- until the intervals are disjoint. The current implementation
--- uses double-precision evaluation which is correct for
--- expressions whose values are separated by more than ~10^-15.
+-- Converts both to algebraic numbers and compares using
+-- Sturm-based interval refinement. This is rigorous and
+-- correct for all real radical expressions.
 radicalCompare :: RadExpr Rational -> RadExpr Rational -> Ordering
-radicalCompare a b
-  | radicalEq a b = EQ
-  | otherwise =
-      let va = eval a :: Double
-          vb = eval b :: Double
-      in compare va vb
+radicalCompare a b = algCompare (radExprToAlgNum a) (radExprToAlgNum b)
 
 radicalLt :: RadExpr Rational -> RadExpr Rational -> Bool
 radicalLt a b = radicalCompare a b == LT

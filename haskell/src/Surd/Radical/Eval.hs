@@ -97,12 +97,5 @@ evalInterval (Neg a)    =
 evalInterval (Add a b)  = I.iadd (evalInterval a) (evalInterval b)
 evalInterval (Mul a b)  = I.imul (evalInterval a) (evalInterval b)
 evalInterval (Inv a)    = I.iinv (evalInterval a)
-evalInterval (Root 2 a) = I.isqrt (evalInterval a)
-evalInterval (Root n a) =
-  -- For general nth roots, use floating-point bounds and widen slightly.
-  -- This is a pragmatic initial implementation; can be replaced with
-  -- proper interval nth root later.
-  let d = eval (Root n a)
-      eps = abs d * 1e-15 + 1e-300
-  in Interval (toRational (d - eps)) (toRational (d + eps))
+evalInterval (Root n a) = I.inth n (evalInterval a)
 evalInterval (Pow a n)  = I.ipow (evalInterval a) n

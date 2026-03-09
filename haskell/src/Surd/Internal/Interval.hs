@@ -17,6 +17,11 @@ module Surd.Internal.Interval
   , idiv
   , ipow
   , isqrt
+  , inth
+  , iabs
+  , strictlyPositive
+  , strictlyNegative
+  , containsZero
   ) where
 
 -- | A closed interval [lo, hi] with rational endpoints.
@@ -111,3 +116,78 @@ isqrt (Interval l h)
         converge prev s
           | s == prev = s + 1  -- ensure it's an upper bound
           | otherwise = converge s ((s + x / s) / 2)
+
+-- | Interval enclosure of the nth root of an interval.
+--
+-- For odd n, handles negative values. For even n, requires non-negative.
+-- Uses bisection on rational intervals to find bounds [lo, hi] such that
+-- lo^n ≤ x ≤ hi^n.
+inth :: Int -> Interval -> Interval
+inth n (Interval l h)
+  | n <= 0    = error "inth: non-positive root index"
+  | n == 1    = Interval l h
+  | n == 2    = isqrt (Interval l h)
+  | even n && l < 0 = error "inth: even root of negative interval"
+  | h == 0 && l == 0 = Interval 0 0
+  | odd n && h < 0  =
+      -- Odd root of entirely negative interval: negate, root, negate
+      let Interval l' h' = inth n (Interval (negate h) (negate l))
+      in Interval (negate h') (negate l')
+  | odd n && l < 0  =
+      -- Odd root spanning zero: [-a, b] → [-ⁿ√a, ⁿ√b]
+      let negPart = nthRootUpper n (negate l)
+          posPart = nthRootUpper n h
+      in Interval (negate negPart) posPart
+  | otherwise = Interval (nthRootLower n l) (nthRootUpper n h)
+
+-- | Find a rational lower bound r such that r^n ≤ a, via bisection.
+nthRootLower :: Int -> Rational -> Rational
+nthRootLower _ 0 = 0
+nthRootLower n a =
+  -- Bisect in [0, max(a,1)] to find largest r with r^n ≤ a
+  let upper = max a 1
+  in bisectDown n a 0 upper 60
+
+-- | Find a rational upper bound r such that r^n ≥ a, via bisection.
+nthRootUpper :: Int -> Rational -> Rational
+nthRootUpper _ 0 = 0
+nthRootUpper n a =
+  let upper = max a 1 + 1
+  in bisectUp n a 0 upper 60
+
+-- | Bisect to find largest r in [lo, hi] with r^n ≤ a.
+bisectDown :: Int -> Rational -> Rational -> Rational -> Int -> Rational
+bisectDown _ _ lo _ 0 = lo
+bisectDown n a lo hi iters =
+  let mid = (lo + hi) / 2
+  in if mid ^^ n <= a
+     then bisectDown n a mid hi (iters - 1)
+     else bisectDown n a lo mid (iters - 1)
+
+-- | Bisect to find smallest r in [lo, hi] with r^n ≥ a.
+bisectUp :: Int -> Rational -> Rational -> Rational -> Int -> Rational
+bisectUp _ _ _ hi 0 = hi
+bisectUp n a lo hi iters =
+  let mid = (lo + hi) / 2
+  in if mid ^^ n >= a
+     then bisectUp n a lo mid (iters - 1)
+     else bisectUp n a mid hi (iters - 1)
+
+-- | Absolute value of an interval.
+iabs :: Interval -> Interval
+iabs (Interval l h)
+  | l >= 0    = Interval l h
+  | h <= 0    = Interval (negate h) (negate l)
+  | otherwise = Interval 0 (max (negate l) h)
+
+-- | Test if an interval is strictly positive.
+strictlyPositive :: Interval -> Bool
+strictlyPositive (Interval l _) = l > 0
+
+-- | Test if an interval is strictly negative.
+strictlyNegative :: Interval -> Bool
+strictlyNegative (Interval _ h) = h < 0
+
+-- | Test if an interval contains zero.
+containsZero :: Interval -> Bool
+containsZero (Interval l h) = l <= 0 && h >= 0
