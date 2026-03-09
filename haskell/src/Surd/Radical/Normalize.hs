@@ -129,9 +129,22 @@ extractPerfectPowers expr = case expr of
             den = denominator r
             (numOut, numIn) = extractNthPower n num
             (denOut, denIn) = extractNthPower n den
-        in case (numOut == 1 && denOut == 1) of
-          True  -> Root n (Lit r)
-          False -> Mul (Lit (numOut / denOut)) (Root n (Lit (numIn / denIn)))
+            -- Rationalize denominator: ⁿ√(p/q) = ⁿ√(p·q^(n-1)) / q
+            -- After perfect power extraction: ⁿ√(numIn/denIn)
+            -- If denIn > 1, multiply radicand by denIn^(n-1) and divide outside by denIn
+            (outerCoeff, innerRat)
+              | denIn == 1 = (numOut / denOut, numIn)
+              | otherwise  =
+                  let newInner = numIn * denIn ^ (n - 1 :: Int)
+                      newOuter = numOut / (denOut * denIn)
+                      -- Re-extract from newInner in case denIn^(n-1) introduced new powers
+                      (numOut2, numIn2) = extractNthPower n (numerator newInner)
+                  in (newOuter * numOut2, numIn2)
+        in case (outerCoeff == 1, innerRat == 1) of
+             (True, True)  -> Lit 1
+             (True, False) -> Root n (Lit innerRat)
+             (_, True)     -> Lit outerCoeff
+             _             -> Mul (Lit outerCoeff) (Root n (Lit innerRat))
     | r < 0 && odd n ->
         Neg (extractPerfectPowers (Root n (Lit (negate r))))
     | otherwise -> Root n (Lit r)
@@ -142,7 +155,6 @@ extractPerfectPowers expr = case expr of
   Inv a      -> Inv (extractPerfectPowers a)
   Pow a n    -> Pow (extractPerfectPowers a) n
   e          -> e
-  where
 
 -- | Given n and a positive integer m, extract the largest kth power
 -- that divides m and return (extracted, remainder).
