@@ -5,6 +5,7 @@ module Surd.Radical.Eval
   ( eval
   , evalComplex
   , evalInterval
+  , evalComplexInterval
   ) where
 
 import Data.Complex (Complex(..), magnitude, mkPolar)
@@ -13,7 +14,7 @@ import qualified Data.IntMap.Strict as IntMap
 import System.IO.Unsafe (unsafePerformIO)
 import System.Mem.StableName (StableName, makeStableName, hashStableName, eqStableName)
 import Surd.Types
-import Surd.Internal.Interval (Interval(..))
+import Surd.Internal.Interval (Interval(..), ComplexInterval(..))
 import qualified Surd.Internal.Interval as I
 
 -- | Evaluate a radical expression to a 'Double'.
@@ -99,3 +100,44 @@ evalInterval (Mul a b)  = I.imul (evalInterval a) (evalInterval b)
 evalInterval (Inv a)    = I.iinv (evalInterval a)
 evalInterval (Root n a) = I.inth n (evalInterval a)
 evalInterval (Pow a n)  = I.ipow (evalInterval a) n
+
+-- | Evaluate a radical expression to a complex interval enclosure.
+-- Handles expressions with complex intermediates (e.g., √(-3)).
+-- For even roots of negative intervals, introduces the imaginary unit.
+evalComplexInterval :: RadExpr Rational -> ComplexInterval
+evalComplexInterval (Lit r)    = I.ciFromRational r
+evalComplexInterval (Neg a)    = I.cineg (evalComplexInterval a)
+evalComplexInterval (Add a b)  = I.ciadd (evalComplexInterval a) (evalComplexInterval b)
+evalComplexInterval (Mul a b)  = I.cimul (evalComplexInterval a) (evalComplexInterval b)
+evalComplexInterval (Inv a)    = I.ciinv (evalComplexInterval a)
+evalComplexInterval (Pow a n)  = I.cipow (evalComplexInterval a) n
+evalComplexInterval (Root n a) =
+  let ci = evalComplexInterval a
+      rePart = I.ciReal ci
+      imPart = I.ciImag ci
+  in if I.lo imPart >= 0 && I.hi imPart <= 0  -- imaginary part is [0,0] (or very close)
+        && I.lo rePart >= 0  -- non-negative real
+     then I.ciFromReal (I.inth n rePart)
+     else if I.lo imPart >= 0 && I.hi imPart <= 0
+             && I.hi rePart <= 0  -- negative real
+             && odd n
+     then -- Odd root of negative real
+          let pos = I.inth n (Interval (negate (I.hi rePart)) (negate (I.lo rePart)))
+          in ComplexInterval (Interval (negate (I.hi pos)) (negate (I.lo pos))) (I.fromRational' 0)
+     else if I.lo imPart >= 0 && I.hi imPart <= 0
+             && I.hi rePart <= 0
+             && n == 2
+     then -- √(negative) = i·√(|x|)
+          let pos = I.isqrt (Interval (negate (I.hi rePart)) (negate (I.lo rePart)))
+          in ComplexInterval (I.fromRational' 0) pos
+     else -- General complex root: fall back to Double-based computation
+          -- and wrap in a small interval
+          let val = evalComplex (Root n a)
+              eps = 1e-10
+              re = toRational (realPart' val)
+              im = toRational (imagPart' val)
+          in ComplexInterval (Interval (re - eps) (re + eps))
+                             (Interval (im - eps) (im + eps))
+  where
+    realPart' (x :+ _) = x
+    imagPart' (_ :+ y) = y

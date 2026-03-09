@@ -13,11 +13,10 @@ module Surd.Radical.Denest.Landau
 
 import Surd.Types
 import Surd.Polynomial.Univariate
-import Surd.Polynomial.Factoring (factorSquareFree)
 import Surd.Polynomial.TragerFactoring (factorSFOverExtension, factorSFOverExtensionK)
 import Surd.Field.Extension
-import Surd.Radical.Eval (eval, evalComplex)
-import Data.Complex (realPart)
+import Surd.Radical.Eval (evalComplex)
+import Data.Complex (Complex(..))
 import Data.List (nub)
 
 -- | Try to denest all radicals in an expression using Landau's algorithm.
@@ -99,32 +98,113 @@ extractRoot :: ExtField Rational
             -> (Int, RadExpr Rational)
             -> Poly (ExtElem Rational)
             -> Maybe (RadExpr Rational)
-extractRoot field alpha rad f
+extractRoot field alpha rad f = extractRootGeneric toExpr f
+  where
+    toExpr = extElemToRadExpr field alpha rad
+
+-- | Generic root extraction from a polynomial factor of degree 1-4.
+-- The @toExpr@ function converts field elements to radical expressions.
+extractRootGeneric :: (Eq k, Fractional k)
+                   => (k -> RadExpr Rational)
+                   -> Poly k
+                   -> Maybe (RadExpr Rational)
+extractRootGeneric toExpr f
   | degree f == 1 =
-      -- f(x) = x + c, root is -c
       case unPoly f of
-        [c, _] ->
-          let negC = negate c
-          in Just (extElemToRadExpr field alpha rad negC)
+        [c, _] -> Just (toExpr (negate c))
         _ -> Nothing
   | degree f == 2 =
-      -- f(x) = x^2 + bx + c, roots are (-b ± √(b²-4c))/2
       case unPoly f of
         [c, b, _] ->
           let disc = b * b - 4 * c
-              -- Pick the root closest to the numerical value
-              target = eval (Root (degree f) (extElemToRadExpr field alpha rad (negate c))) :: Double
-              sqrtDisc = extElemToRadExpr field alpha rad disc
-              negB = extElemToRadExpr field alpha rad (negate b)
+              sqrtDisc = toExpr disc
+              negB = toExpr (negate b)
               r1 = Mul (Inv (Lit 2)) (Add negB (Root 2 sqrtDisc))
               r2 = Mul (Inv (Lit 2)) (Add negB (Neg (Root 2 sqrtDisc)))
-              v1 = eval r1 :: Double
-              v2 = eval r2 :: Double
-          in if abs (v1 - target) < abs (v2 - target)
-             then Just r1
-             else Just r2
+          in Just (pickClosestToReal [r1, r2])
         _ -> Nothing
-  | otherwise = Nothing  -- higher degree factors not yet handled
+  | degree f == 3 =
+      -- Depressed cubic via Cardano
+      case unPoly f of
+        [d, c, b, _] ->
+          -- x³ + bx² + cx + d = 0 (monic)
+          -- Depress: x = t - b/3
+          let p = c - b*b / 3
+              q = d - b*c/3 + 2*b*b*b/27
+              shift = Neg (toExpr (b / 3))
+              halfQ = toExpr (q / 2)
+              innerDisc = q*q/4 + p*p*p/27
+              innerDiscE = toExpr innerDisc
+              sqrtD = Root 2 innerDiscE
+              u = Root 3 (Add (Neg halfQ) sqrtD)
+              v = Root 3 (Add (Neg halfQ) (Neg sqrtD))
+              -- Three roots via ω = (-1 + √(-3))/2
+              omega = Mul (Inv (Lit 2)) (Add (Lit (-1)) (Root 2 (Lit (-3))))
+              omega2 = Mul (Inv (Lit 2)) (Add (Lit (-1)) (Neg (Root 2 (Lit (-3)))))
+              root0 = Add (Add u v) shift
+              root1 = Add (Add (Mul omega u) (Mul omega2 v)) shift
+              root2 = Add (Add (Mul omega2 u) (Mul omega u)) shift
+          in Just (pickClosestToReal [root0, root1, root2])
+        _ -> Nothing
+  | degree f == 4 =
+      -- Quartic via Ferrari
+      case unPoly f of
+        [e, d, c, b, _] ->
+          -- x⁴ + bx³ + cx² + dx + e = 0 (monic)
+          let p = c - 3*b*b/8
+              q = d - b*c/2 + b*b*b/8
+              r = e - b*d/4 + b*b*c/16 - 3*b*b*b*b/256
+              bE = toExpr b
+              shiftBack expr = Add expr (Neg (Mul (Inv (Lit 4)) bE))
+          in if q == 0
+             then -- Biquadratic
+               let disc = p*p - 4*r
+                   sqrtDisc = Root 2 (toExpr disc)
+                   pE = toExpr p
+                   t2_1 = Mul (Inv (Lit 2)) (Add (Neg pE) sqrtDisc)
+                   t2_2 = Mul (Inv (Lit 2)) (Add (Neg pE) (Neg sqrtDisc))
+                   roots = [ shiftBack (Root 2 t2_1)
+                           , shiftBack (Neg (Root 2 t2_1))
+                           , shiftBack (Root 2 t2_2)
+                           , shiftBack (Neg (Root 2 t2_2))
+                           ]
+               in Just (pickClosestToReal roots)
+             else -- General quartic: resolvent cubic y³ - py² - 4ry + (4pr - q²) = 0
+               let rcD = 4*p*r - q*q
+                   rcC = -4*r
+                   rcB = -p
+                   -- Solve resolvent cubic (Poly k)
+                   rcPoly = mkPoly [rcD, rcC, rcB, 1]
+               in case extractRootGeneric toExpr rcPoly of
+                    Just yExpr ->
+                      let sSquared = Add yExpr (Neg (toExpr p))
+                          s = Root 2 sSquared
+                          halfY = Mul (Inv (Lit 2)) yExpr
+                          qOver2s = Mul (toExpr (q/2)) (Inv s)
+                          c1 = Add halfY (Neg qOver2s)
+                          c2 = Add halfY qOver2s
+                          disc1 = Add sSquared (Mul (Lit (-4)) c1)
+                          disc2 = Add sSquared (Mul (Lit (-4)) c2)
+                          sqD1 = Root 2 disc1
+                          sqD2 = Root 2 disc2
+                          t1 = Mul (Inv (Lit 2)) (Add (Neg s) sqD1)
+                          t2 = Mul (Inv (Lit 2)) (Add (Neg s) (Neg sqD1))
+                          t3 = Mul (Inv (Lit 2)) (Add s sqD2)
+                          t4 = Mul (Inv (Lit 2)) (Add s (Neg sqD2))
+                          roots = map shiftBack [t1, t2, t3, t4]
+                      in Just (pickClosestToReal roots)
+                    Nothing -> Nothing
+        _ -> Nothing
+  | otherwise = Nothing
+
+-- | Pick the root expression closest to a real value (smallest imaginary part).
+pickClosestToReal :: [RadExpr Rational] -> RadExpr Rational
+pickClosestToReal [] = error "pickClosestToReal: empty list"
+pickClosestToReal [r] = r
+pickClosestToReal roots =
+  let scored = [(r, abs (imagPart (evalComplex r))) | r <- roots]
+      imagPart (_ :+ y) = y
+  in fst $ foldl1 (\a b -> if snd a <= snd b then a else b) scored
 
 -- | Convert an ExtElem back to a RadExpr.
 extElemToRadExpr :: ExtField Rational
@@ -240,29 +320,10 @@ extractRoot2 :: ExtField Rational
              -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
              -> Poly (ExtElem (ExtElem Rational))
              -> Maybe (RadExpr Rational)
-extractRoot2 field1 _field2 alpha1 alpha2 rad1 rad2 f
-  | degree f == 1 =
-      case unPoly f of
-        [c, _] ->
-          let negC = negate c
-          in Just (extElemToRadExpr2 field1 alpha1 alpha2 rad1 rad2 negC)
-        _ -> Nothing
-  | degree f == 2 =
-      case unPoly f of
-        [c, b, _] ->
-          let disc = b * b - 4 * c
-              sqrtDisc = extElemToRadExpr2 field1 alpha1 alpha2 rad1 rad2 disc
-              negB = extElemToRadExpr2 field1 alpha1 alpha2 rad1 rad2 (negate b)
-              r1' = Mul (Inv (Lit 2)) (Add negB (Root 2 sqrtDisc))
-              r2' = Mul (Inv (Lit 2)) (Add negB (Neg (Root 2 sqrtDisc)))
-              v1 = realPart (evalComplex r1')
-              v2 = realPart (evalComplex r2')
-              target = 0 :: Double  -- pick the root with smaller absolute value
-          in if abs (v1 - target) < abs (v2 - target)
-             then Just r1'
-             else Just r2'
-        _ -> Nothing
-  | otherwise = Nothing
+extractRoot2 field1 _field2 alpha1 alpha2 rad1 rad2 f =
+  extractRootGeneric toExpr f
+  where
+    toExpr = extElemToRadExpr2 field1 alpha1 alpha2 rad1 rad2
 
 -- | Convert an ExtElem (ExtElem Rational) back to a RadExpr.
 -- elem = Σᵢ Σⱼ cᵢⱼ · α₁ⁱ · α₂ʲ

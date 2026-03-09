@@ -6,13 +6,14 @@ import Test.Tasty.HUnit
 import Surd.Internal.Interval
 import Surd.Internal.PSLQ (pslq, findMinPoly)
 import Surd.Types
-import Surd.Radical.Eval (evalInterval)
+import Surd.Radical.Eval (evalInterval, evalComplexInterval)
 import Surd.Radical.Equality (radicalEq)
 import Surd.Radical.Order (radicalCompare)
 
 tests :: TestTree
 tests = testGroup "Tier 3"
   [ intervalTests
+  , complexIntervalTests
   , pslqTests
   , rigorousEqTests
   ]
@@ -64,6 +65,48 @@ intervalTests = testGroup "Interval nth root"
           iv = evalInterval expr
       width iv < 1/100 @? ("interval too wide: " ++ show (width iv))
       lo iv > 0 @? "sum of positive cube roots should be positive"
+  ]
+
+complexIntervalTests :: TestTree
+complexIntervalTests = testGroup "Complex intervals"
+  [ testCase "real + real = real" $ do
+      let a = ciFromRational 3
+          b = ciFromRational 4
+          c = ciadd a b
+      lo (ciReal c) <= 7 && hi (ciReal c) >= 7 @? "real part should contain 7"
+      lo (ciImag c) <= 0 && hi (ciImag c) >= 0 @? "imag part should contain 0"
+
+  , testCase "i² = -1" $ do
+      let i = ComplexInterval (fromRational' 0) (fromRational' 1)
+          iSq = cimul i i
+      lo (ciReal iSq) <= (-1) && hi (ciReal iSq) >= (-1) @? "Re(i²) should contain -1"
+      lo (ciImag iSq) <= 0 && hi (ciImag iSq) >= 0 @? "Im(i²) should contain 0"
+
+  , testCase "(1+i)² = 2i" $ do
+      let z = ComplexInterval (fromRational' 1) (fromRational' 1)
+          zSq = cimul z z
+      lo (ciReal zSq) <= 0 && hi (ciReal zSq) >= 0 @? "Re((1+i)²) should contain 0"
+      lo (ciImag zSq) <= 2 && hi (ciImag zSq) >= 2 @? "Im((1+i)²) should contain 2"
+
+  , testCase "1/(1+i) = (1-i)/2" $ do
+      let z = ComplexInterval (fromRational' 1) (fromRational' 1)
+          inv = ciinv z
+      -- 1/(1+i) = (1-i)/2 = 0.5 - 0.5i
+      lo (ciReal inv) <= (1/2) && hi (ciReal inv) >= (1/2) @?
+        "Re(1/(1+i)) should contain 1/2"
+      lo (ciImag inv) <= (-1/2) && hi (ciImag inv) >= (-1/2) @?
+        "Im(1/(1+i)) should contain -1/2"
+
+  , testCase "evalComplexInterval √(-1) is purely imaginary" $ do
+      let ci = evalComplexInterval (Root 2 (Lit (-1)))
+      lo (ciReal ci) <= 0 && hi (ciReal ci) >= 0 @? "Re(√(-1)) should contain 0"
+      lo (ciImag ci) <= 1 && hi (ciImag ci) >= 1 @? "Im(√(-1)) should contain 1"
+
+  , testCase "evalComplexInterval √2 is real" $ do
+      let ci = evalComplexInterval (Root 2 (Lit 2))
+          sq2 = 665857 / 470832  -- rational approx of √2
+      lo (ciReal ci) > 0 @? "Re(√2) should be positive"
+      lo (ciImag ci) <= 0 && hi (ciImag ci) >= 0 @? "Im(√2) should contain 0"
   ]
 
 pslqTests :: TestTree
@@ -136,4 +179,15 @@ rigorousEqTests = testGroup "Rigorous equality/ordering"
       let e1 = Add (Root 2 (Lit 2)) (Root 2 (Lit 3)) :: RadExpr Rational
           e2 = Root 2 (Lit 5) :: RadExpr Rational
       radicalCompare e1 e2 @?= GT
+
+  , testCase "rigorous: very close algebraic numbers" $ do
+      -- √2 ≈ 1.4142... vs 1414/1000 = 1.414
+      -- These are very close but distinct
+      radicalCompare (Root 2 (Lit 2)) (Lit (1414/1000)) @?= GT
+
+  , testCase "rigorous: ∛2 + ∛3 vs ∛35" $ do
+      -- ∛2 + ∛3 ≈ 2.7 vs ∛35 ≈ 3.27
+      let e1 = Add (Root 3 (Lit 2)) (Root 3 (Lit 3)) :: RadExpr Rational
+          e2 = Root 3 (Lit 35) :: RadExpr Rational
+      radicalCompare e1 e2 @?= LT
   ]

@@ -134,14 +134,39 @@ algEq a b =
   anMinPoly a == anMinPoly b &&
   intervalsOverlap (anInterval a) (anInterval b) (anMinPoly a)
 
--- | Comparison via interval refinement.
+-- | Comparison via rigorous interval separation.
+--
+-- Since algEq already determined the values are not equal,
+-- we refine both isolating intervals until they are disjoint,
+-- which is guaranteed to terminate for distinct algebraic numbers.
 algCompare :: AlgNum -> AlgNum -> Ordering
 algCompare a b
   | algEq a b = EQ
-  | otherwise =
-      let va = algApprox (1 / (10^(20 :: Int))) a
-          vb = algApprox (1 / (10^(20 :: Int))) b
-      in compare va vb
+  | otherwise = separateAndCompare a b
+
+-- | Refine intervals of two distinct algebraic numbers until disjoint.
+separateAndCompare :: AlgNum -> AlgNum -> Ordering
+separateAndCompare a b = go (IsolatingInterval (anMinPoly a) (anInterval a))
+                            (IsolatingInterval (anMinPoly b) (anInterval b))
+                            (200 :: Int)
+  where
+    go (IsolatingInterval _ (Interval _ h1)) (IsolatingInterval _ (Interval l2 _)) _
+      | h1 < l2 = LT
+    go (IsolatingInterval _ (Interval l1 _)) (IsolatingInterval _ (Interval _ h2)) _
+      | h2 < l1 = GT
+    go ii1 ii2 0 =
+      -- Fallback (should never happen for truly distinct algebraic numbers)
+      let m1 = let Interval l h = iiInterval ii1 in (l + h) / 2
+          m2 = let Interval l h = iiInterval ii2 in (l + h) / 2
+      in compare m1 m2
+    go ii1 ii2 n =
+      let w1 = let Interval l h = iiInterval ii1 in h - l
+          w2 = let Interval l h = iiInterval ii2 in h - l
+          eps1 = w1 / 4
+          eps2 = w2 / 4
+          ii1' = refineRoot eps1 ii1
+          ii2' = refineRoot eps2 ii2
+      in go ii1' ii2' (n - 1)
 
 -- | Display as "root of <poly> near <approx>".
 algShow :: AlgNum -> String

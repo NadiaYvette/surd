@@ -22,6 +22,19 @@ module Surd.Internal.Interval
   , strictlyPositive
   , strictlyNegative
   , containsZero
+  -- * Complex intervals
+  , ComplexInterval(..)
+  , ciFromRational
+  , ciFromReal
+  , ciadd
+  , cisub
+  , cimul
+  , ciinv
+  , cineg
+  , cipow
+  , ciMagnitudeSq
+  , ciRealPart
+  , ciImagPart
   ) where
 
 -- | A closed interval [lo, hi] with rational endpoints.
@@ -94,28 +107,12 @@ ipow iv n
          else Interval (minimum ps) (maximum ps)
 
 -- | Interval enclosure of the square root of a non-negative interval.
--- Uses Newton refinement.
+-- Uses bisection for guaranteed bounds (avoids rational blowup from Newton).
 isqrt :: Interval -> Interval
 isqrt (Interval l h)
   | l < 0     = error "isqrt: negative interval"
   | h == 0    = Interval 0 0
-  | otherwise = Interval (sqrtLower l) (sqrtUpper h)
-  where
-    -- Lower bound: largest rational whose square <= x
-    sqrtLower x = converge x (x / 2 + 1)
-      where
-        converge _ s | s * s <= x = s
-        converge prev s
-          | s == prev = s - 1  -- ensure it's a lower bound
-          | otherwise = converge s ((s + x / s) / 2)
-
-    -- Upper bound: smallest rational whose square >= x
-    sqrtUpper x = converge x (x / 2 + 1)
-      where
-        converge _ s | s * s >= x = s
-        converge prev s
-          | s == prev = s + 1  -- ensure it's an upper bound
-          | otherwise = converge s ((s + x / s) / 2)
+  | otherwise = Interval (nthRootLower 2 l) (nthRootUpper 2 h)
 
 -- | Interval enclosure of the nth root of an interval.
 --
@@ -191,3 +188,62 @@ strictlyNegative (Interval _ h) = h < 0
 -- | Test if an interval contains zero.
 containsZero :: Interval -> Bool
 containsZero (Interval l h) = l <= 0 && h >= 0
+
+-- -------------------------------------------------------------------
+-- Complex intervals (rectangular: real part × imaginary part)
+-- -------------------------------------------------------------------
+
+-- | A complex interval [re_lo, re_hi] + i·[im_lo, im_hi].
+data ComplexInterval = ComplexInterval
+  { ciReal :: !Interval
+  , ciImag :: !Interval
+  } deriving (Eq, Show)
+
+ciFromRational :: Rational -> ComplexInterval
+ciFromRational r = ComplexInterval (fromRational' r) (fromRational' 0)
+
+ciFromReal :: Interval -> ComplexInterval
+ciFromReal r = ComplexInterval r (fromRational' 0)
+
+ciadd :: ComplexInterval -> ComplexInterval -> ComplexInterval
+ciadd (ComplexInterval r1 i1) (ComplexInterval r2 i2) =
+  ComplexInterval (iadd r1 r2) (iadd i1 i2)
+
+cisub :: ComplexInterval -> ComplexInterval -> ComplexInterval
+cisub (ComplexInterval r1 i1) (ComplexInterval r2 i2) =
+  ComplexInterval (isub r1 r2) (isub i1 i2)
+
+cineg :: ComplexInterval -> ComplexInterval
+cineg (ComplexInterval r i) =
+  ComplexInterval (Interval (negate (hi r)) (negate (lo r)))
+                  (Interval (negate (hi i)) (negate (lo i)))
+
+-- | (a + bi)(c + di) = (ac - bd) + (ad + bc)i
+cimul :: ComplexInterval -> ComplexInterval -> ComplexInterval
+cimul (ComplexInterval r1 i1) (ComplexInterval r2 i2) =
+  ComplexInterval (isub (imul r1 r2) (imul i1 i2))
+                  (iadd (imul r1 i2) (imul i1 r2))
+
+-- | 1/(a + bi) = (a - bi)/(a² + b²)
+ciinv :: ComplexInterval -> ComplexInterval
+ciinv (ComplexInterval r i) =
+  let magSq = iadd (imul r r) (imul i i)
+  in ComplexInterval (idiv r magSq) (idiv (Interval (negate (hi i)) (negate (lo i))) magSq)
+
+cipow :: ComplexInterval -> Int -> ComplexInterval
+cipow _ 0 = ciFromRational 1
+cipow z 1 = z
+cipow z n
+  | n < 0     = cipow (ciinv z) (negate n)
+  | even n    = let half = cipow z (n `div` 2) in cimul half half
+  | otherwise = cimul z (cipow z (n - 1))
+
+-- | |z|² = re² + im² as an interval (avoids square root).
+ciMagnitudeSq :: ComplexInterval -> Interval
+ciMagnitudeSq (ComplexInterval r i) = iadd (imul r r) (imul i i)
+
+ciRealPart :: ComplexInterval -> Interval
+ciRealPart = ciReal
+
+ciImagPart :: ComplexInterval -> Interval
+ciImagPart = ciImag
