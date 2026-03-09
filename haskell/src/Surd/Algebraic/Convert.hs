@@ -19,6 +19,7 @@ module Surd.Algebraic.Convert
 import Data.Ratio (numerator, denominator)
 import Surd.Types
 import Surd.Polynomial.Univariate
+import Surd.Radical.LaTeX (latex)
 import Surd.Polynomial.MinimalPoly (minimalPoly, annihilatingPoly)
 import Surd.Polynomial.MinimalPolyTower (minimalPolyTower)
 import Surd.Polynomial.Factoring (rationalRoots)
@@ -102,7 +103,9 @@ algNumInfo expr =
        , "Degree: " ++ show d
        , "Approximate value: " ++ show approxD
        , case algNumToRadExpr algNum of
-           Just e  -> "Radical form: " ++ show (normalize e)
+           Just e  -> let simplified = normalize e
+                      in "Radical form: " ++ show simplified
+                         ++ "\nLaTeX: " ++ latex simplified
            Nothing -> "Radical form: (degree too high)"
        ]
 

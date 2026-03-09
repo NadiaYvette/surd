@@ -80,16 +80,17 @@ flattenAdd :: RadExpr Rational -> [(Bool, RadExpr Rational)]
 flattenAdd (Add a b) = flattenAdd a ++ flattenAdd b
 flattenAdd (Neg e)   = map (\(s, t) -> (not s, t)) (flattenAdd e)
 flattenAdd (Lit r) | r < 0 = [(False, Lit (negate r))]
+flattenAdd (Mul (Lit r) b) | r < 0 = [(False, Mul (Lit (negate r)) b)]
 flattenAdd e = [(True, e)]
 
 renderTerms :: [(Bool, RadExpr Rational)] -> String
 renderTerms [] = "0"
 renderTerms ((s, t):rest) =
-  let first = if s then latexPrec precAdd t else "-" ++ latexPrec precNeg t
+  let first = if s then latexPrec precAdd t else "-" ++ latexPrec precMul t
   in first ++ concatMap rr rest
   where
     rr (True,  e) = " + " ++ latexPrec precAdd e
-    rr (False, e) = " - " ++ latexPrec precNeg e
+    rr (False, e) = " - " ++ latexPrec precMul e
 
 flattenMul :: RadExpr Rational -> [RadExpr Rational]
 flattenMul (Mul a b) = flattenMul a ++ flattenMul b
