@@ -15,7 +15,7 @@ import Surd.Types
 import Surd.Polynomial.Univariate
 import Surd.Polynomial.TragerFactoring (factorSFOverExtension, factorSFOverExtensionK)
 import Surd.Field.Extension
-import Surd.Radical.Eval (evalComplex)
+import Surd.Radical.Eval (evalComplexExact)
 import Data.Complex (Complex(..))
 import Data.List (nub)
 
@@ -206,7 +206,7 @@ pickClosestToReal :: [RadExpr Rational] -> RadExpr Rational
 pickClosestToReal [] = error "pickClosestToReal: empty list"
 pickClosestToReal [r] = r
 pickClosestToReal roots =
-  let scored = [(r, abs (imagPart (evalComplex r))) | r <- roots]
+  let scored = [(r, abs (imagPart (evalComplexExact r))) | r <- roots]
       imagPart (_ :+ y) = y
   in fst $ foldl1 (\a b -> if snd a <= snd b then a else b) scored
 

@@ -24,7 +24,7 @@ import Data.Ratio (numerator, denominator)
 import Surd.Types
 import Surd.Internal.Positive (Positive)
 import Surd.Internal.PrimeFactors (factorise, integerSqrt)
-import Surd.Radical.Eval (eval)
+import Surd.Radical.Eval (evalExact)
 
 -- | Attempt to denest an nth root expression.
 denestNthRoot :: RadExpr Rational -> RadExpr Rational
@@ -139,10 +139,10 @@ tryCubeRootDenest a b c =
               let q' = if (3 * p * p * q + q * q * q * c) * signum b >= 0
                        then q else negate q
                   result = Add (Lit p) (Mul (Lit q') (Root 2 (Lit c)))
-                  -- Sanity check via numerical evaluation
-                  expected = eval (Root 3 (Add (Lit a) (Mul (Lit b) (Root 2 (Lit c))))) :: Double
-                  got = eval result :: Double
-              in if abs (expected - got) < 1e-10
+                  -- Sanity check via exact real evaluation
+                  expected = evalExact (Root 3 (Add (Lit a) (Mul (Lit b) (Root 2 (Lit c)))))
+                  got = evalExact result
+              in if abs (expected - got) < 1e-40
                  then Just result
                  else Nothing
 

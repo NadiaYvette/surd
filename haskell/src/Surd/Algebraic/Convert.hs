@@ -23,7 +23,7 @@ import Surd.Radical.LaTeX (latex)
 import Surd.Polynomial.MinimalPoly (minimalPoly, annihilatingPoly)
 import Surd.Polynomial.MinimalPolyTower (minimalPolyTower)
 import Surd.Polynomial.Factoring (rationalRoots)
-import Surd.Radical.Eval (eval, evalComplex)
+import Surd.Radical.Eval (evalComplex, evalExact, evalComplexExact, ExactReal)
 import Surd.Radical.Normalize (normalize)
 import Data.Complex (realPart)
 import Surd.Algebraic.Number
@@ -37,8 +37,7 @@ radExprToAlgNum :: RadExpr Rational -> AlgNum
 radExprToAlgNum expr =
   let -- Try tower-based approach first (fast for shared radicals)
       mp = minimalPolyTower expr
-      approxD = eval expr :: Double
-      approx = if isNaN approxD then realPart (evalComplex expr) else approxD
+      approx = realPart (evalComplex expr)
   in case algFromPoly mp approx of
        Just a  -> a
        Nothing ->
@@ -60,7 +59,7 @@ radExprToAlgNum expr =
 --   degree 1: rational number
 --   degree 2: quadratic formula
 --   degree 3: Cardano's formula (real case only for now)
---   degree 4: Ferrari's formula (TODO)
+--   degree 4: Ferrari's formula
 --
 -- Returns Nothing if the degree is too high or the formula
 -- would require complex intermediates we can't simplify.
@@ -69,7 +68,7 @@ algNumToRadExpr a =
   let p = anMinPoly a
       d = degree p
       cs = unPoly p
-      approx = fromRational $ algApprox (1/(10^(6 :: Int))) a :: Double
+      approx = fromRational (algApprox (1/(10^(20 :: Int))) a) :: ExactReal
   in case d of
        1 -> case cs of
               [c0, _] -> Just (Lit (-c0))
@@ -112,24 +111,24 @@ algNumInfo expr =
 -- Internal
 
 -- | Solve ax² + bx + c = 0 (monic: a=1), picking the root closest to approx.
-solveQuadratic :: [Rational] -> Double -> Maybe (RadExpr Rational)
+solveQuadratic :: [Rational] -> ExactReal -> Maybe (RadExpr Rational)
 solveQuadratic [c, b, _a] approx =
   -- x = (-b ± √(b²-4c)) / 2   (since a=1, polynomial is x² + bx + c)
   let disc = b*b - 4*c
   in if disc < 0
-     then Nothing  -- complex roots, skip for now
+     then Nothing  -- complex roots (polynomial has no real roots)
      else
        let sqrtDisc = Root 2 (Lit disc)
            r1 = Mul (Inv (Lit 2)) (Add (Neg (Lit b)) sqrtDisc)
            r2 = Mul (Inv (Lit 2)) (Add (Neg (Lit b)) (Neg sqrtDisc))
-           v1 = eval r1
-           v2 = eval r2
+           v1 = evalExact r1
+           v2 = evalExact r2
        in Just $ if abs (v1 - approx) < abs (v2 - approx) then r1 else r2
 solveQuadratic _ _ = Nothing
 
 -- | Solve x³ + px + q = 0 (depressed cubic), picking the real root
 -- closest to approx. Uses Cardano when discriminant ≥ 0.
-solveCubic :: [Rational] -> Double -> Maybe (RadExpr Rational)
+solveCubic :: [Rational] -> ExactReal -> Maybe (RadExpr Rational)
 solveCubic [d, c, b, _a] _approx =
   -- Polynomial is x³ + bx² + cx + d (monic)
   -- Depress: substitute x = t - b/3
@@ -179,8 +178,8 @@ solveCubic [d, c, b, _a] _approx =
                   root1 = Add (Add (Mul omega u1) (Mul omega2 u2)) shift
                   root2 = Add (Add (Mul omega2 u1) (Mul omega u2)) shift
                   roots = [root0, root1, root2]
-                  -- Evaluate all roots via Complex Double and pick closest to approx
-                  scored = [(r, abs (realPart (evalComplex r) - _approx)) | r <- roots]
+                  -- Evaluate all roots via exact complex and pick closest to approx
+                  scored = [(r, abs (realPart (evalComplexExact r) - _approx)) | r <- roots]
                   best = fst $ foldl1 (\a' b' -> if snd a' <= snd b' then a' else b') scored
               in Just best
      else
@@ -200,7 +199,7 @@ solveCubic _ _ = Nothing
 -- 2. Solve the resolvent cubic for y
 -- 3. Factor the depressed quartic into two quadratics using y
 -- 4. Solve each quadratic, pick the root closest to approx
-solveQuartic :: [Rational] -> Double -> Maybe (RadExpr Rational)
+solveQuartic :: [Rational] -> ExactReal -> Maybe (RadExpr Rational)
 solveQuartic [e, d, c, b, _a] approx =
   -- Polynomial is x⁴ + bx³ + cx² + dx + e (monic)
   -- Depress: x = t - b/4
@@ -223,7 +222,7 @@ solveQuartic [e, d, c, b, _a] approx =
                         , shiftBack (Root 2 t2_2)
                         , shiftBack (Neg (Root 2 t2_2))
                         ]
-                scored = [(root, abs (realPart (evalComplex root) - approx)) | root <- roots]
+                scored = [(root, abs (realPart (evalComplexExact root) - approx)) | root <- roots]
                 best = fst $ foldl1 (\x y -> if snd x <= snd y then x else y) scored
             in Just best
      else
@@ -234,12 +233,12 @@ solveQuartic [e, d, c, b, _a] approx =
        in case solveCubic rcCs 0 of
             Nothing -> Nothing
             Just yExpr ->
-              -- Evaluate y numerically
-              let y = realPart (evalComplex yExpr)
+              -- Evaluate y via exact real
+              let y = realPart (evalComplexExact yExpr)
                   -- y² - 4r should be non-negative for the factoring to work
                   -- If not, try another resolvent root
                   disc2 = y*y - 4 * fromRational r
-              in if disc2 < -1e-10
+              in if disc2 < -1e-40
                  then trySolveQuarticAlternate p q r b approx
                  else solveQuarticWithY p q r b yExpr approx
 solveQuartic _ _ = Nothing
@@ -247,7 +246,7 @@ solveQuartic _ _ = Nothing
 -- | Given the depressed quartic t⁴ + pt² + qt + r = 0 and a resolvent root y,
 -- factor into two quadratics and solve.
 solveQuarticWithY :: Rational -> Rational -> Rational -> Rational
-                  -> RadExpr Rational -> Double
+                  -> RadExpr Rational -> ExactReal
                   -> Maybe (RadExpr Rational)
 solveQuarticWithY p q _r b yExpr approx =
   -- We need s² = y - p, so s = √(y - p)
@@ -287,13 +286,13 @@ solveQuarticWithY p q _r b yExpr approx =
       roots = map shift [t1, t2, t3, t4]
 
       -- Pick the root closest to the target
-      scored = [(root, abs (realPart (evalComplex root) - approx)) | root <- roots]
+      scored = [(root, abs (realPart (evalComplexExact root) - approx)) | root <- roots]
       best = fst $ foldl1 (\x y -> if snd x <= snd y then x else y) scored
   in Just best
 
 -- | Alternative quartic solving when the first resolvent root gives y < p.
 -- Try all three resolvent roots.
-trySolveQuarticAlternate :: Rational -> Rational -> Rational -> Rational -> Double
+trySolveQuarticAlternate :: Rational -> Rational -> Rational -> Rational -> ExactReal
                         -> Maybe (RadExpr Rational)
 trySolveQuarticAlternate p q r b approx =
   -- Resolvent cubic: y³ - py² - 4ry + (4pr - q²) = 0
@@ -307,7 +306,7 @@ trySolveQuarticAlternate p q r b approx =
          in solveQuarticWithY p q r b yExpr approx
        [] ->
          -- Get all three cubic roots and try each
-         let approxRoots = [0, 10, -10] :: [Double]  -- different starting points
+         let approxRoots = [0, 10, -10] :: [ExactReal]
              attempts = [do yE <- solveCubic rcCs a
                             solveQuarticWithY p q r b yE approx
                         | a <- approxRoots]

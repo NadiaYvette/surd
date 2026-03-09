@@ -1,14 +1,20 @@
+{-# LANGUAGE DataKinds #-}
 -- | Numerical evaluation of radical expressions to arbitrary precision.
 --
 -- Used for testing, equality verification, and ordering.
 module Surd.Radical.Eval
   ( eval
   , evalComplex
+  , evalExact
+  , evalComplexExact
   , evalInterval
   , evalComplexInterval
+  , ExactReal
+  , ExactComplex
   ) where
 
 import Data.Complex (Complex(..), magnitude, mkPolar)
+import Data.CReal (CReal)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.IntMap.Strict as IntMap
 import System.IO.Unsafe (unsafePerformIO)
@@ -16,6 +22,14 @@ import System.Mem.StableName (StableName, makeStableName, hashStableName, eqStab
 import Surd.Types
 import Surd.Internal.Interval (Interval(..), ComplexInterval(..))
 import qualified Surd.Internal.Interval as I
+
+-- | Exact real type with ~60 decimal digits of precision.
+-- Uses lazy Cauchy sequences internally; comparisons are reliable
+-- as long as values differ by more than 2^{-200}.
+type ExactReal = CReal 200
+
+-- | Exact complex type.
+type ExactComplex = Complex ExactReal
 
 -- | Evaluate a radical expression to a 'Double'.
 -- Uses floating-point arithmetic — fast but inexact.
@@ -32,6 +46,50 @@ eval (Mul a b)  = eval a * eval b
 eval (Inv a)    = 1 / eval a
 eval (Root n a) = eval a ** (1 / fromIntegral n)
 eval (Pow a n)  = eval a ^^ n
+
+-- | Evaluate a radical expression to an 'ExactReal' (~60 decimal digits).
+-- Unlike 'eval', handles even roots of negative numbers via the Floating
+-- instance (which uses complex intermediates internally).
+evalExact :: RadExpr Rational -> ExactReal
+evalExact (Lit r)    = fromRational r
+evalExact (Neg a)    = negate (evalExact a)
+evalExact (Add a b)  = evalExact a + evalExact b
+evalExact (Mul a b)  = evalExact a * evalExact b
+evalExact (Inv a)    = 1 / evalExact a
+evalExact (Root n a) = evalExact a ** (1 / fromIntegral n)
+evalExact (Pow a n)
+  | n >= 0    = evalExact a ^ n
+  | otherwise = 1 / (evalExact a ^ negate n)
+
+-- | Evaluate a radical expression to an 'ExactComplex' (~60 decimal digits).
+-- Handles expressions that pass through complex intermediates.
+evalComplexExact :: RadExpr Rational -> ExactComplex
+evalComplexExact (Lit r)    = fromRational r :+ 0
+evalComplexExact (Neg a)    = negate (evalComplexExact a)
+evalComplexExact (Add a b)  = evalComplexExact a + evalComplexExact b
+evalComplexExact (Mul a b)  = evalComplexExact a * evalComplexExact b
+evalComplexExact (Inv a)    = cinv (evalComplexExact a)
+evalComplexExact (Root n a) = complexNthRootExact n (evalComplexExact a)
+evalComplexExact (Pow a n)
+  | n >= 0    = evalComplexExact a ^ n
+  | otherwise = 1 / (evalComplexExact a ^ negate n)
+
+-- | Complex inversion without RealFloat.
+-- Data.Complex uses scaleFloat in division, which CReal doesn't support.
+cinv :: ExactComplex -> ExactComplex
+cinv (re :+ im) =
+  let d = re * re + im * im
+  in (re / d) :+ (negate im / d)
+
+-- | Principal nth root of an exact complex number.
+-- Uses manual magnitude to avoid CReal's unsupported RealFloat operations.
+complexNthRootExact :: Int -> ExactComplex -> ExactComplex
+complexNthRootExact n (re :+ im) =
+  let r     = sqrt (re * re + im * im)
+      theta = atan2 im re
+      rn    = r ** (1 / fromIntegral n)
+      an    = theta / fromIntegral n
+  in (rn * cos an) :+ (rn * sin an)
 
 -- | Evaluate a radical expression to a 'Complex Double'.
 --

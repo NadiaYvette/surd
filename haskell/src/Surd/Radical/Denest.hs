@@ -12,7 +12,7 @@ import Surd.Radical.Denest.Sqrt (denestSqrt)
 import Surd.Radical.Denest.NthRoot (denestNthRoot)
 import Surd.Radical.Denest.Landau (denestRadical)
 import Surd.Radical.Normalize (normalize)
-import Surd.Radical.Eval (eval)
+import Surd.Radical.Eval (evalExact)
 
 -- | Denest a radical expression: apply all available denesting
 -- algorithms recursively.
@@ -42,9 +42,9 @@ denestFull expr = case expr of
       let inner' = denestFull inner
       in case denestRadical n inner' of
            Just denested ->
-             let dv = eval denested :: Double
-                 ov = eval original :: Double
-             in if abs (dv - ov) < 1e-10
+             let dv = evalExact denested
+                 ov = evalExact original
+             in if abs (dv - ov) < 1e-40
                 then denestFull denested  -- recurse on result
                 else original
            Nothing -> case original of

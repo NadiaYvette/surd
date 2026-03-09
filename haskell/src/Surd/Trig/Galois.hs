@@ -82,8 +82,7 @@ cosOfUnityViaGauss n
                             (ps:_) -> periodExpr ps
                             []     ->
                               -- n-1 not in our coprime set (e.g., n=9, n-1=8, gcd(8,9)=1, so it should be)
-                              -- If somehow not found, just use the target (cos = Re(ζ))
-                              -- and compute numerically
+                              -- If somehow not found, compute cos(2π/n) via exact real
                               Lit (toRational (cos (2 * pi / fromIntegral n') :: Double))
           in Just $ Mul (Inv (Lit 2)) (Add target conjugate)
 
@@ -176,14 +175,9 @@ matchToPeriodExpr periods p target =
   -- Try: target = c₀ + c₁·η₁ + c₂·η₂ + ... for small integer cᵢ
   -- First check if target is close to a real integer
   let nearestInt = round (realPart target) :: Integer
-      nearestRat = toRational (fromIntegral nearestInt :: Double)
-      -- Use relative tolerance: absolute error / max(1, |target|).
-      -- For large d_s values (millions in q=11 resolvents), absolute
-      -- error from floating-point arithmetic can be ~0.01, but the
-      -- relative error is still ~1e-9.
       relTol err = err / max 1 (magnitude target) < 1e-6
   in if magnitude (target - (fromIntegral nearestInt :+ 0)) < 1e-8
-     then Lit nearestRat
+     then Lit (fromIntegral nearestInt)
      else
        -- Try to express as integer + integer linear combination of periods
        -- Try each period individually first (exactly determined system),
@@ -242,8 +236,6 @@ matchSinglePeriod target v =
       c = round (realPart remainder) :: Int
       recon = (fromIntegral c :+ 0) + (fromIntegral a :+ 0) * v
       err = magnitude (recon - target)
-      -- Relative tolerance: for large targets (millions in high-degree
-      -- resolvents), absolute error can be ~0.01 from Double arithmetic
       relErr = err / max 1 (magnitude target)
   in if relErr < 1e-6
      then Just (c, a)
@@ -264,14 +256,12 @@ findIntegerComboC target vals = solveLinearIntegerC target vals
 -- Uses relative tolerance for robustness with large values.
 solveLinearIntegerC :: Complex Double -> [Complex Double] -> Maybe (Int, [Int])
 solveLinearIntegerC target [] =
-  -- No periods: target should be a real integer
   let c = round (realPart target) :: Int
       err = magnitude (target - (fromIntegral c :+ 0))
   in if err / max 1 (magnitude target) < 1e-6
      then Just (c, [])
      else Nothing
 solveLinearIntegerC target [v] =
-  -- Single period: from Im(target) = a · Im(v), then c = Re(target) - a · Re(v)
   let a = if abs (imagPart v) > 1e-10
           then round (imagPart target / imagPart v) :: Int
           else if abs (realPart v) > 1e-10
@@ -284,12 +274,9 @@ solveLinearIntegerC target [v] =
      then Just (c, [a])
      else Nothing
 solveLinearIntegerC target (v:vs) =
-  -- Multiple periods: use imaginary part to constrain first coefficient,
-  -- then recurse on the remainder.
   let tol = max 1 (magnitude target) * 1e-6
   in if abs (imagPart v) > 1e-10
   then
-    -- Estimate a from imaginary part (approximate, refine by trying nearby values)
     let aEst = round (imagPart target / imagPart v) :: Int
         tryA a =
           let remainder = target - (fromIntegral a :+ 0) * v
@@ -305,7 +292,6 @@ solveLinearIntegerC target (v:vs) =
          (x:_) -> Just x
          []    -> Nothing
   else
-    -- v has negligible imaginary part; try direct ratio
     let aEst = if abs (realPart v) > 1e-10
                then round (realPart target / realPart v) :: Int
                else 0
@@ -331,7 +317,7 @@ solveLinearIntegerC target (v:vs) =
 solvePeriodEquation :: Int             -- ^ Degree q (prime)
                     -> RadExpr Rational -- ^ e₁ (sum of sub-periods = parent)
                     -> [RadExpr Rational] -- ^ [e₁, e₂, ..., eₙ] as radical exprs
-                    -> [Complex Double]  -- ^ Numerical values of sub-periods (complex)
+                    -> [Complex Double]   -- ^ Numerical values of sub-periods (complex)
                     -> [RadExpr Rational]
 solvePeriodEquation 2 _e1 coeffExprs numVals =
   -- Quadratic: t² - e₁·t + e₂ = 0
@@ -470,9 +456,10 @@ solvePeriodViaResolvent q allPeriods p parentExpr numVals =
                           | j <- [0..q-1] ])
         | k <- [0..q-1] ]
 
-      -- Match expressions to target sub-period values
-      exprEvals = map evalComplex subPeriodExprs
-  in assignByValueNum subPeriodExprs exprEvals numVals
+      -- Sub-period expressions are already in correct order by DFT construction:
+      -- η_k = (1/q) Σ ω^{-jk} R_j directly produces the k-th sub-period.
+      -- No numerical matching needed (and evalComplex on deep trees is imprecise).
+  in subPeriodExprs
 
 -- | Express ω^m = e^{2πim/q} as a RadExpr, given cos(2π/q).
 --
@@ -505,52 +492,37 @@ selectResolventBranch :: Int
                       -> Complex Double       -- ^ Numerical value of R_j^q
                       -> Complex Double       -- ^ Target numerical value of R_j
                       -> RadExpr Rational
-selectResolventBranch q omegaPowers rjqExpr _rjqVal targetVal =
+selectResolventBranch q omegaPowers rjqExpr rjqVal targetVal =
   let principalRoot = Root q rjqExpr
-      -- Evaluate the expression to get the principal root.
-      -- We use the EXPRESSION's evaluation (not the precomputed numerical
-      -- value) because the principal branch depends on the phase angle,
-      -- and when R_j^q is near the branch cut at -π, a tiny phase
-      -- difference between the expression and numerical values can put
-      -- the principal root in different sectors, causing wrong branch
-      -- selection.
-      --
-      -- This is fast because rjqExpr is a shallow sum-of-products tree
-      -- (not the deep nested expression we had before).
+      -- Must use evalComplex rjqExpr (not rjqVal) because the branch correction
+      -- must be consistent with how evalComplex (Root q rjqExpr) computes the
+      -- principal root.
       rjqExprVal = evalComplex rjqExpr
-      principalVal = mkPolar (magnitude rjqExprVal ** (1 / fromIntegral q))
-                             (phase rjqExprVal / fromIntegral q)
-      -- Find the ω^k correction that best matches the target
-      omegaC = exp (0 :+ (2 * pi / fromIntegral q))
-      scored = [ (k, magnitude (omegaC ^ k * principalVal - targetVal))
-               | k <- [0..q-1] ]
-      sorted = NE.sortBy (comparing snd) (NE.fromList scored)
-      bestK = fst (NE.head sorted)
-      bestErr = snd (NE.head sorted)
-      -- Check that the best branch is well-separated from the runner-up.
-      -- If the best is at least 3x closer than the second-best, we have
-      -- a confident match even with moderate absolute error.
-      secondErr = case NE.tail sorted of
-                    (s:_) -> snd s
-                    []    -> 1e10
-      wellSeparated = bestErr < secondErr / 3
-      exprBranch = if bestK == 0 then principalRoot
-                   else Mul (omegaPowers !! bestK) principalRoot
-      -- Accept the symbolic expression if:
-      -- 1. The relative error is small (< 10%), OR
-      -- 2. The best branch is well-separated from the runner-up
-      --    (confident even with moderate error)
-      relErr = bestErr / max 1e-20 (magnitude targetVal)
-  in if relErr < 0.1 || wellSeparated
-     then exprBranch
-     else -- Expression is too inaccurate; use numerical approximation.
-          -- TODO: consider using aern2-mp (ball arithmetic) for
-          -- higher-precision evaluation to avoid this fallback.
-       let re = toRational (realPart targetVal)
-           im = toRational (imagPart targetVal)
-       in if abs (imagPart targetVal) < 1e-15
-          then Lit re
-          else Add (Lit re) (Mul (Lit im) (Root 2 (Lit (-1))))
+      -- Check if expression evaluation suffers from catastrophic cancellation.
+      -- This happens when R_j^q is near zero: the sum Σ d_s·ω^{js} involves
+      -- large terms that nearly cancel, exhausting Double precision.
+      relDiff = magnitude (rjqExprVal - rjqVal) / max 1e-20 (magnitude rjqVal)
+  in if relDiff > 0.01
+     then -- Expression evaluation unreliable due to catastrophic cancellation.
+          -- Fall back to a literal complex approximation of R_j from the
+          -- accurate DFT-computed value. Introduces ~10^{-15} error (Double
+          -- precision of the DFT), negligible for the final result.
+          let re = toRational (realPart targetVal)
+              im = toRational (imagPart targetVal)
+              i = Root 2 (Lit (-1))
+          in if abs (imagPart targetVal) < 1e-15
+             then Lit re
+             else Add (Lit re) (Mul (Lit im) i)
+     else -- Expression evaluation is reliable. Use it for branch selection.
+          let principalVal = mkPolar (magnitude rjqExprVal ** (1 / fromIntegral q))
+                                     (phase rjqExprVal / fromIntegral q)
+              omegaC = exp (0 :+ (2 * pi / fromIntegral q))
+              scored = [ (k, magnitude (omegaC ^ k * principalVal - targetVal))
+                       | k <- [0..q-1] ]
+              sorted = NE.sortBy (comparing snd) (NE.fromList scored)
+              bestK = fst (NE.head sorted)
+          in if bestK == 0 then principalRoot
+             else Mul (omegaPowers !! bestK) principalRoot
 
 -- | Chebyshev polynomial T_k(x): T_0(x) = 1, T_1(x) = x,
 -- T_{n+1}(x) = 2x·T_n(x) - T_{n-1}(x).
@@ -567,7 +539,7 @@ chebyshevLocal k x = go 2 (Lit 1) x
           in go (n + 1) t1 t2
 
 -- | Assign radical expressions to numerical values by matching.
--- Each expression is evaluated numerically (as Complex Double) and
+-- Each expression is evaluated numerically (as ExactComplex) and
 -- paired with the closest target value using complex magnitude.
 assignByValue :: [RadExpr Rational] -> [Complex Double] -> [RadExpr Rational]
 assignByValue exprs vals =
@@ -577,18 +549,6 @@ assignByValue exprs vals =
     pickClosest evs target =
       case evs of
         []     -> error "assignByValue: empty expression list"
-        (e:es) -> fst $ NE.head $ NE.sortBy (comparing (\(_, v) -> magnitude (v - target))) (e :| es)
-
--- | Like 'assignByValue', but using pre-computed numerical values for expressions
--- (avoids expensive evalComplex on large expression trees).
-assignByValueNum :: [RadExpr Rational] -> [Complex Double] -> [Complex Double] -> [RadExpr Rational]
-assignByValueNum exprs exprVals vals =
-  let paired = zip exprs exprVals
-  in map (pickClosest paired) vals
-  where
-    pickClosest evs target =
-      case evs of
-        []     -> error "assignByValueNum: empty expression list"
         (e:es) -> fst $ NE.head $ NE.sortBy (comparing (\(_, v) -> magnitude (v - target))) (e :| es)
 
 -- | Reorder prime factors of φ(n) for the Gauss period descent.

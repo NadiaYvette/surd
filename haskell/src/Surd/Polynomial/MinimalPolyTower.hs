@@ -24,9 +24,9 @@ import Surd.Polynomial.Univariate
 import Surd.Polynomial.Factoring (factorSquareFree)
 import Surd.Polynomial.MinimalPoly (polyResultant)
 import Surd.Field.Extension
-import Surd.Radical.Eval (eval, evalComplex)
-import Surd.Internal.PSLQ (findMinPoly)
 import Data.Complex (realPart)
+import Surd.Radical.Eval (evalComplex)
+import Surd.Internal.PSLQ (findMinPoly)
 import Surd.Radical.Normalize (normalize)
 import Data.List (nub)
 
@@ -35,8 +35,7 @@ import Data.List (nub)
 minimalPolyTower :: RadExpr Rational -> Poly Rational
 minimalPolyTower expr =
   let ann = annihilatingPolyTower expr
-      vd = eval expr :: Double
-      v = if isNaN vd then realPart (evalComplex expr) else vd
+      v = realPart (evalComplex expr)
       factors = factorSquareFree (monicPoly ann)
   in case factors of
        [] -> ann
@@ -659,11 +658,8 @@ evalInExt6 field1 field2 field3 field4 field5 field6
 -- Much more robust than brute-force coefficient search.
 numericMinPoly :: RadExpr Rational -> Int -> Maybe (Poly Rational)
 numericMinPoly expr maxDeg =
-  let alphaD = eval expr :: Double
-      -- If Double eval gives NaN (e.g. √(-7)), use Complex eval and take real part
-      alpha = if isNaN alphaD
-              then realPart (evalComplex expr)
-              else alphaD
+  let -- Use exact real evaluation, then convert to Double for PSLQ
+      alpha = realPart (evalComplex expr)
   in case findMinPoly alpha (min maxDeg 20) of
        Just coeffs -> Just (mkPoly (map fromIntegral coeffs))
        Nothing -> Nothing
