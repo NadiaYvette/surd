@@ -19,13 +19,13 @@ module Surd.Trig
   , TrigResult(..)
   ) where
 
-import Data.Complex (Complex(..), magnitude)
 import Surd.Types
 import Surd.Trig.RootOfUnity (cosOfUnity)
 import Surd.Polynomial.Univariate (Poly)
 import Surd.Polynomial.Cyclotomic (cyclotomic)
 import Surd.Radical.Normalize (normalize)
-import Surd.Radical.Eval (evalComplex)
+import Surd.Radical.Eval (evalInterval)
+import Surd.Internal.Interval (width, overlaps)
 
 -- | Result of exact trig evaluation.
 data TrigResult
@@ -125,31 +125,35 @@ cosFirstQuadrant p q =
 -- numerical value (can happen with complex intermediates from Gauss
 -- period descent), return the original expression.
 --
+-- Uses interval arithmetic for rigorous verification instead of
+-- Double-based comparison.
+--
 -- For very large expression trees (from Lagrange resolvents with q ≥ 5),
--- normalize can be extremely slow, so we skip it if the tree is too deep.
+-- normalize can be extremely slow, so we skip it if the tree exceeds
+-- size or depth limits.
 safeNormalize :: RadExpr Rational -> RadExpr Rational
 safeNormalize e
-  | exprDepth e > 30 = e
+  | let (d, s) = exprMetrics e in d > 50 || s > 5000 = e
   | otherwise =
       let normed = normalize e
-          origVal = evalComplex e
-          normVal = evalComplex normed
-      in if magnitude (origVal - normVal) < 1e-8
+          origIv = evalInterval e
+          normIv = evalInterval normed
+      in if overlaps origIv normIv && width origIv >= width normIv
          then normed
          else e
 
--- | Approximate depth of an expression tree (capped for performance).
-exprDepth :: RadExpr k -> Int
-exprDepth = go 0
+-- | Approximate depth and size of an expression tree (both capped).
+exprMetrics :: RadExpr k -> (Int, Int)
+exprMetrics = go 0 0
   where
-    go d _ | d > 40 = d  -- cap to avoid traversing huge trees
-    go d (Lit _)      = d
-    go d (Add a b)    = max (go (d+1) a) (go (d+1) b)
-    go d (Mul a b)    = max (go (d+1) a) (go (d+1) b)
-    go d (Neg a)      = go (d+1) a
-    go d (Inv a)      = go (d+1) a
-    go d (Root _ a)   = go (d+1) a
-    go d (Pow a _)    = go (d+1) a
+    go d s _ | d > 60 || s > 6000 = (d, s)
+    go d s (Lit _)      = (d, s + 1)
+    go d s (Add a b)    = let (d1, s1) = go (d+1) (s+1) a in go (max d d1) s1 b
+    go d s (Mul a b)    = let (d1, s1) = go (d+1) (s+1) a in go (max d d1) s1 b
+    go d s (Neg a)      = go (d+1) (s+1) a
+    go d s (Inv a)      = go (d+1) (s+1) a
+    go d s (Root _ a)   = go (d+1) (s+1) a
+    go d s (Pow a _)    = go (d+1) (s+1) a
 
 -- | Chebyshev polynomial evaluation: T_k(x) computed symbolically.
 -- T_0(x) = 1, T_1(x) = x, T_{n+1}(x) = 2x·T_n(x) - T_{n-1}(x)

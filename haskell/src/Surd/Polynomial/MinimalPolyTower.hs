@@ -216,6 +216,7 @@ computeDeepFallback expr radicals =
     [r1, r2, r3]             -> computeDepth3 expr r1 r2 r3
     [r1, r2, r3, r4]         -> computeDepth4 expr r1 r2 r3 r4
     [r1, r2, r3, r4, r5]     -> computeDepth5 expr r1 r2 r3 r4 r5
+    [r1, r2, r3, r4, r5, r6] -> computeDepth6 expr r1 r2 r3 r4 r5 r6
     _                        -> simpleAnnihilating expr  -- truly deep tower, fallback
 
 -- | Build dependency chain: order radicals so that each radical's
@@ -409,6 +410,7 @@ type E2 = ExtElem E1
 type E3 = ExtElem E2
 type E4 = ExtElem E3
 type E5 = ExtElem E4
+type E6 = ExtElem E5
 
 -- | Depth 4: four radicals.
 computeDepth4 :: RadExpr Rational
@@ -552,6 +554,99 @@ evalInExt5 field1 field2 field3 field4 field5
       | (n, a) == rad4 = alpha4
       | (n, a) == rad5 = alpha5
       | otherwise = error "evalInExt5: unexpected radical"
+    go (Pow a n)
+      | n >= 0    = go a ^ n
+      | otherwise = recip (go a ^ negate n)
+
+-- | Depth 6: six radicals.
+computeDepth6 :: RadExpr Rational
+              -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
+              -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
+              -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
+              -> Poly Rational
+computeDepth6 expr rad1@(n1, radicand1) rad2@(n2, radicand2) rad3@(n3, radicand3) rad4@(n4, radicand4) rad5@(n5, radicand5) rad6@(n6, radicand6) =
+  case evalRational radicand1 of
+    Nothing -> error "computeDepth6: innermost radicand not rational"
+    Just r1 ->
+      let mp1 = mkPoly $ [-r1] ++ replicate (n1 - 1) 0 ++ [1]
+          field1 = mkExtField mp1 "α₁"
+          alpha1 = generator field1
+
+          r2InF1 = evalInExt field1 alpha1 rad1 radicand2
+          mp2 = mkPoly $ [negate r2InF1] ++ replicate (n2 - 1) 0 ++ [embed field1 1]
+          field2 = mkExtField mp2 "α₂"
+          alpha2 = generator field2
+          alpha1InF2 = embed field2 alpha1
+
+          r3InF2 = evalInExt2 field1 field2 alpha1InF2 alpha2 rad1 rad2 radicand3
+          mp3 = mkPoly $ [negate r3InF2] ++ replicate (n3 - 1) 0 ++ [embed field2 (embed field1 1)]
+          field3 = mkExtField mp3 "α₃"
+          alpha3 = generator field3
+          alpha1InF3 = embed field3 (embed field2 alpha1)
+          alpha2InF3 = embed field3 alpha2
+
+          r4InF3 = evalInExt3 field1 field2 field3 alpha1InF3 alpha2InF3 alpha3 rad1 rad2 rad3 radicand4
+          mp4 = mkPoly $ [negate r4InF3] ++ replicate (n4 - 1) 0 ++ [embed field3 (embed field2 (embed field1 1))]
+          field4 = mkExtField mp4 "α₄"
+          alpha4 = generator field4
+          alpha1InF4 = embed field4 (embed field3 (embed field2 alpha1))
+          alpha2InF4 = embed field4 (embed field3 alpha2)
+          alpha3InF4 = embed field4 alpha3
+
+          r5InF4 = evalInExt4 field1 field2 field3 field4
+                     alpha1InF4 alpha2InF4 alpha3InF4 alpha4
+                     rad1 rad2 rad3 rad4 radicand5
+          mp5 = mkPoly $ [negate r5InF4] ++ replicate (n5 - 1) 0 ++ [embed field4 (embed field3 (embed field2 (embed field1 1)))]
+          field5 = mkExtField mp5 "α₅"
+          alpha5 = generator field5
+          alpha1InF5 = embed field5 (embed field4 (embed field3 (embed field2 alpha1)))
+          alpha2InF5 = embed field5 (embed field4 (embed field3 alpha2))
+          alpha3InF5 = embed field5 (embed field4 alpha3)
+          alpha4InF5 = embed field5 alpha4
+
+          r6InF5 = evalInExt5 field1 field2 field3 field4 field5
+                     alpha1InF5 alpha2InF5 alpha3InF5 alpha4InF5 alpha5
+                     rad1 rad2 rad3 rad4 rad5 radicand6
+          mp6 = mkPoly $ [negate r6InF5] ++ replicate (n6 - 1) 0 ++ [embed field5 (embed field4 (embed field3 (embed field2 (embed field1 1))))]
+          field6 = mkExtField mp6 "α₆"
+          alpha6 = generator field6
+          alpha1InF6 = embed field6 (embed field5 (embed field4 (embed field3 (embed field2 alpha1))))
+          alpha2InF6 = embed field6 (embed field5 (embed field4 (embed field3 alpha2)))
+          alpha3InF6 = embed field6 (embed field5 (embed field4 alpha3))
+          alpha4InF6 = embed field6 (embed field5 alpha4)
+          alpha5InF6 = embed field6 alpha5
+
+          elem' = evalInExt6 field1 field2 field3 field4 field5 field6
+                    alpha1InF6 alpha2InF6 alpha3InF6 alpha4InF6 alpha5InF6 alpha6
+                    rad1 rad2 rad3 rad4 rad5 rad6 expr
+          fPoly6 = mkPoly [negate elem', embed field6 (embed field5 (embed field4 (embed field3 (embed field2 (embed field1 1)))))]
+      in normDown1 field1 (normDown1 field2 (normDown1 field3 (normDown1 field4 (normDown1 field5 (normDown1 field6 fPoly6)))))
+
+-- | Evaluate a RadExpr in Q(α₁)(α₂)(α₃)(α₄)(α₅)(α₆) given six radicals.
+evalInExt6 :: ExtField Rational -> ExtField E1 -> ExtField E2 -> ExtField E3 -> ExtField E4 -> ExtField E5
+           -> E6 -> E6 -> E6 -> E6 -> E6 -> E6
+           -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
+           -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
+           -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
+           -> RadExpr Rational -> E6
+evalInExt6 field1 field2 field3 field4 field5 field6
+           alpha1 alpha2 alpha3 alpha4 alpha5 alpha6
+           rad1 rad2 rad3 rad4 rad5 rad6 = go
+  where
+    one = embed field6 (embed field5 (embed field4 (embed field3 (embed field2 (embed field1 1)))))
+    go (Lit r)    = fromRational r * one
+    go (Neg a)    = negate (go a)
+    go (Add a b)  = go a + go b
+    go (Mul a b)  = go a * go b
+    go (Inv a)    = recip (go a)
+    go (Root n a)
+      | (n, a) == rad1 = alpha1
+      | (n, a) == rad2 = alpha2
+      | (n, a) == rad3 = alpha3
+      | (n, a) == rad4 = alpha4
+      | (n, a) == rad5 = alpha5
+      | (n, a) == rad6 = alpha6
+      | otherwise = error "evalInExt6: unexpected radical"
     go (Pow a n)
       | n >= 0    = go a ^ n
       | otherwise = recip (go a ^ negate n)

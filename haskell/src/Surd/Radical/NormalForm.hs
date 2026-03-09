@@ -51,6 +51,10 @@ data Atom
     -- ^ @RatRoot n r@: the principal nth root of r (r > 0, reduced).
   | ImagUnit
     -- ^ @√(-1) = i@. Kept separate since i² = -1 is the key reduction.
+  | NestedRoot !Int !(RadExpr Rational)
+    -- ^ @NestedRoot n e@: ⁿ√e where e is a non-rational expression
+    -- that cannot be decomposed into atoms.  Exponent reduction
+    -- applies: @(NestedRoot n e)^n@ extracts the radicand as a NormExpr.
   deriving (Eq, Ord, Show)
 
 -- | A monomial: product of atoms raised to positive powers.
@@ -120,6 +124,9 @@ rootOfAtomPow n (RatRoot m r) e =
   -- This creates an atom with combined root index m*n.
   -- reduceMonomial will handle if e >= m*n.
   reduceMonomial (Monomial (Map.singleton (RatRoot (m * n) r) e)) 1
+rootOfAtomPow n (NestedRoot m inner) e =
+  -- ⁿ√((ᵐ√e)^k): compose roots → ((m·n)√e)^k
+  reduceMonomial (Monomial (Map.singleton (NestedRoot (m * n) inner) e)) 1
 rootOfAtomPow n ImagUnit e =
   -- i^e under an nth root: ⁿ√(i^e)
   -- Reduce i^e first, then take nth root of the result.
@@ -180,12 +187,30 @@ mulMonoCoeff (Monomial m1, c1) (Monomial m2, c2) =
   in reduceMonomial (Monomial merged) coeff
 
 -- | Reduce a monomial by applying atom^n = radicand and i^2 = -1.
+-- For NestedRoot atoms with exponent >= n, extracts the radicand
+-- as a NormExpr factor (since the radicand is non-rational).
 reduceMonomial :: Monomial -> Rational -> NormExpr
 reduceMonomial (Monomial atoms) coeff =
   let (coeff', atoms') = Map.foldlWithKey' reduceAtom (coeff, Map.empty) atoms
   in if coeff' == 0
      then normZero
-     else NormExpr (Map.singleton (Monomial atoms') coeff')
+     else reduceNestedRoots coeff' atoms'
+
+-- | Post-reduction pass: extract full powers of NestedRoot atoms.
+-- When (NestedRoot n e)^k with k >= n, extract (toNormExpr e)^(k/n)
+-- and keep the remainder as the atom exponent.
+reduceNestedRoots :: Rational -> Map Atom Int -> NormExpr
+reduceNestedRoots coeff atoms =
+  case [(a, e) | (a@(NestedRoot n _), e) <- Map.toList atoms, e >= n] of
+    [] -> NormExpr (Map.singleton (Monomial atoms) coeff)
+    (NestedRoot n inner, e) : _ ->
+      let (full, rem') = e `divMod` n
+          atoms' = if rem' == 0 then Map.delete (NestedRoot n inner) atoms
+                   else Map.insert (NestedRoot n inner) rem' atoms
+          base = NormExpr (Map.singleton (Monomial atoms') coeff)
+          innerNorm = normPow (toNormExpr inner) full
+      in normMul base innerNorm
+    _ -> NormExpr (Map.singleton (Monomial atoms) coeff)
 
 -- | Reduce a single atom's exponent, extracting factors.
 reduceAtom :: (Rational, Map Atom Int) -> Atom -> Int -> (Rational, Map Atom Int)
@@ -207,6 +232,10 @@ reduceAtom (c, m) atom@(RatRoot n r) e =
       c' = c * r ^^ full
       m' = if rem' == 0 then m else Map.insert atom rem' m
   in (c', m')
+reduceAtom (c, m) atom@(NestedRoot _ _) e =
+  -- NestedRoot reduction is handled by reduceNestedRoots (post-pass)
+  -- because extracting the radicand produces a NormExpr, not a Rational.
+  (c, Map.insert atom e m)
 
 -- | Integer power.
 normPow :: NormExpr -> Int -> NormExpr
@@ -278,8 +307,9 @@ findRadicalAtom (NormExpr m) =
 
 -- | Degree of an atom's minimal polynomial.
 atomDegree :: Atom -> Int
-atomDegree ImagUnit      = 2    -- i² + 1 = 0
-atomDegree (RatRoot n _) = n    -- αⁿ - r = 0
+atomDegree ImagUnit          = 2    -- i² + 1 = 0
+atomDegree (RatRoot n _)     = n    -- αⁿ - r = 0
+atomDegree (NestedRoot n _)  = n    -- αⁿ - e = 0
 
 -- | Express a NormExpr as a polynomial in a given atom.
 -- Returns coefficients [a₀, a₁, ..., a_{n-1}] where ne = Σ aᵢ·atom^i.
@@ -312,6 +342,8 @@ minPolyCoeffs _ ImagUnit =
   [normLit 1, normZero, normLit 1]           -- α² + 1
 minPolyCoeffs n (RatRoot _ r) =
   [normLit (negate r)] ++ replicate (n - 1) normZero ++ [normLit 1]  -- αⁿ - r
+minPolyCoeffs n (NestedRoot _ inner) =
+  [normNeg (toNormExpr inner)] ++ replicate (n - 1) normZero ++ [normLit 1]  -- αⁿ - e
 
 -- | Reconstruct a NormExpr from polynomial coefficients in an atom.
 -- Given [a₀, a₁, ...], computes a₀ + a₁·atom + a₂·atom² + ...
@@ -473,10 +505,10 @@ toNormExpr (Root n a) =
             rootAtoms = Map.foldlWithKey' (\acc atom e ->
               normMul acc (rootOfAtomPow n atom e)) (normLit 1) atoms
         in normMul rootC rootAtoms
-      -- Multi-term radicand: can't simplify without denesting.
-      -- Wrap as opaque atom using the RadExpr representation.
-      _ -> normAtom (RatRoot n (error "opaque nested radical: use fromNormExpr on inner"))
-           -- TODO: proper representation for non-simplifiable nested radicals
+      -- Multi-term radicand: can't decompose into atoms.
+      -- Wrap as an opaque NestedRoot atom. Exponent reduction still works:
+      -- (NestedRoot n e)^n extracts e as a NormExpr factor.
+      _ -> normAtom (NestedRoot n (fromNormExpr inner))
 toNormExpr (Inv a) = normInv (toNormExpr a)
 toNormExpr (Pow a n)
   | n >= 0    = normPow (toNormExpr a) n
@@ -502,6 +534,8 @@ fromNormExpr (NormExpr m) = case Map.toList m of
     atomToExpr ImagUnit e       = Pow (Root 2 (Lit (-1))) e
     atomToExpr (RatRoot n r) 1  = Root n (Lit r)
     atomToExpr (RatRoot n r) e  = Pow (Root n (Lit r)) e
+    atomToExpr (NestedRoot n inner) 1 = Root n inner
+    atomToExpr (NestedRoot n inner) e = Pow (Root n inner) e
 
     applyCoeff :: Rational -> RadExpr Rational -> RadExpr Rational
     applyCoeff 1 body    = body

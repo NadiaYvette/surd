@@ -524,21 +524,33 @@ selectResolventBranch q omegaPowers rjqExpr _rjqVal targetVal =
       omegaC = exp (0 :+ (2 * pi / fromIntegral q))
       scored = [ (k, magnitude (omegaC ^ k * principalVal - targetVal))
                | k <- [0..q-1] ]
-      bestK = fst $ foldl1 (\a b -> if snd a <= snd b then a else b) scored
-      bestErr = snd $ foldl1 (\a b -> if snd a <= snd b then a else b) scored
+      sorted = NE.sortBy (comparing snd) (NE.fromList scored)
+      bestK = fst (NE.head sorted)
+      bestErr = snd (NE.head sorted)
+      -- Check that the best branch is well-separated from the runner-up.
+      -- If the best is at least 3x closer than the second-best, we have
+      -- a confident match even with moderate absolute error.
+      secondErr = case NE.tail sorted of
+                    (s:_) -> snd s
+                    []    -> 1e10
+      wellSeparated = bestErr < secondErr / 3
       exprBranch = if bestK == 0 then principalRoot
                    else Mul (omegaPowers !! bestK) principalRoot
-      -- If the expression can't match the target well (e.g., R_j is small and
-      -- R_j^q is dominated by d_s matching errors), fall back to numerical Lit
+      -- Accept the symbolic expression if:
+      -- 1. The relative error is small (< 10%), OR
+      -- 2. The best branch is well-separated from the runner-up
+      --    (confident even with moderate error)
       relErr = bestErr / max 1e-20 (magnitude targetVal)
-  in if relErr > 0.01
-     then -- Expression is too inaccurate; use numerical approximation
+  in if relErr < 0.1 || wellSeparated
+     then exprBranch
+     else -- Expression is too inaccurate; use numerical approximation.
+          -- TODO: consider using aern2-mp (ball arithmetic) for
+          -- higher-precision evaluation to avoid this fallback.
        let re = toRational (realPart targetVal)
            im = toRational (imagPart targetVal)
        in if abs (imagPart targetVal) < 1e-15
           then Lit re
           else Add (Lit re) (Mul (Lit im) (Root 2 (Lit (-1))))
-     else exprBranch
 
 -- | Chebyshev polynomial T_k(x): T_0(x) = 1, T_1(x) = x,
 -- T_{n+1}(x) = 2x·T_n(x) - T_{n-1}(x).

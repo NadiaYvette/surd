@@ -180,50 +180,55 @@ cosOfUnityComposite n =
     []  -> Nothing
     [_] -> Nothing  -- prime power, handled elsewhere
     _   ->
-      -- Split into two coprime factors
+      -- Split into two coprime factors n = n₁·n₂ with gcd(n₁,n₂) = 1.
+      -- By CRT: a·n₁ + b·n₂ = 1 for integers a, b.
+      -- Then 1/(n₁·n₂) = a/n₂ + b/n₁, so:
+      --   2π/n = 2πa/n₂ + 2πb/n₁
+      --   cos(2π/n) = cos(2πa/n₂ + 2πb/n₁)
+      --             = cos(2πa/n₂)·cos(2πb/n₁) - sin(2πa/n₂)·sin(2πb/n₁)
+      --
+      -- Chebyshev T_k(cos θ) = cos(kθ) gives cos(2πk/m) from cos(2π/m).
+      -- sinFromCos gives |sin|; the sign is determined from the quadrant.
       let ((p1, e1):_) = fs
           n1 = fromIntegral p1 ^ e1
           n2 = n `div` n1
-          -- Extended gcd: a*n1 + b*n2 = 1... wait, this is not the right approach.
-          -- Actually: cos(2π/n) where n = n1*n2, gcd(n1,n2) = 1.
-          -- We want 1/n = something that combines 1/n1 and 1/n2.
-          -- By CRT: there exist a,b with a/n1 + b/n2 = 1/n iff gcd(n1,n2)|1.
-          -- Since gcd(n1,n2) = 1: 1/n = 1/(n1·n2).
-          -- cos(2π/(n1·n2)): not directly a simple sum/product.
-          --
-          -- Better approach: compute cos(2π/n1) and cos(2π/n2) separately,
-          -- then use Chebyshev to get cos(2πk/n1) for various k, and
-          -- combine via addition formulas.
-          --
-          -- Actually, the simplest: by CRT, since gcd(n1,n2)=1,
-          -- there exist integers a,b with a·n2 + b·n1 = 1.
-          -- Then 2π/n = 2π·1/(n1·n2) = 2π·(a·n2 + b·n1)/(n1·n2)
-          --           = 2π·a/n1 + 2π·b/n2
-          -- So cos(2π/n) = cos(2πa/n1 + 2πb/n2)
-          --              = cos(2πa/n1)·cos(2πb/n2) - sin(2πa/n1)·sin(2πb/n2)
-          (a, b) = extGcdInt n1 n2  -- a*n1 + b*n2 = 1... wait, we want a*n2 + b*n1 = 1
-          -- Actually: extGcdInt gives (a,b) with a*n1 + b*n2 = 1
-          -- Then 1/(n1*n2) = a/n2 + b/n1... no.
-          -- 1 = a*n1 + b*n2
-          -- 1/(n1*n2) = a/n2 + b/n1
-          -- So 2π/(n1*n2) = 2π·a/n2 + 2π·b/n1
-          -- cos(2π/n) = cos(2πa/n2 + 2πb/n1)
-          --           = cos(2πa/n2)cos(2πb/n1) - sin(2πa/n2)sin(2πb/n1)
+          (a, b) = extGcdInt n1 n2  -- a*n1 + b*n2 = 1
+          -- Reduce to canonical range
+          a' = a `mod` n2
+          b' = b `mod` n1
+          -- Determine signs of sin(2πa'/n₂) and sin(2πb'/n₁)
+          sA = sinSignFromAngle a' n2
+          sB = sinSignFromAngle b' n1
+          signFactor = sA * sB
       in do
-        cosA <- cosOfUnity n2  -- cos(2π/n2), then Chebyshev for cos(2πa/n2)
-        cosB <- cosOfUnity n1  -- cos(2π/n1), then Chebyshev for cos(2πb/n1)
-        -- TODO: need cos(2πa/n2) not cos(2π/n2). Use Chebyshev if a ≠ 1.
-        -- For now, this is a simplified version that works when a = b = 1
-        -- (i.e., n1 + n2 = n1*n2 + 1... which is rare).
-        -- Full implementation needs Chebyshev composition.
-        let cosAE = chebyshevSimple (abs a) cosA
-            sinAE = sinFromCos cosAE
-            cosBE = chebyshevSimple (abs b) cosB
-            sinBE = sinFromCos cosBE
-            -- cos(α + β) = cos(α)cos(β) - sin(α)sin(β)
-            -- But we need to handle signs from a, b potentially being negative
-            result = Add (Mul cosAE cosBE) (Neg (Mul sinAE sinBE))
-        Just result
+        cosBase1 <- cosOfUnity n2  -- cos(2π/n₂)
+        cosBase2 <- cosOfUnity n1  -- cos(2π/n₁)
+        let cosAE = chebyshevSimple a' cosBase1  -- cos(2πa'/n₂)
+            cosBE = chebyshevSimple b' cosBase2  -- cos(2πb'/n₁)
+        if signFactor == 0
+          then -- One of the sines is zero; cos(α+β) = cos(α)·cos(β)
+            Just (Mul cosAE cosBE)
+          else do
+            let sinAbsA = sinFromCos cosAE  -- |sin(2πa'/n₂)|
+                sinAbsB = sinFromCos cosBE  -- |sin(2πb'/n₁)|
+                -- cos(α+β) = cos(α)cos(β) - signFactor · |sin(α)|·|sin(β)|
+                sinProduct = Mul sinAbsA sinAbsB
+                result = if signFactor == 1
+                         then Add (Mul cosAE cosBE) (Neg sinProduct)
+                         else Add (Mul cosAE cosBE) sinProduct
+            Just result
+
+-- | Sign of sin(2πk/m) for k ∈ [0, m-1]:
+--   0 < k/m < 1/2 → positive (+1)
+--   k/m = 0 or 1/2 → zero (0)
+--   1/2 < k/m < 1 → negative (-1)
+sinSignFromAngle :: Int -> Int -> Int
+sinSignFromAngle k m
+  | k' == 0       = 0
+  | 2 * k' < m    = 1
+  | 2 * k' == m   = 0
+  | otherwise      = -1
+  where k' = k `mod` m
 
 -- | Extended GCD for integers: returns (a, b) such that a*x + b*y = gcd(x,y).
 extGcdInt :: Int -> Int -> (Int, Int)
