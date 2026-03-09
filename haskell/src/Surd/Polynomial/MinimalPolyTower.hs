@@ -27,8 +27,7 @@ import Surd.Field.Extension
 import Surd.Radical.Eval (eval, evalComplex)
 import Data.Complex (Complex(..), realPart, magnitude)
 import Surd.Radical.Normalize (normalize)
-import Data.List (minimumBy, nub)
-import Data.Ord (comparing)
+import Data.List (nub)
 
 -- | Compute the minimal polynomial of a radical expression over Q,
 -- using the extension tower approach.
@@ -603,29 +602,24 @@ findMinPolyAtDegree alpha d =
                                     | (i, c) <- zip [1..] cs],
                      let c0d = -rest,
                      let c0 = round c0d :: Int,
-                     abs (fromIntegral c0 - c0d) < 1e-6,
+                     abs (fromIntegral c0 - c0d) < 1e-9,
                      abs c0 <= maxC]
-  in case candidates of
-       [] -> Nothing
-       _ ->
-         -- Pick the candidate with the smallest residual
-         let scored = [(p, res) |
-                        (lc, cs) <- candidates,
-                        let c0d = -(fromIntegral lc * (powers !! d)
-                                  + sum [fromIntegral c * (powers !! i)
-                                        | (i, c) <- zip [1..] cs]),
-                        let c0 = round c0d :: Int,
-                        let allCs = c0 : cs ++ [lc],
-                        let p = mkPoly (map fromIntegral allCs),
-                        degree p == d,
-                        let res = abs (evalPolyD p alpha)]
-             valid = [(p, r) | (p, r) <- scored, r < 1e-6]
-         in case valid of
-              [] -> Nothing
-              _ -> let (best, _) = minimumBy (comparing snd) valid
-                   in if verifyMinPoly best alpha
-                      then Just best
-                      else Nothing
+      -- Build each candidate polynomial and verify immediately,
+      -- short-circuiting on the first valid match.
+      polys = [p |
+                (lc, cs) <- candidates,
+                let c0d = -(fromIntegral lc * (powers !! d)
+                          + sum [fromIntegral c * (powers !! i)
+                                | (i, c) <- zip [1..] cs]),
+                let c0 = round c0d :: Int,
+                let allCs = c0 : cs ++ [lc],
+                let p = mkPoly (map fromIntegral allCs),
+                degree p == d,
+                abs (evalPolyD p alpha) < 1e-8,
+                verifyMinPoly p alpha]
+  in case polys of
+       (p:_) -> Just p
+       []    -> Nothing
 
 -- | Generate coefficient tuples of length n with |c| ≤ maxC.
 -- For efficiency, generate in a structured way.
