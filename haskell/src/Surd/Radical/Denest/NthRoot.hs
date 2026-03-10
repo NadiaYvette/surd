@@ -21,9 +21,10 @@ module Surd.Radical.Denest.NthRoot
   ) where
 
 import Data.Ratio (numerator, denominator)
+import Math.NumberTheory.Roots (exactSquareRoot, exactCubeRoot)
 import Surd.Types
 import Surd.Internal.Positive (Positive)
-import Surd.Internal.PrimeFactors (factorise, integerSqrt)
+import Surd.Internal.PrimeFactors (factorise)
 import Surd.Radical.Eval (evalExact)
 
 -- | Attempt to denest an nth root expression.
@@ -150,40 +151,20 @@ tryCubeRootDenest a b c =
 isRationalCubeRoot :: Rational -> Maybe Rational
 isRationalCubeRoot q
   | q == 0    = Just 0
-  | otherwise =
-      let n = numerator q
-          d = denominator q
-          sn = integerCubeRoot (abs n)
-          sd = integerCubeRoot d
-      in if sn * sn * sn == abs n && sd * sd * sd == d
-         then Just (fromInteger (signum n * sn) / fromInteger sd)
-         else Nothing
-
--- | Integer cube root via Newton's method.
-integerCubeRoot :: Integer -> Integer
-integerCubeRoot 0 = 0
-integerCubeRoot n
-  | n < 0     = negate (integerCubeRoot (negate n))
-  | otherwise = go (n `div` 3 + 1)
-  where
-    go x
-      | x' >= x   = x
-      | otherwise  = go x'
-      where x' = (2 * x + n `div` (x * x)) `div` 3
+  | otherwise = do
+      sn <- exactCubeRoot (abs (numerator q))
+      sd <- exactCubeRoot (denominator q)
+      Just (fromInteger (signum (numerator q) * sn) / fromInteger sd)
 
 -- | Check if a rational is a perfect square.
 isRationalSqrt :: Rational -> Maybe Rational
 isRationalSqrt q
   | q < 0     = Nothing
   | q == 0    = Just 0
-  | otherwise =
-      let n = numerator q
-          d = denominator q
-          sn = integerSqrt (fromInteger n)
-          sd = integerSqrt (fromInteger d)
-      in if sn * sn == fromInteger n && sd * sd == fromInteger d
-         then Just (fromIntegral sn / fromIntegral sd)
-         else Nothing
+  | otherwise = do
+      sn <- exactSquareRoot (numerator q)
+      sd <- exactSquareRoot (denominator q)
+      Just (fromInteger sn / fromInteger sd)
 
 -- | Find rational roots of ax³ + bx + c = 0 (no x² term).
 -- By rational root theorem, candidates are ±(divisor of c)/(divisor of a).

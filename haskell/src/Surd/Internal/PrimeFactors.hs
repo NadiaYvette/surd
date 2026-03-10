@@ -4,12 +4,9 @@ module Surd.Internal.PrimeFactors
   , primeFactors
   , isPrime
   , primes
-  , integerSqrt
-  , perfectPower
   ) where
 
 import Data.List.NonEmpty (NonEmpty(..))
-import Numeric.Natural (Natural)
 import qualified Data.List.NonEmpty as NE
 import Surd.Internal.Positive (Positive, unPositive)
 
@@ -50,24 +47,3 @@ isPrime n
 primes :: [Integer]
 primes = 2 : filter isPrime [3, 5 ..]
 
--- | Integer square root: largest @s@ such that @s*s <= n@.
-integerSqrt :: Natural -> Natural
-integerSqrt 0 = 0
-integerSqrt n = go (n `div` 2 + 1)
-  where
-    go x
-      | x' >= x   = x
-      | otherwise  = go x'
-      where x' = (x + n `div` x) `div` 2
-
--- | Check if @n@ is a perfect @k@th power for some @k >= 2@.
--- Returns @Just (base, k)@ for the largest such @k@, or @Nothing@.
-perfectPower :: Integer -> Maybe (Integer, Int)
-perfectPower n
-  | n <= 1    = Nothing
-  | otherwise =
-      let fs = factorise (fromInteger n)
-          g  = foldl1 gcd (map snd fs)
-      in if g >= 2
-         then Just (product [p ^ (e `div` g) | (p, e) <- fs], g)
-         else Nothing

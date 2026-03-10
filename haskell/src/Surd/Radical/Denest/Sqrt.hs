@@ -14,8 +14,8 @@ module Surd.Radical.Denest.Sqrt
   ) where
 
 import Data.Ratio (numerator, denominator)
+import Math.NumberTheory.Roots (exactSquareRoot)
 import Surd.Types
-import Surd.Internal.PrimeFactors (integerSqrt)
 
 -- | Try to denest @√(a + b√r)@ into @√x ± √y@.
 --
@@ -48,14 +48,10 @@ isRationalSqrt :: Rational -> Maybe Rational
 isRationalSqrt q
   | q < 0     = Nothing
   | q == 0    = Just 0
-  | otherwise =
-      let n = numerator q
-          d = denominator q
-          sn = integerSqrt (fromInteger n)
-          sd = integerSqrt (fromInteger d)
-      in if sn * sn == fromInteger n && sd * sd == fromInteger d
-         then Just (fromIntegral sn / fromIntegral sd)
-         else Nothing
+  | otherwise = do
+      sn <- exactSquareRoot (numerator q)
+      sd <- exactSquareRoot (denominator q)
+      Just (fromInteger sn / fromInteger sd)
 
 -- | Try to denest a radical expression that is a square root.
 -- Looks for the pattern @Sqrt (Add (Lit a) (Mul (Lit b) (Sqrt (Lit r))))@
