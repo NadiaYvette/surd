@@ -276,12 +276,36 @@ textHeader cfg = padCols cfg
 
 textRow :: Config -> Row -> String
 textRow _cfg r = intercalate "  │  " $ [rowAngle r]
-  ++ maybe [] (:[]) (rowCos r)
-  ++ maybe [] (:[]) (rowSin r)
-  ++ maybe [] (:[]) (rowTan r)
+  ++ maybe [] (:[]) (fmap wrapExpr (rowCos r))
+  ++ maybe [] (:[]) (fmap wrapExpr (rowSin r))
+  ++ maybe [] (:[]) (fmap wrapExpr (rowTan r))
 
 padCols :: Config -> [String] -> [String] -> [String] -> [String] -> String
 padCols _ a b c d = intercalate "  │  " (a ++ b ++ c ++ d)
+
+-- | Wrap a long expression at ' + ' or ' - ' boundaries.
+-- Only breaks at low nesting depth (≤1 paren deep) to avoid splitting
+-- subexpressions like ∛(1 + 3·√3) across lines.
+-- Continuation lines are indented by 4 spaces.
+wrapExpr :: String -> String
+wrapExpr s
+  | length s <= 80 = s
+  | otherwise      = go 0 0 s
+  where
+    -- go col depth str
+    go _ _ [] = []
+    go col d (c:cs)
+      | c == '('  = c : go (col+1) (d+1) cs
+      | c == ')'  = c : go (col+1) (max 0 (d-1)) cs
+      | col >= 80, d == 0, c == ' ', Just rest <- stripPlus cs =
+          "\n    + " ++ go 6 d rest
+      | col >= 80, d == 0, c == ' ', Just rest <- stripMinus cs =
+          "\n    - " ++ go 6 d rest
+      | otherwise = c : go (col + 1) d cs
+    stripPlus ('+':' ':rest) = Just rest
+    stripPlus _              = Nothing
+    stripMinus ('-':' ':rest) = Just rest
+    stripMinus _              = Nothing
 
 -- --------------------------------------------------------------------------
 -- Main

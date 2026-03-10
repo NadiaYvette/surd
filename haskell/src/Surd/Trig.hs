@@ -231,7 +231,18 @@ simplifiedSin p q (Radical c) =
   let p' = (p `mod` (2 * q))
       p'' = if p' < 0 then p' + 2 * q else p'
       positive = p'' >= 0 && p'' <= q
+      rads = collectRadicals c
+      hasComplex = any (\(_, r) -> r == Lit (-1)) rads
   in if p'' == 0 || p'' == q then Radical (Lit 0)
+     -- For complex cos forms (containing i), NF round-trip of 1-cos² explodes
+     -- because squaring complex monomials creates exponentially many terms.
+     -- Skip NF and use basic DAG fold instead.
+     else if hasComplex
+     then let oneMinusCos2 = Add (Lit 1) (Neg (Mul c c))
+              folded = fromDAG (dagFoldConstants (toDAG oneMinusCos2))
+              sinExpr = Root 2 folded
+              signed = if positive then sinExpr else Neg sinExpr
+          in Radical (fromDAG (dagFoldConstants (toDAG signed)))
      else let sin2 = fromNormExpr (toNormExpr (Add (Lit 1) (Neg (Mul c c))))
               sin2folded = fromDAG (dagFoldConstants (toDAG sin2))
               sinExpr = Root 2 sin2folded

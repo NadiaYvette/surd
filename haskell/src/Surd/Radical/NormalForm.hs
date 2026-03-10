@@ -36,6 +36,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Ratio (numerator, denominator)
 import Surd.Types (RadExpr(..))
+import Surd.Radical.Eval (eval)
 import Math.Internal.Positive (Positive)
 import Math.Internal.PrimeFactors (factorise)
 
@@ -526,11 +527,20 @@ toNormExpr (Root n a) =
             totalContent = g * lcd ^ (n - 1)
             (nthOut, nthRem) = extractNthPower n totalContent
             -- = (nthOut / lcd) · ⁿ√nthRem · ⁿ√(E')
-            outerCoeff = nthOut / fromInteger lcd
+            outerCoeff0 = nthOut / fromInteger lcd
             -- E' = E/g has coprime integer coefficients
             cleanedTerms =
               [ (mono, c * fromInteger lcd / fromInteger g) | (mono, c) <- terms ]
-            cleanedRadicand = NormExpr $ Map.fromList cleanedTerms
+            cleanedRadicand0 = NormExpr $ Map.fromList cleanedTerms
+            -- For odd roots, ensure positive radicand: ⁿ√(-x) = -ⁿ√(x).
+            -- Uses Double evaluation for sign determination.
+            (outerCoeff, cleanedRadicand)
+              | odd n =
+                  let v = eval (fromNormExpr cleanedRadicand0)
+                  in if not (isNaN v) && v < 0
+                     then (negate outerCoeff0, normNeg cleanedRadicand0)
+                     else (outerCoeff0, cleanedRadicand0)
+              | otherwise = (outerCoeff0, cleanedRadicand0)
             -- ⁿ√nthRem as a separate atom (integer, nth-power-free).
             -- For odd roots, ⁿ√(a·b) = ⁿ√a · ⁿ√b always holds.
             -- For even roots, only split if nthRem = 1 (to avoid sign issues).

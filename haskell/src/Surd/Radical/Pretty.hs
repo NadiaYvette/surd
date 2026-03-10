@@ -113,6 +113,7 @@ renderWith names = go 0
     pp p (Inv e) =
       parensIf (p > precMul) $ "1/" ++ go precPow e
 
+    pp _ (Root 2 (Lit (-1))) = "i"
     pp _ (Root 2 e) = "√" ++ radicand e
     pp _ (Root 3 e) = "∛" ++ radicand e
     pp _ (Root n e) = show n ++ "√" ++ radicand e
@@ -192,6 +193,7 @@ prettyPrec p e@(Mul _ _) =
   parensIf (p > precMul) $ renderFactorsBasic (flattenMulBasic e)
 prettyPrec p (Inv e) =
   parensIf (p > precMul) $ "1/" ++ prettyPrec precPow e
+prettyPrec _ (Root 2 (Lit (-1))) = "i"
 prettyPrec _ (Root 2 e) = "√" ++ prettyRadicandBasic e
 prettyPrec _ (Root 3 e) = "∛" ++ prettyRadicandBasic e
 prettyPrec _ (Root n e) = show n ++ "√" ++ prettyRadicandBasic e

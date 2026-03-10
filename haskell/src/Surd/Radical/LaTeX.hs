@@ -44,6 +44,7 @@ latexPrec p (Mul (Inv a) b) =
   parensIf (p > precMul) $ "\\frac{" ++ latexPrec 0 b ++ "}{" ++ latexPrec 0 a ++ "}"
 latexPrec p (Inv e) =
   parensIf (p > precMul) $ "\\frac{1}{" ++ latexPrec 0 e ++ "}"
+latexPrec _ (Root 2 (Lit (-1))) = "\\mathrm{i}"
 latexPrec _ (Root 2 e) = "\\sqrt{" ++ latexRadicand e ++ "}"
 latexPrec _ (Root n e) = "\\sqrt[" ++ show n ++ "]{" ++ latexRadicand e ++ "}"
 latexPrec p (Pow e n) =
