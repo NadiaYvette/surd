@@ -50,6 +50,8 @@ library
     aern2-mp >= 0.2.15,
     containers >= 0.6,
     exact-real >= 0.12,
+    linear-massiv >= 0.1,
+    massiv >= 1.0,
     mixed-types-num >= 0.6,
     collect-errors >= 0.1.5,
     vector >= 0.13
