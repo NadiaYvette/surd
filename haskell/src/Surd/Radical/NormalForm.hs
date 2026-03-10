@@ -110,8 +110,9 @@ normRoot n r
           den = denominator r
           (numOut, numIn) = extractNthPower n (abs num)
           (denOut, denIn) = extractNthPower n den
-          coeff = numOut / denOut
-          radicand = numIn / denIn
+          -- Rationalize: ⁿ√(a/b) = (1/b)·ⁿ√(a·b^(n-1))
+          coeff = numOut / (denOut * denIn)
+          radicand = numIn * denIn ^ (n - 1)
       in if radicand == 1
          then normLit coeff
          else normScale coeff (normAtom (RatRoot n radicand))
@@ -534,6 +535,17 @@ toNormExpr (Root n a) =
             cleanedRadicand0 = NormExpr $ Map.fromList cleanedTerms
             -- For odd roots, ensure positive radicand: ⁿ√(-x) = -ⁿ√(x).
             -- Uses Double evaluation for sign determination.
+            -- Note: this identity only holds for REAL radicands. For complex
+            -- radicands (containing i), ∛(-z) ≠ -∛(z) in general because
+            -- arg(-z)/n ≠ arg(z)/n + π. We skip complex radicands (eval → NaN).
+            --
+            -- A stronger canonicalization could restrict complex radicands to
+            -- a canonical wedge (e.g., arg ∈ (-π/n, π/n] for nth roots) by
+            -- factoring out the appropriate nth root of unity ω = e^{2πik/n}.
+            -- This would give a unique representative for each branch but adds
+            -- complexity (ω prefactors) without clear readability gains, and
+            -- the Cardano casus irreducibilis radicands are already in a natural
+            -- conjugate-pair form that would be disrupted.
             (outerCoeff, cleanedRadicand)
               | odd n =
                   let v = eval (fromNormExpr cleanedRadicand0)
@@ -577,12 +589,42 @@ toNormExpr (Pow a n)
 fromNormExpr :: NormExpr -> RadExpr Rational
 fromNormExpr (NormExpr m) = case Map.toList m of
   []           -> Lit 0
-  terms        -> buildSum (map monoToExpr terms)
+  terms        ->
+    -- Group monomials by their NestedRoot atoms (Gröbner-style elimination
+    -- ordering: NestedRoot atoms are "variables", simple atoms are
+    -- "coefficients"). This factors out common NestedRoot subexpressions,
+    -- e.g., a·∛z + b·i·∛z → (a + b·i)·∛z.
+    let grouped = Map.toList (groupByNested terms)
+    in buildSum [ nestedGroupToExpr nestedAtoms coeffTerms
+                | (nestedAtoms, coeffTerms) <- grouped ]
   where
-    monoToExpr :: (Monomial, Rational) -> RadExpr Rational
-    monoToExpr (Monomial atoms, coeff) =
-      let atomExprs = [ atomToExpr a e | (a, e) <- Map.toList atoms ]
-      in applyCoeff coeff (buildProd atomExprs)
+    -- Partition a monomial's atoms into NestedRoot and simple (RatRoot/ImagUnit).
+    splitAtoms :: Map.Map Atom Int -> (Map.Map Atom Int, Map.Map Atom Int)
+    splitAtoms = Map.partitionWithKey (\a _ -> isNested a)
+      where isNested (NestedRoot _ _) = True
+            isNested _                = False
+
+    -- Group monomials by their NestedRoot atom signature.
+    -- Each group collects the (simple-atoms, coeff) pairs that share
+    -- the same NestedRoot factor.
+    groupByNested :: [(Monomial, Rational)]
+                  -> Map.Map (Map.Map Atom Int) [(Map.Map Atom Int, Rational)]
+    groupByNested = foldl (\acc (Monomial atoms, coeff) ->
+      let (nested, simple) = splitAtoms atoms
+      in Map.insertWith (++) nested [(simple, coeff)] acc) Map.empty
+
+    -- Convert a group: product of NestedRoot atoms × sum of simple terms.
+    nestedGroupToExpr :: Map.Map Atom Int -> [(Map.Map Atom Int, Rational)]
+                      -> RadExpr Rational
+    nestedGroupToExpr nestedAtoms coeffTerms =
+      let nestedProd = buildProd [ atomToExpr a e | (a, e) <- Map.toList nestedAtoms ]
+          coeffExpr  = buildSum [ applyCoeff c (buildProd [ atomToExpr a e
+                                                          | (a, e) <- Map.toList simple ])
+                                | (simple, c) <- coeffTerms ]
+      in case (nestedProd, coeffExpr) of
+           (Lit 1, _) -> coeffExpr
+           (_, Lit 1) -> nestedProd
+           _          -> Mul coeffExpr nestedProd
 
     atomToExpr :: Atom -> Int -> RadExpr Rational
     atomToExpr ImagUnit 1       = Root 2 (Lit (-1))

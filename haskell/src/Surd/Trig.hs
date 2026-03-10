@@ -220,8 +220,13 @@ simplifyTrigResult :: TrigResult -> TrigResult
 simplifyTrigResult (Radical e) =
   -- First try canonical simplification (minimal polynomial → Cardano/Ferrari),
   -- then NF round-trip to canonicalize radicands (integral form, coprime coefficients).
+  -- Skip NF round-trip for expressions with many radicals (>5) to avoid
+  -- exponential blowup in toNormExpr (16 radicals for denom 11, etc.).
   let simplified = tryCanonicalSimplify e
-  in Radical (fromNormExpr (toNormExpr simplified))
+      nRads = length (collectRadicals simplified)
+  in if nRads > 5
+     then Radical simplified
+     else Radical (fromNormExpr (toNormExpr simplified))
 simplifyTrigResult other = other
 
 -- | Compute simplified sin from simplified cos for display.
