@@ -300,25 +300,37 @@ latexWrap s
           "\\end{aligned}"
 
 -- | Split a LaTeX expression into top-level terms at + and - boundaries.
--- Tracks brace depth to avoid splitting inside \\sqrt{...}, \\frac{...}{...}, etc.
+-- Tracks both brace depth and \\left/\\right delimiter depth to avoid
+-- splitting inside \\sqrt{...}, \\frac{...}{...}, or \\left(...)\\right).
 splitLatexTerms :: String -> [String]
-splitLatexTerms = finish . go 0 0 ""
+splitLatexTerms = finish . go 0 (0 :: Int) 0 ""
   where
-    -- go depth col acc str
-    go _ _ acc [] = [reverse acc]
-    go d col acc ('{':cs)  = go (d+1) (col+1) ('{':acc) cs
-    go d col acc ('}':cs)  = go (max 0 (d-1)) (col+1) ('}':acc) cs
-    go d col acc (c:cs)
-      -- At depth 0, past column 60, split before " + " or " - "
-      | d == 0, col >= 60, c == ' ', Just (op, rest) <- matchOp cs =
-          reverse acc : go 0 (length op) (reverse op) rest
-      | otherwise = go d (col+1) (c:acc) cs
+    -- go braceDepth delimDepth col acc str
+    go _ _ _ acc [] = [reverse acc]
+    go bd dd col acc ('{':cs)  = go (bd+1) dd (col+1) ('{':acc) cs
+    go bd dd col acc ('}':cs)  = go (max 0 (bd-1)) dd (col+1) ('}':acc) cs
+    go bd dd col acc ('\\':cs)
+      | Just rest <- stripPrefix "left" cs =
+          go bd (dd+1) (col+5) ('t':'f':'e':'l':'\\':acc) rest
+      | Just rest <- stripPrefix "right" cs =
+          go bd (max 0 (dd-1)) (col+6) ('t':'h':'g':'i':'r':'\\':acc) rest
+      | otherwise = go bd dd (col+1) ('\\':acc) cs
+    go bd dd col acc (c:cs)
+      -- At depth 0 (both braces and delimiters), past column 60,
+      -- split before " + " or " - "
+      | bd == 0, dd == 0, col >= 60, c == ' ', Just (op, rest) <- matchOp cs =
+          reverse acc : go 0 0 (length op) (reverse op) rest
+      | otherwise = go bd dd (col+1) (c:acc) cs
 
     matchOp ('+':' ':rest) = Just ("+ ", rest)
     matchOp ('-':' ':rest) = Just ("- ", rest)
     matchOp _              = Nothing
 
     finish = filter (not . null)
+
+    stripPrefix [] s = Just s
+    stripPrefix (p:ps) (c:cs) | p == c = stripPrefix ps cs
+    stripPrefix _ _ = Nothing
 
 -- | Wrap a long expression at ' + ' or ' - ' boundaries.
 -- Only breaks at low nesting depth (≤1 paren deep) to avoid splitting
