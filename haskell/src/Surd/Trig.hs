@@ -217,7 +217,11 @@ tryAny = try
 -- 'cosExact'/'sinExact' because the simplified form, while more readable,
 -- can be harder for downstream algebraic operations (e.g., minimalPolyTower).
 simplifyTrigResult :: TrigResult -> TrigResult
-simplifyTrigResult (Radical e) = Radical (tryCanonicalSimplify e)
+simplifyTrigResult (Radical e) =
+  -- First try canonical simplification (minimal polynomial → Cardano/Ferrari),
+  -- then NF round-trip to canonicalize radicands (integral form, coprime coefficients).
+  let simplified = tryCanonicalSimplify e
+  in Radical (fromNormExpr (toNormExpr simplified))
 simplifyTrigResult other = other
 
 -- | Compute simplified sin from simplified cos for display.
