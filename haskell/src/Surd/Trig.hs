@@ -131,37 +131,38 @@ cosFirstQuadrant p q =
 -- has a chance of simplifying. Falls back to normalization-only for
 -- medium expressions, and skips entirely for large expression DAGs.
 --
--- Uses DAG-based metrics (O(n) where n = unique nodes) to measure
--- expression size accurately, even for expressions with exponential
--- tree-vs-DAG size ratio from Gauss period descent.
+-- Three tiers:
+-- - Small (d ≤ 20, s ≤ 500): dagFoldConstants → denest → tree normalize
+-- - Medium (d ≤ 50, s ≤ 5000): dagFoldConstants → dagNormalize (O(n), no sharing breakage)
+-- - Large (d > 50 or s > 5000): dagFoldConstants only
 safeDenestAndNormalize :: RadExpr Rational -> RadExpr Rational
 safeDenestAndNormalize e =
   let dag = toDAG e
       d   = dagDepth dag
       s   = dagSize dag
   in if d > 50 || s > 5000
-     then fromDAG (dagFoldConstants dag)  -- Too large for normalize/denest; just fold constants
+     then fromDAG (dagFoldConstants dag)
      else if d <= 20 && s <= 500
      then
-       -- Small expression: try denesting, then normalize with verification
+       -- Small: try denesting, then tree normalize with verification
        let e' = fromDAG (dagFoldConstants dag)
            denested = denest e'
            sDen = dagSize (toDAG denested)
            best = if sDen < s then denested else e'
        in safeNormalize best
-     else safeNormalize (fromDAG (dagFoldConstants dag))
+     else
+       -- Medium: DAG simplification (constant folding, power simplification,
+       -- perfect power extraction). dagNormalize is available but not used
+       -- here because Gauss period output rarely has like terms to collect.
+       fromDAG (dagFoldConstants dag)
 
 -- | Normalize, but verify the result. If normalization changes the
 -- numerical value (can happen with complex intermediates from Gauss
 -- period descent), return the original expression.
 --
--- Uses interval arithmetic for rigorous verification instead of
--- Double-based comparison.
---
--- Tree-based normalize is not DAG-aware: it tree-walks, breaking thunk
--- sharing and causing exponential blowup. Only applied to small expressions
--- (d ≤ 30, s ≤ 500). For larger expressions, dagFoldConstants (which now
--- includes simplifyPowers and extractPerfectPowers) handles the heavy lifting.
+-- Uses interval arithmetic for rigorous verification when possible.
+-- Falls back to Complex Double comparison via dagEvalComplex when
+-- interval eval fails (complex intermediates like √(-3)).
 safeNormalize :: RadExpr Rational -> RadExpr Rational
 safeNormalize e
   | let dag = toDAG e
@@ -172,6 +173,8 @@ safeNormalize e
       let normed = normalize e
       in case tryEvalInterval e of
            Nothing ->
+             -- Interval evaluation failed (complex intermediates).
+             -- Fall back to Complex Double verification via DAG eval.
              let origVal = dagEvalComplex (toDAG e)
                  normVal = dagEvalComplex (toDAG normed)
                  err = abs (realPart origVal - realPart normVal)

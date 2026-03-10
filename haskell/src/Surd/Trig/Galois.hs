@@ -306,7 +306,7 @@ solveLinearIntegerC target vals =
       tol = max 1 (magnitude target) * 1e-6
 
       -- Pair each value with its original index
-      indexed = zip [0..] vals
+      indexed = zip [0 :: Int ..] vals
 
       -- Separate into imaginary-heavy and real-only periods
       (imHeavy, realOnly) = foldr (\iv@(_, v) (ih, ro) ->

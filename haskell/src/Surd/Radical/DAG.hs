@@ -23,7 +23,9 @@ module Surd.Radical.DAG
   , dagSize
   , dagDepth
   , dagFoldConstants
+  , dagNormalize
   , dagEvalComplex
+  , dagEvalComplexInterval
   ) where
 
 import Data.Complex (Complex(..), magnitude, mkPolar)
@@ -31,12 +33,15 @@ import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntMap.Lazy as IntMapL
 import Data.IntMap.Strict (IntMap)
 import Data.IORef (newIORef, readIORef, writeIORef)
+import qualified Data.Map.Strict as Map
 import Data.Ratio (numerator, denominator)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Mem.StableName (StableName, makeStableName, hashStableName, eqStableName)
 import Surd.Types
 import Surd.Internal.Positive (Positive)
 import Surd.Internal.PrimeFactors (factorise)
+import Surd.Internal.Interval (ComplexInterval(..), Interval(..))
+import qualified Surd.Internal.Interval as I
 
 type NodeId = Int
 
@@ -285,6 +290,158 @@ extractNthPower n m =
       remainder = product [ p ^ (e `mod` n) | (p, e) <- fs ]
   in (fromInteger extracted, fromInteger remainder)
 
+-- | DAG-native normalization pass. Performs the algebraic simplifications
+-- that dagFoldConstants can't: collecting like terms in Add chains,
+-- merging Lit factors in Mul chains, and distributing scalar multiplication.
+--
+-- Runs in O(n·k) where n = unique nodes and k = max chain length.
+-- Unlike tree-based normalize, never breaks DAG sharing.
+dagNormalize :: RadDAG Rational -> RadDAG Rational
+dagNormalize (RadDAG nodes rootId) =
+  let (remap, finalNodes, _) =
+        IntMap.foldlWithKey' step (IntMap.empty, IntMap.empty, 0) nodes
+
+      step (rm, ns, nxt) oldId op =
+        let r x = rm IntMap.! x
+            op' = remapOp r op
+        in case normStep ns nxt op' of
+             Left existingId ->
+               (IntMap.insert oldId existingId rm, ns, nxt)
+             Right newOps ->
+               let (finalId, ns', nxt') = allocChain ns nxt newOps
+               in (IntMap.insert oldId finalId rm, ns', nxt')
+
+      allocChain ns nxt [] = (nxt - 1, ns, nxt)
+      allocChain ns nxt [op] = (nxt, IntMap.insert nxt op ns, nxt + 1)
+      allocChain ns nxt (op:ops) =
+        allocChain (IntMap.insert nxt op ns) (nxt + 1) ops
+
+  in RadDAG finalNodes (remap IntMap.! rootId)
+  where
+    remapOp _ (NLit k)    = NLit k
+    remapOp r (NNeg a)    = NNeg (r a)
+    remapOp r (NAdd a b)  = NAdd (r a) (r b)
+    remapOp r (NMul a b)  = NMul (r a) (r b)
+    remapOp r (NInv a)    = NInv (r a)
+    remapOp r (NRoot n a) = NRoot n (r a)
+    remapOp r (NPow a n)  = NPow (r a) n
+
+    normStep :: IntMap (RadNodeOp Rational) -> NodeId -> RadNodeOp Rational
+             -> Either NodeId [RadNodeOp Rational]
+
+    -- Collect like terms in Add chains: flatten, group by base, sum coefficients.
+    normStep ns nxt (NAdd a b) =
+      let terms = flattenAdd ns a ++ flattenAdd ns b
+          grouped = Map.toAscList $ foldl (\m (coeff, base) ->
+            Map.insertWith (+) base coeff m) Map.empty terms
+          nonzero = [(c, base) | (base, c) <- grouped, c /= 0]
+      in case nonzero of
+           []          -> Right [NLit 0]
+           [(c, base)] -> buildScaled nxt c base
+           _           -> buildSum nxt nonzero
+
+    -- Collect Lit factors in Mul chains: flatten, multiply lits, keep rest.
+    normStep ns nxt (NMul a b) =
+      let factors = flattenMul ns a ++ flattenMul ns b
+          (lits, rest) = foldr (\f (ls, rs) -> case f of
+            Left r  -> (r * ls, rs)
+            Right n -> (ls, n : rs)) (1, []) factors
+      in case (lits == 0, rest) of
+           (True, _)      -> Right [NLit 0]
+           (_, [])        -> Right [NLit lits]
+           (_, _) | lits == 1  -> buildProduct nxt rest
+                  | lits == -1 -> case buildProduct nxt rest of
+                      Left nid    -> Right [NNeg nid]
+                      Right ops   -> let lastId = nxt + length ops - 1
+                                     in Right (ops ++ [NNeg lastId])
+                  | otherwise -> case buildProduct nxt rest of
+                      Left nid    -> Right [NLit lits, NMul nxt nid]
+                      Right ops   -> let bodyId = nxt + length ops
+                                         litOp = NLit lits
+                                     in Right (ops ++ [litOp, NMul (nxt + length ops) (nxt + length ops - 1)])
+
+    -- Distribute: Lit * (a + b) → Lit*a + Lit*b
+    -- Check after Mul normalization
+    normStep ns nxt op@(NNeg a) = case ns IntMap.! a of
+      NLit r  -> Right [NLit (negate r)]
+      NNeg a' -> Left a'
+      _       -> Right [op]
+
+    normStep _ _ op = Right [op]
+
+    -- Flatten an Add chain into [(coefficient, base NodeId)].
+    -- Lit r → (r, Nothing) represented as (r, -1) sentinel
+    -- Neg x → negate coefficient
+    -- Mul (Lit c) x → (c, x)
+    flattenAdd :: IntMap (RadNodeOp Rational) -> NodeId -> [(Rational, NodeId)]
+    flattenAdd ns nid = case ns IntMap.! nid of
+      NAdd a b   -> flattenAdd ns a ++ flattenAdd ns b
+      NLit r     -> [(r, -1)]  -- sentinel: pure literal
+      NNeg a     -> map (\(c, base) -> (negate c, base)) (flattenAdd ns a)
+      NMul a b   -> case (ns IntMap.! a, ns IntMap.! b) of
+        (NLit c, _) -> [(c, b)]
+        (_, NLit c) -> [(c, a)]
+        _           -> [(1, nid)]
+      _            -> [(1, nid)]
+
+    -- Flatten a Mul chain into [Either Rational NodeId].
+    -- Left r = literal factor, Right nid = non-literal factor.
+    flattenMul :: IntMap (RadNodeOp Rational) -> NodeId -> [Either Rational NodeId]
+    flattenMul ns nid = case ns IntMap.! nid of
+      NMul a b   -> flattenMul ns a ++ flattenMul ns b
+      NLit r     -> [Left r]
+      NInv a     -> case ns IntMap.! a of
+        NLit r | r /= 0 -> [Left (1 / r)]
+        _                -> [Right nid]
+      _            -> [Right nid]
+
+    -- Build a single scaled term: c * base (or just Lit c, or just base)
+    buildScaled :: NodeId -> Rational -> NodeId
+                -> Either NodeId [RadNodeOp Rational]
+    buildScaled _   c (-1)  = Right [NLit c]  -- pure literal
+    buildScaled _   1 base  = Left base
+    buildScaled _   (-1) base = Right [NNeg base]
+    buildScaled nxt c base  = Right [NLit c, NMul nxt base]
+
+    -- Build a sum from [(coefficient, base NodeId)]
+    buildSum :: NodeId -> [(Rational, NodeId)] -> Either NodeId [RadNodeOp Rational]
+    buildSum nxt terms =
+      let -- Build each scaled term, collecting ops and tracking IDs
+          (ops, ids, nextId) = foldl (\(accOps, accIds, nid) (c, base) ->
+            case buildScaled nid c base of
+              Left existId -> (accOps, existId : accIds, nid)
+              Right newOps -> let termId = nid + length newOps - 1
+                              in (accOps ++ newOps, termId : accIds, nid + length newOps)
+            ) ([], [], nxt) terms
+          -- Chain the term IDs with NAdd
+          addOps = case reverse ids of
+            []     -> []
+            [x]    -> [NLit 0]  -- shouldn't happen (handled above)
+            (x:xs) -> foldl (\acc y ->
+              let prevId = nextId + length acc - 1
+                  curId = if null acc then x else prevId
+              in acc ++ [NAdd curId y]) [] xs
+      in case reverse ids of
+           []  -> Right [NLit 0]
+           [x] -> if null ops then Left x else Right ops
+           (first:rest) ->
+             let addChain = foldl (\(prevId, acc) y ->
+                   let newId = nextId + length acc
+                   in (newId, acc ++ [NAdd prevId y])
+                   ) (first, []) rest
+             in Right (ops ++ snd addChain)
+
+    -- Build a product from [NodeId] (non-literal factors)
+    buildProduct :: NodeId -> [NodeId] -> Either NodeId [RadNodeOp Rational]
+    buildProduct _   []     = Right [NLit 1]
+    buildProduct _   [x]    = Left x
+    buildProduct nxt (x:xs) =
+      let chain = foldl (\(prevId, acc) y ->
+            let newId = nxt + length acc
+            in (newId, acc ++ [NMul prevId y])
+            ) (x, []) xs
+      in Right (snd chain)
+
 -- | Evaluate a DAG to Complex Double. Each node evaluated exactly once.
 dagEvalComplex :: RadDAG Rational -> Complex Double
 dagEvalComplex (RadDAG nodes rootId) = vals IntMap.! rootId
@@ -308,3 +465,35 @@ dagEvalComplex (RadDAG nodes rootId) = vals IntMap.! rootId
       where
         realPart (x :+ _) = x
         imagPart (_ :+ y) = y
+
+-- | Evaluate a DAG to ComplexInterval. Each node evaluated exactly once.
+-- Uses rational interval arithmetic for rigorous bounds, avoiding the
+-- Double precision loss that dagEvalComplex suffers at depth > 50.
+dagEvalComplexInterval :: RadDAG Rational -> ComplexInterval
+dagEvalComplexInterval (RadDAG nodes rootId) = vals IntMap.! rootId
+  where
+    vals = IntMapL.map ev nodes
+
+    ev (NLit r)    = I.ciFromRational r
+    ev (NNeg a)    = I.cineg (vals IntMap.! a)
+    ev (NAdd a b)  = I.ciadd (vals IntMap.! a) (vals IntMap.! b)
+    ev (NMul a b)  = I.cimul (vals IntMap.! a) (vals IntMap.! b)
+    ev (NInv a)    = I.ciinv (vals IntMap.! a)
+    ev (NPow a n)  = I.cipow (vals IntMap.! a) n
+    ev (NRoot n a) =
+      let ci = vals IntMap.! a
+          rePart = I.ciReal ci
+          imPart = I.ciImag ci
+      in if lo imPart >= 0 && hi imPart <= 0 && lo rePart >= 0
+         then -- Non-negative real: use real nth root
+              I.ciFromReal (I.inth n rePart)
+         else if lo imPart >= 0 && hi imPart <= 0 && hi rePart <= 0 && odd n
+         then -- Negative real, odd root
+              let pos = I.inth n (Interval (negate (hi rePart)) (negate (lo rePart)))
+              in ComplexInterval (Interval (negate (hi pos)) (negate (lo pos))) (I.fromRational' 0)
+         else if lo imPart >= 0 && hi imPart <= 0 && hi rePart <= 0 && n == 2
+         then -- √(negative) = i·√(|x|)
+              let pos = I.isqrt (Interval (negate (hi rePart)) (negate (lo rePart)))
+              in ComplexInterval (I.fromRational' 0) pos
+         else -- General complex root
+              I.cinthroot n ci
