@@ -143,7 +143,9 @@ textFrac p 1
   | p == 1    = "π"
   | p == -1   = "-π"
   | otherwise = show p ++ "π"
-textFrac p q = show p ++ "π/" ++ show q
+textFrac 1 q    = "π/" ++ show q
+textFrac (-1) q = "-π/" ++ show q
+textFrac p q    = show p ++ "π/" ++ show q
 
 renderResult :: Format -> TrigResult -> String
 renderResult LaTeX (Radical e) = latex e

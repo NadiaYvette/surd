@@ -19,8 +19,21 @@ precPow = 4
 
 latexPrec :: Int -> RadExpr Rational -> String
 latexPrec _ (Lit r) = latexRat r
-latexPrec p (Neg e) =
-  parensIf (p > precNeg) $ "-" ++ latexPrec precNeg e
+latexPrec p (Neg e) = case e of
+  -- Neg of a sum: distribute the sign into terms
+  Add _ _ ->
+    parensIf (p > precAdd) $ renderTerms (map negTerm (flattenAdd e))
+  -- Neg of a product with literal coefficient: absorb sign
+  Mul (Lit c) rest ->
+    latexPrec p (Mul (Lit (negate c)) rest)
+  -- Neg of a literal: just negate
+  Lit r ->
+    latexPrec p (Lit (negate r))
+  -- Otherwise: prefix minus
+  _ ->
+    parensIf (p > precNeg) $ "-" ++ latexPrec precNeg e
+  where
+    negTerm (s, t) = (not s, t)
 latexPrec p e@(Add _ _) =
   parensIf (p > precAdd) $ renderTerms (flattenAdd e)
 -- a / b
@@ -68,10 +81,9 @@ parensIf False s = s
 
 latexRat :: Rational -> String
 latexRat r
-  | d == 1 && n' >= 0 = show n'
-  | d == 1            = "\\left(" ++ show n' ++ "\\right)"
-  | n' < 0            = "-\\frac{" ++ show (abs n') ++ "}{" ++ show d ++ "}"
-  | otherwise         = "\\frac{" ++ show n' ++ "}{" ++ show d ++ "}"
+  | d == 1    = show n'
+  | n' < 0   = "-\\frac{" ++ show (abs n') ++ "}{" ++ show d ++ "}"
+  | otherwise = "\\frac{" ++ show n' ++ "}{" ++ show d ++ "}"
   where
     n' = numerator r
     d  = denominator r
@@ -86,11 +98,13 @@ flattenAdd e = [(True, e)]
 renderTerms :: [(Bool, RadExpr Rational)] -> String
 renderTerms [] = "0"
 renderTerms ((s, t):rest) =
-  let first = if s then latexPrec precAdd t else "-" ++ latexPrec precMul t
+  let first = if s then latexPrec precAdd t else "-" ++ latexMulOrAtom t
   in first ++ concatMap rr rest
   where
     rr (True,  e) = " + " ++ latexPrec precAdd e
-    rr (False, e) = " - " ++ latexPrec precMul e
+    rr (False, e) = " - " ++ latexMulOrAtom e
+    -- Render at multiplication level without adding parens for products/atoms
+    latexMulOrAtom = latexPrec precMul
 
 flattenMul :: RadExpr Rational -> [RadExpr Rational]
 flattenMul (Mul a b) = flattenMul a ++ flattenMul b

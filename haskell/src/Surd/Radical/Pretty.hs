@@ -134,14 +134,15 @@ renderWith names = go 0
     flattenAdd (Add a b) = flattenAdd a ++ flattenAdd b
     flattenAdd (Neg e)   = map (\(s, t) -> (not s, t)) (flattenAdd e)
     flattenAdd (Lit r) | r < 0 = [(False, Lit (negate r))]
+    flattenAdd (Mul (Lit r) b) | r < 0 = [(False, Mul (Lit (negate r)) b)]
     flattenAdd e = [(True, e)]
 
     renderTerms [] = "0"
     renderTerms ((s, t):rest) =
-      let first = if s then go precAdd t else "-" ++ go precNeg t
+      let first = if s then go precAdd t else "-" ++ go precMul t
       in first ++ concatMap renderRest rest
     renderRest (True,  e) = " + " ++ go precAdd e
-    renderRest (False, e) = " - " ++ go precNeg e
+    renderRest (False, e) = " - " ++ go precMul e
 
     flattenMul (Mul a b) = flattenMul a ++ flattenMul b
     flattenMul e         = [e]
@@ -167,8 +168,21 @@ precAtom = 5
 
 prettyPrec :: Int -> RadExpr Rational -> String
 prettyPrec _ (Lit r) = prettyRat r
-prettyPrec p (Neg e) =
-  parensIf (p > precNeg) $ "-" ++ prettyPrec precNeg e
+prettyPrec p (Neg e) = case e of
+  -- Neg of a sum: distribute the sign into terms
+  Add _ _ ->
+    parensIf (p > precAdd) $ renderTermsBasic (map negTerm (flattenAddBasic e))
+  -- Neg of a product with literal coefficient: absorb sign
+  Mul (Lit c) rest ->
+    prettyPrec p (Mul (Lit (negate c)) rest)
+  -- Neg of a literal: just negate
+  Lit r ->
+    prettyPrec p (Lit (negate r))
+  -- Otherwise: prefix minus
+  _ ->
+    parensIf (p > precNeg) $ "-" ++ prettyPrec precNeg e
+  where
+    negTerm (s, t) = (not s, t)
 prettyPrec p e@(Add _ _) =
   parensIf (p > precAdd) $ renderTermsBasic (flattenAddBasic e)
 prettyPrec p (Mul a (Inv b)) =
@@ -194,10 +208,9 @@ parensIf False s = s
 
 prettyRat :: Rational -> String
 prettyRat r
-  | d == 1 && n' >= 0 = show n'
-  | d == 1            = "(" ++ show n' ++ ")"
-  | n' < 0            = "(-" ++ show (abs n') ++ "/" ++ show d ++ ")"
-  | otherwise          = "(" ++ show n' ++ "/" ++ show d ++ ")"
+  | d == 1    = show n'
+  | n' < 0   = "(-" ++ show (abs n') ++ "/" ++ show d ++ ")"
+  | otherwise = "(" ++ show n' ++ "/" ++ show d ++ ")"
   where
     n' = numerator r
     d  = denominator r
@@ -224,16 +237,17 @@ flattenAddBasic :: RadExpr Rational -> [(Bool, RadExpr Rational)]
 flattenAddBasic (Add a b) = flattenAddBasic a ++ flattenAddBasic b
 flattenAddBasic (Neg e)   = map (\(s, t) -> (not s, t)) (flattenAddBasic e)
 flattenAddBasic (Lit r) | r < 0 = [(False, Lit (negate r))]
+flattenAddBasic (Mul (Lit r) b) | r < 0 = [(False, Mul (Lit (negate r)) b)]
 flattenAddBasic e = [(True, e)]
 
 renderTermsBasic :: [(Bool, RadExpr Rational)] -> String
 renderTermsBasic [] = "0"
 renderTermsBasic ((s, t):rest) =
-  let first = if s then prettyPrec precAdd t else "-" ++ prettyPrec precNeg t
+  let first = if s then prettyPrec precAdd t else "-" ++ prettyPrec precMul t
   in first ++ concatMap rr rest
   where
     rr (True,  e) = " + " ++ prettyPrec precAdd e
-    rr (False, e) = " - " ++ prettyPrec precNeg e
+    rr (False, e) = " - " ++ prettyPrec precMul e
 
 flattenMulBasic :: RadExpr Rational -> [RadExpr Rational]
 flattenMulBasic (Mul a b) = flattenMulBasic a ++ flattenMulBasic b
