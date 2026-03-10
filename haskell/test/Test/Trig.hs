@@ -127,7 +127,11 @@ tests = testGroup "Trig"
     , testCase "cos(2π/23) — φ(23)=22=2×11, needs q=11 resolvent" $ do
         case cosExact 2 23 of
           Radical e -> do
-            let v = realPart (evalComplex e)
+            -- Use MPBall evaluation (500-bit precision) because the expression
+            -- contains near-zero R_j^q values where Double's complexNthRoot
+            -- picks the wrong branch due to garbage phase.
+            let Interval lo hi = ciReal (dagEvalComplexMP 500 (toDAG e))
+                v = fromRational ((lo + hi) / 2) :: Double
             abs (v - cos (2 * pi / 23)) < 1e-8 @?
               ("cos(2π/23) should be " ++ show (cos (2*pi/23)) ++ " but got " ++ show v)
           MinPoly _ -> assertFailure "expected radical via Lagrange resolvent"

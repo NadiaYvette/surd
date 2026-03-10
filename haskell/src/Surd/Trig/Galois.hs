@@ -30,28 +30,8 @@ import Surd.Types
 import Surd.Internal.Positive (Positive)
 import Surd.Internal.PrimeFactors (factorise)
 import Surd.Radical.DAG (toDAG, fromDAG, dagFoldConstants, dagEvalComplex)
-
--- Complex arithmetic helpers for types without RealFloat instances.
--- Data.Complex requires RealFloat for its Num instance, but Rational
--- doesn't provide it. These use explicit (a :+ b) decomposition.
-
-cAdd :: Num r => Complex r -> Complex r -> Complex r
-cAdd (a :+ b) (c :+ d) = (a + c) :+ (b + d)
-
-cMul :: Num r => Complex r -> Complex r -> Complex r
-cMul (a :+ b) (c :+ d) = (a*c - b*d) :+ (a*d + b*c)
-
-cScale :: Num r => r -> Complex r -> Complex r
-cScale s (a :+ b) = (s * a) :+ (s * b)
-
-cSum :: Num r => [Complex r] -> Complex r
-cSum = foldl cAdd (0 :+ 0)
-
-cPow :: Num r => Int -> Complex r -> Complex r
-cPow 0 _ = 1 :+ 0
-cPow n z = let half = cPow (n `div` 2) z
-               sq = cMul half half
-           in if even n then sq else cMul z sq
+import Surd.Radical.EvalMP (dftCoeffsMP, dagEvalComplexMP)
+import Surd.Internal.Interval (Interval(..), ComplexInterval(..))
 
 -- | DAG-aware constant folding. Converts to explicit DAG (detecting thunk
 -- sharing via StableName), folds constants in O(n) where n = unique nodes,
@@ -178,7 +158,7 @@ splitPeriod allPeriods q parent =
             in solvePeriodEquation q (periodExpr parent) coeffExprs subPeriodValues
         | otherwise =
             -- q >= 5: use Lagrange resolvent approach (DFT-based)
-            solvePeriodViaResolvent q allPeriods p (periodExpr parent) subPeriodValues
+            solvePeriodViaResolvent q allPeriods p (periodExpr parent) subPeriodElems subPeriodValues
 
   in [ PeriodState { periodExpr = expr, periodElems = elms, periodP = p }
      | (expr, elms) <- zip subPeriodExprs subPeriodElems
@@ -457,81 +437,37 @@ solvePeriodViaResolvent :: Int             -- ^ Degree q (prime, ≥ 5)
                         -> [PeriodState]   -- ^ All current-level periods
                         -> Integer         -- ^ p (the prime)
                         -> RadExpr Rational -- ^ Parent period expression (= R_0)
+                        -> [[Integer]]     -- ^ Sub-period element lists
                         -> [Complex Double] -- ^ Numerical sub-period values
                         -> [RadExpr Rational]
-solvePeriodViaResolvent q allPeriods p parentExpr numVals =
-  let -- Step 1: Compute DFT chain in Double first (fast path).
-      omegaD = exp (0 :+ (2 * pi / fromIntegral q)) :: Complex Double
+solvePeriodViaResolvent q allPeriods p parentExpr subPeriodElems _numVals =
+  let -- Compute high-precision DFT via MPBall (1000-bit precision).
+      -- Always used for q ≥ 5 because Double precision is insufficient for
+      -- large d_s values (e.g., q=11: d_s ~ 10^6, Double error ~ 1e-8,
+      -- which can cause round() to give wrong integer coefficients even
+      -- though the reconstruction passes the 1e-6 tolerance check).
+      (dCoeffsHP, resolventValsHP, _resolventPowersHP) =
+        dftCoeffsMP q p subPeriodElems
+      periodValsD = map (sumRootsOfUnity p . periodElems) allPeriods
 
-      resolventVals = [ sum [ omegaD ^ (j * k) * (numVals !! k)
-                            | k <- [0..q-1] ]
-                      | j <- [0..q-1] ]
-
-      resolventPowersQ = [ (resolventVals !! j) ^ q | j <- [0..q-1] ]
-
-      dCoeffsDouble = [ let s' = fromIntegral s :: Int
-                         in (1 / fromIntegral q :+ 0) *
-                            sum [ omegaD ^ ((q - ((j * s') `mod` q)) `mod` q) * (resolventPowersQ !! j)
-                                | j <- [0..q-1] ]
-                       | s <- [0..q-1 :: Int] ]
-
-      -- Step 2: Try matching each d_s in Double. Only use ExactComplex
-      -- for d_s values where Double matching fails.
-      dMatchResults = map (tryMatchToPeriodExpr allPeriods p) dCoeffsDouble
-
-      -- High-precision coefficient recovery using Rational arithmetic.
-      -- Since all input values originate from Double, wrapping them in
-      -- Rational gives ~53 bits of precision (same as Double but exact),
-      -- avoiding CReal overhead entirely. Uses the cXxx helpers defined above.
-      toRatC (r :+ i) = toRational r :+ toRational i
-      numValsR = map toRatC numVals :: [Complex Rational]
-      omegaRD = exp (0 :+ (2 * pi / fromIntegral q)) :: Complex Double
-      omegaPowersR = map toRatC [omegaRD ^ k | k <- [0..q-1 :: Int]] :: [Complex Rational]
-      resolventValsR = [ cSum [ cMul (omegaPowersR !! ((j * k) `mod` q)) (numValsR !! k)
-                               | k <- [0..q-1] ]
-                       | j <- [0..q-1] ]
-      resolventPowersQR = [ cPow q (resolventValsR !! j) | j <- [0..q-1] ]
-      recipQR = recip (fromIntegral q) :: Rational
-      dCoeffsR = [ let s' = fromIntegral s :: Int
-                    in cScale recipQR $
-                       cSum [ cMul (omegaPowersR !! ((q - ((j * s') `mod` q)) `mod` q))
-                                   (resolventPowersQR !! j)
-                            | j <- [0..q-1] ]
-                  | s <- [0..q-1 :: Int] ] :: [Complex Rational]
-      periodValsR = map (toRatC . sumRootsOfUnity p . periodElems) allPeriods :: [Complex Rational]
-
-      -- Build final dExprs: use Double match where available, Rational DFT
-      -- + ExactComplex matching as fallback.
-      -- The Rational DFT gives exact-arithmetic d_s values (seeded from Double).
-      -- We try matching the Rational d_s value against periods using Double
-      -- arithmetic. If that also fails, fall back to literal approximation.
-      fromRatC (r :+ i) = fromRational r :+ fromRational i :: Complex Double
-      dExprs = [ case mr of
-                   Just expr -> expr
-                   Nothing   ->
-                     -- Double matching failed. Try Rational DFT + Double matching.
-                     let dvalR = dCoeffsR !! s
-                         dvalD = fromRatC dvalR
-                         periodValsD' = map fromRatC periodValsR
-                     in case solveLinearIntegerC dvalD periodValsD' of
-                          Just (c, coeffs) ->
-                            foldl Add (Lit (fromIntegral c))
-                              [ if a == 0 then Lit 0
-                                else if a == 1 then periodExpr pi'
-                                else Mul (Lit (fromIntegral a)) (periodExpr pi')
-                              | (a, pi') <- zip coeffs allPeriods
-                              ]
-                          Nothing ->
-                            -- All integer matching failed. Use literal approximation.
-                            -- (d_s may not be an integer linear combination of periods
-                            -- when the period count exceeds q; this is expected for
-                            -- composite descent where the Galois structure is complex.)
-                            let re = toRational (realPart (dCoeffsDouble !! s))
-                                im = toRational (imagPart (dCoeffsDouble !! s))
-                            in if abs (imagPart (dCoeffsDouble !! s)) < 1e-12
-                               then Lit re
-                               else Add (Lit re) (Mul (Lit im) (Root 2 (Lit (-1))))
-               | (s, mr) <- zip [0..] dMatchResults ]
+      -- Match d_s to integer linear combinations of period values.
+      dExprs = [ case solveLinearIntegerC (dCoeffsHP !! s) periodValsD of
+                   Just (c, coeffs) ->
+                     foldl Add (Lit (fromIntegral c))
+                       [ if a == 0 then Lit 0
+                         else if a == 1 then periodExpr pi'
+                         else Mul (Lit (fromIntegral a)) (periodExpr pi')
+                       | (a, pi') <- zip coeffs allPeriods
+                       ]
+                   Nothing ->
+                     -- MPBall matching failed. Use literal approximation.
+                     let dvalHP = dCoeffsHP !! s
+                         re = toRational (realPart dvalHP)
+                         im = toRational (imagPart dvalHP)
+                     in if abs (imagPart dvalHP) < 1e-12
+                        then Lit re
+                        else Add (Lit re) (Mul (Lit im) (Root 2 (Lit (-1))))
+               | s <- [0..q-1] ]
 
       -- Get cos(2π/q) as a RadExpr
       cosBaseExpr = case cosOfUnityViaGauss q of
@@ -549,26 +485,11 @@ solvePeriodViaResolvent q allPeriods p parentExpr numVals =
                       | s <- [0..q-1] ]
         | j <- [1..q-1] ]
 
-      -- Pre-compute evalComplex of dExprs and omegaPowers via DAG evaluation.
-      -- Each dagEval call is O(unique nodes), avoiding exponential tree blowup.
-      dEvalVals = map dagEval dExprs
-      omegaPowerEvalVals = map dagEval omegaPowers
-
-      -- Compose R_j^q expression values from sub-expression evaluations.
-      -- This matches what dagEval(resolventPowerExpr_j) would compute,
-      -- but avoids calling toDAG on the large combined expression.
-      rjqExprVals = [ sum [ (dEvalVals !! s) * (omegaPowerEvalVals !! ((j * s) `mod` q))
-                           | s <- [0..q-1] ]
-                    | j <- [1..q-1] ]
-
       -- Select correct branch of q-th root for each resolvent.
-      -- Uses expression-derived values (rjqExprVals) for branch selection to
-      -- ensure consistency with how Root q evaluates the expression tree.
+      -- Uses high-precision resolvent values from MPBall DFT.
       resolventExprs = [ selectResolventBranchFast q omegaPowers
                            (resolventPowerExprs !! (j-1))
-                           (rjqExprVals !! (j-1))
-                           (resolventPowersQ !! j)
-                           (resolventVals !! j)
+                           (resolventValsHP !! j)
                        | j <- [1..q-1] ]
 
       -- All resolvents: R_0 = parent, R_1, ..., R_{q-1}
@@ -626,38 +547,46 @@ chebyshevLocal k x = go 2 (Lit 1) x
 
 -- | Select the correct branch of the q-th root.
 --
--- Takes a pre-computed evalComplex value of R_j^q (composed from sub-expression
--- evaluations) to avoid evaluating the full expression tree. Uses DFT-computed
--- rjqVal as ground truth to detect catastrophic cancellation.
+-- Uses Double evaluation for branch selection (matching the evaluator),
+-- with MPBall fallback when the Double result is ambiguous (near-zero
+-- R_j^q values where the phase is dominated by rounding errors).
 selectResolventBranchFast :: Int
                           -> [RadExpr Rational]   -- ^ ω^k for k = 0, ..., q-1
                           -> RadExpr Rational     -- ^ R_j^q expression
-                          -> Complex Double       -- ^ evalComplex of R_j^q expression (pre-computed)
-                          -> Complex Double       -- ^ Numerical value of R_j^q (from DFT)
                           -> Complex Double       -- ^ Target numerical value of R_j
                           -> RadExpr Rational
-selectResolventBranchFast q omegaPowers rjqExpr rjqExprVal rjqVal targetVal =
+selectResolventBranchFast q omegaPowers rjqExpr targetVal =
   let principalRoot = Root q rjqExpr
-      -- Check if expression evaluation suffers from catastrophic cancellation.
-      relDiff = magnitude (rjqExprVal - rjqVal) / max 1e-20 (magnitude rjqVal)
-  in if relDiff > 0.01
-     then -- Expression evaluation unreliable. Fall back to literal approximation.
-          let re = toRational (realPart targetVal)
-              im = toRational (imagPart targetVal)
-              i = Root 2 (Lit (-1))
-          in if abs (imagPart targetVal) < 1e-15
-             then Lit re
-             else Add (Lit re) (Mul (Lit im) i)
-     else -- Expression evaluation is reliable. Use it for branch selection.
-          let omegaC = exp (0 :+ (2 * pi / fromIntegral q))
-              principalVal = mkPolar (magnitude rjqExprVal ** (1 / fromIntegral q))
-                                     (phase rjqExprVal / fromIntegral q)
-              scored = [ (k, magnitude (omegaC ^ k * principalVal - targetVal))
-                       | k <- [0..q-1] ]
-              sorted = NE.sortBy (comparing snd) (NE.fromList scored)
-              bestK = fst (NE.head sorted)
-          in if bestK == 0 then principalRoot
-             else Mul (omegaPowers !! bestK) principalRoot
+      -- Try Double evaluation first.
+      rjqExprVal = dagEval rjqExpr
+      (bestK, confidence) = selectBranch rjqExprVal
+  in if confidence > 0.5
+     then
+       -- Double is ambiguous (best ≈ second). Use MPBall for accurate phase.
+       let rjqExprHP = ciToComplex (dagEvalComplexMP 500 (toDAG rjqExpr))
+           (bestKHP, _) = selectBranch rjqExprHP
+       in if bestKHP == 0 then principalRoot
+          else Mul (omegaPowers !! bestKHP) principalRoot
+     else
+       if bestK == 0 then principalRoot
+       else Mul (omegaPowers !! bestK) principalRoot
+  where
+    selectBranch rjqVal =
+      let omegaC = exp (0 :+ (2 * pi / fromIntegral q))
+          principalVal = mkPolar (magnitude rjqVal ** (1 / fromIntegral q))
+                                 (phase rjqVal / fromIntegral q)
+          scored = [ (k, magnitude (omegaC ^ k * principalVal - targetVal))
+                   | k <- [0..q-1] ]
+          sorted = NE.sortBy (comparing snd) (NE.fromList scored)
+          best = snd (NE.head sorted)
+          second = snd (sorted NE.!! 1)
+      in (fst (NE.head sorted), best / max 1e-20 second)
+
+-- | Convert ComplexInterval midpoints to Complex Double.
+ciToComplex :: ComplexInterval -> Complex Double
+ciToComplex ci =
+  let midR iv = fromRational ((lo iv + hi iv) / 2) :: Double
+  in midR (ciReal ci) :+ midR (ciImag ci)
 
 
 -- | Assign radical expressions to numerical values by matching.

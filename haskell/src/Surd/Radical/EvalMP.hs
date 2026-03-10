@@ -14,6 +14,7 @@ module Surd.Radical.EvalMP
   , dagEvalRealMP
   , mpBallToInterval
   , complexMPToComplexInterval
+  , dftCoeffsMP
   ) where
 
 import Data.Complex (Complex(..), magnitude)
@@ -134,7 +135,7 @@ cpow p z n
 -- w_{k+1} = ((n-1)·w_k + z/w_k^(n-1)) / n
 -- Starting from Complex Double estimate, converges quadratically.
 cnthroot :: Precision -> Int -> ComplexMP -> Complex Double -> ComplexMP
-cnthroot p n z z0Dbl
+cnthroot p n z _z0Dbl
   -- Real non-negative: use real nth root
   | isNonNegReal =
       ComplexMP (nthRootMP p n re) (zeroBall p)
@@ -146,8 +147,10 @@ cnthroot p n z z0Dbl
       ComplexMP (zeroBall p) (sqrt (negate re))
   -- General complex root via Newton
   | otherwise =
-      let -- Start from Double estimate
-          w0Dbl = dblNthRoot n z0Dbl
+      let -- Start from MPBall midpoint (more accurate than Double chain
+          -- for near-zero values where Double's phase is garbage).
+          zMid = complexMPToDouble z
+          w0Dbl = dblNthRoot n zMid
           w0 = ComplexMP (mpBallP p (toRational (realP w0Dbl)))
                          (mpBallP p (toRational (imagP w0Dbl)))
           nBall = mpBallP p (fromIntegral n :: Integer)
@@ -210,3 +213,76 @@ isNegBall :: MPBall -> Bool
 isNegBall b =
   let (_, h) = endpoints b
   in toRational h < 0
+
+-- | Compute d_s DFT coefficients at high precision.
+--
+-- Given q sub-periods (as lists of exponents of ζ = e^{2πi/p}), computes:
+-- 1. η_k = Σ ζ^{elem}  (sub-period values at 1000-bit precision)
+-- 2. R_j = Σ ω_q^{jk} · η_k  (resolvents)
+-- 3. R_j^q                     (q-th powers)
+-- 4. d_s = (1/q) Σ ω_q^{-js} · R_j^q  (inverse DFT)
+--
+-- Returns (d_s as Complex Double, R_j as Complex Double, R_j^q as Complex Double).
+-- Uses 1000-bit precision internally to avoid catastrophic cancellation
+-- when q is large (e.g., q=11 where R_j^11 ≈ 350000).
+dftCoeffsMP :: Int -> Integer -> [[Integer]] -> ([Complex Double], [Complex Double], [Complex Double])
+dftCoeffsMP q p subPeriodElems =
+  let pr = prec 1000
+      -- ζ = e^{2πi/p} at high precision
+      twoPiOverP = mpBallP pr (2 :: Integer) * piMP pr / mpBallP pr (fromIntegral p :: Integer)
+      zetaRe = cos twoPiOverP
+      zetaIm = sin twoPiOverP
+      zeta = ComplexMP zetaRe zetaIm
+      oneC = ComplexMP (oneBall pr) (zeroBall pr)
+      -- ζ^k computed via repeated multiplication
+      -- Pre-compute all needed powers of ζ
+      zetaPow :: Integer -> ComplexMP
+      zetaPow k =
+        let k' = k `mod` p
+        in cpow pr oneC 0 `seq` zetaPows !! fromIntegral k'
+      zetaPows = take (fromIntegral p) $ iterate (cmul zeta) oneC
+      -- Sub-period values: η_k = Σ ζ^{elem}
+      valsMP = [ foldl1 cadd [zetaPow e | e <- elems]
+               | elems <- subPeriodElems ]
+      -- ω_q = e^{2πi/q} at high precision
+      twoPiOverQ = mpBallP pr (2 :: Integer) * piMP pr / mpBallP pr (fromIntegral q :: Integer)
+      omegaQ = ComplexMP (cos twoPiOverQ) (sin twoPiOverQ)
+      omegaPowsMP = take q $ iterate (cmul omegaQ) oneC
+      -- R_j = Σ_{k=0}^{q-1} ω_q^{jk} · η_k
+      resolventMP j = foldl1 cadd
+        [ cmul (omegaPowsMP !! ((j * k) `mod` q)) (valsMP !! k)
+        | k <- [0..q-1] ]
+      resolventsMP = [resolventMP j | j <- [0..q-1]]
+      -- R_j^q
+      resolventPowsMP = map (cpowMP pr q) resolventsMP
+      -- d_s = (1/q) Σ_j ω_q^{-js} · R_j^q
+      recipQ = ComplexMP (mpBallP pr (recip (fromIntegral q) :: Rational)) (zeroBall pr)
+      dCoeffMP s = cmul recipQ $ foldl1 cadd
+        [ cmul (omegaPowsMP !! ((q - ((j * s) `mod` q)) `mod` q))
+               (resolventPowsMP !! j)
+        | j <- [0..q-1] ]
+      dCoeffs = [ complexMPToDouble (dCoeffMP s) | s <- [0..q-1] ]
+      resolvents = map complexMPToDouble resolventsMP
+      resolventPows = map complexMPToDouble resolventPowsMP
+  in (dCoeffs, resolvents, resolventPows)
+
+-- | π as an MPBall at given precision.
+-- Computed via Newton refinement of sin(x)=0 starting from Double π.
+-- f(x) = sin(x), f'(x) = cos(x), so x_{n+1} = x_n - sin(x_n)/cos(x_n).
+-- Quadratic convergence: 53 bits → 106 → 212 → ... exceeds any precision in ~15 iterations.
+piMP :: Precision -> MPBall
+piMP p =
+  let x0 = mpBallP p (toRational (pi :: Double))
+      step x = x - sin x / cos x
+  in iterate step x0 !! 15
+
+-- | Complex power by repeated squaring (MPBall version).
+cpowMP :: Precision -> Int -> ComplexMP -> ComplexMP
+cpowMP p n z = cpow p z n
+
+-- | Convert ComplexMP to Complex Double (midpoints).
+complexMPToDouble :: ComplexMP -> Complex Double
+complexMPToDouble (ComplexMP re im) =
+  let mid b = let (l, h) = endpoints b
+              in fromRational ((toRational l + toRational h) / 2) :: Double
+  in mid re :+ mid im
