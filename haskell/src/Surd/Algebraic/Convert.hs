@@ -150,20 +150,13 @@ solveCubic [d, c, b, _a] _approx =
               -- are from the depressed cubic t³ + pt + q = 0.
               let halfQ = q / 2
                   innerDisc = halfQ * halfQ + p*p*p / 27
-                  -- innerDisc < 0 in casus irreducibilis
-                  sqrtNegD = Root 2 (Lit (negate innerDisc))
-                  -- u³ = -q/2 + i·√(-innerDisc)
-                  -- Cube root radicand: -q/2 ± √(innerDisc)
-                  -- Since innerDisc < 0, √(innerDisc) = i·√(-innerDisc)
-                  -- We express: u = ∛(-q/2 + i·√(-innerDisc))
-                  -- Then root = u + ū + shift = 2·Re(u) - b/3
-                  -- Re(u) = Re(∛(complex))
-                  -- Use: u = ∛(-q/2 + i·√|disc|) where disc = q²/4 + p³/27
-                  -- u + v = u + conjugate(u) = 2·Re(u)
-                  -- We express as:  ∛(a + b·√(-D)) + ∛(a - b·√(-D)) - b/3
-                  -- where a = -q/2, b·√(-D) = √(innerDisc)
-                  cubeRadPos = Add (Neg (Lit halfQ)) (Mul (Lit (1/1)) sqrtNegD)
-                  cubeRadNeg = Add (Neg (Lit halfQ)) (Neg sqrtNegD)
+                  -- innerDisc < 0 in casus irreducibilis.
+                  -- √(innerDisc) = i·√(-innerDisc) since innerDisc < 0,
+                  -- giving complex conjugate cube root arguments:
+                  --   ∛(-q/2 + i·√|innerDisc|) + ∛(-q/2 - i·√|innerDisc|)
+                  sqrtD = Root 2 (Lit innerDisc)
+                  cubeRadPos = Add (Neg (Lit halfQ)) sqrtD
+                  cubeRadNeg = Add (Neg (Lit halfQ)) (Neg sqrtD)
                   u1 = Root 3 cubeRadPos
                   u2 = Root 3 cubeRadNeg
                   -- All three roots: u1+u2-b/3, ω·u1+ω²·u2-b/3, ω²·u1+ω·u2-b/3
