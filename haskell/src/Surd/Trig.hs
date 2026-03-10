@@ -25,6 +25,7 @@ import Surd.Trig.RootOfUnity (cosOfUnity)
 import Math.Polynomial.Univariate (Poly)
 import Math.Polynomial.Cyclotomic (cyclotomic)
 import Surd.Radical.Normalize (normalize)
+import Surd.Radical.NormalForm (toNormExpr, fromNormExpr)
 import Surd.Radical.Denest (denest)
 import Surd.Radical.Eval (evalInterval)
 import Surd.Radical.DAG (toDAG, fromDAG, dagSize, dagDepth, dagFoldConstants)
@@ -122,8 +123,12 @@ cosFirstQuadrant p q =
      else
        case cosOfUnity n of
          Just base ->
+           -- Chebyshev builds T_k(x) symbolically, producing (sum)*(sum)
+           -- products that the tree normalizer can't distribute. NormalForm
+           -- handles this automatically via monomial multiplication.
            let cheb = chebyshev k base
-           in Radical (safeDenestAndNormalize cheb)
+               simplified = fromNormExpr (toNormExpr cheb)
+           in Radical (safeDenestAndNormalize simplified)
          Nothing -> MinPoly (cyclotomic n)
 
 -- | Try denesting followed by normalization.
