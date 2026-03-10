@@ -265,80 +265,103 @@ matchSinglePeriod target v =
 -- For 1 period value, the system is exactly determined.
 -- For 2+ periods, we use iterative solving (process imaginary part first).
 findIntegerComboC :: Complex Double -> [Complex Double] -> Maybe (Int, [Int])
-findIntegerComboC target vals = solveLinearIntegerC target vals
+findIntegerComboC target vals =
+  solveLinearIntegerC (toRational (realPart target), toRational (imagPart target))
+                      [(toRational (realPart v), toRational (imagPart v)) | v <- vals]
 
 -- | Solve target = c + Σ aᵢ·xᵢ for integer c, aᵢ using the complex structure.
 --
--- Uses a greedy O(n log n) algorithm instead of exponential backtracking:
+-- Uses Rational arithmetic for full precision (1000-bit MPBall midpoints).
+-- This is critical for large q where d_s ~ 10^8 and coefficients ~ 10^7,
+-- exceeding Double's 15-digit precision.
+--
+-- Algorithm: greedy O(n log n):
 -- 1. Sort periods by |Im(xᵢ)| descending (most distinctive first)
 -- 2. Greedily assign each coefficient from Im(residual)/Im(xᵢ)
 -- 3. Determine constant c from Re(residual)
 -- 4. Verify, with local perturbation fallback if needed
-solveLinearIntegerC :: Complex Double -> [Complex Double] -> Maybe (Int, [Int])
-solveLinearIntegerC target [] =
-  let c = round (realPart target) :: Int
-      err = magnitude (target - (fromIntegral c :+ 0))
-  in if err / max 1 (magnitude target) < 1e-6
+solveLinearIntegerC :: (Rational, Rational) -> [(Rational, Rational)] -> Maybe (Int, [Int])
+solveLinearIntegerC (tRe, tIm) [] =
+  let c = round tRe :: Int
+      errRe = tRe - fromIntegral c
+      errIm = tIm
+      errSq = errRe * errRe + errIm * errIm
+      magSq = max 1 (tRe * tRe + tIm * tIm)
+  in if errSq < magSq * 1e-12
      then Just (c, [])
      else Nothing
-solveLinearIntegerC target vals =
+solveLinearIntegerC (tRe, tIm) vals =
   let n = length vals
-      tol = max 1 (magnitude target) * 1e-6
 
       -- Pair each value with its original index
       indexed = zip [0 :: Int ..] vals
 
       -- Separate into imaginary-heavy and real-only periods
-      (imHeavy, realOnly) = foldr (\iv@(_, v) (ih, ro) ->
-        if abs (imagPart v) > 1e-10 then (iv : ih, ro) else (ih, iv : ro)) ([], []) indexed
+      (imHeavy, realOnly) = foldr (\iv@(_, (_, im)) (ih, ro) ->
+        if abs im > 1e-30 then (iv : ih, ro) else (ih, iv : ro)) ([], []) indexed
 
       -- Sort imaginary-heavy by |Im| descending for numerical stability
-      sortedIm = sortBy (comparing (Down . abs . imagPart . snd)) imHeavy
+      sortedIm = sortBy (comparing (Down . abs . snd . snd)) imHeavy
 
       -- Greedy assignment: process imaginary-heavy periods first
-      (resid1, coeffs1) = foldl (\(resid, cs) (i, v) ->
-        let a = round (imagPart resid / imagPart v) :: Int
-        in (resid - (fromIntegral a :+ 0) * v, (i, a) : cs)
-        ) (target, []) sortedIm
+      ((resRe1, resIm1), coeffs1) = foldl (\((rRe, rIm), cs) (i, (vRe, vIm)) ->
+        let a = round (rIm / vIm) :: Int
+            aR = fromIntegral a
+        in ((rRe - aR * vRe, rIm - aR * vIm), (i, a) : cs)
+        ) ((tRe, tIm), []) sortedIm
 
       -- Then real-only periods
-      (resid2, coeffs2) = foldl (\(resid, cs) (i, v) ->
-        let a = if abs (realPart v) > 1e-10
-                then round (realPart resid / realPart v) :: Int
+      ((resRe2, _resIm2), coeffs2) = foldl (\((rRe, rIm), cs) (i, (vRe, _vIm)) ->
+        let a = if abs vRe > 1e-30
+                then round (rRe / vRe) :: Int
                 else 0
-        in (resid - (fromIntegral a :+ 0) * v, (i, a) : cs)
-        ) (resid1, coeffs1) realOnly
+            aR = fromIntegral a
+        in ((rRe - aR * vRe, rIm), (i, a) : cs)
+        ) ((resRe1, resIm1), coeffs1) realOnly
 
-      c = round (realPart resid2) :: Int
+      c = round resRe2 :: Int
 
       -- Build coefficient array in original order
-      buildCoeffs cs = map snd $ sort [(i, a) | (i, a) <- cs]
+      buildCoeffs cs = map snd $ sort cs
       coeffs = buildCoeffs coeffs2
 
-      -- Verify
-      recon = (fromIntegral c :+ 0) +
-              sum (zipWith (\a v -> (fromIntegral a :+ 0) * v) coeffs vals)
+      -- Verify using Rational arithmetic
+      reconRe = fromIntegral c + sum (zipWith (\a (vRe, _) -> fromIntegral a * vRe) coeffs vals)
+      reconIm = sum (zipWith (\a (_, vIm) -> fromIntegral a * vIm) coeffs vals)
+      errSq = (reconRe - tRe)^(2 :: Int) + (reconIm - tIm)^(2 :: Int)
+      magSq = max 1 (tRe * tRe + tIm * tIm)
 
-  in if magnitude (recon - target) < tol
+      -- Reject decompositions with unreasonably large coefficients.
+      -- For Gauss periods, d_s = c + Σ a_i η_i should have small integer
+      -- coefficients. When |d_s| >> |η_i| (e.g., p=89 q=11: d_s ~ 10^8,
+      -- η_i ~ 1-5), the system is underdetermined and greedy matching finds
+      -- spurious solutions with huge coefficients (10^7+).
+      -- Bound: max coefficient should be < 10000 * number of periods.
+      coeffBound = 10000 * max 1 n
+      coeffsOK = all (\a -> abs a <= coeffBound) coeffs && abs c <= coeffBound * coeffBound
+
+  in if errSq < magSq * 1e-12 && coeffsOK
      then Just (c, coeffs)
      else -- Perturbation fallback: try ±1 on each coefficient
-          tryPerturbation target vals tol n c coeffs
+          tryPerturbation (tRe, tIm) vals magSq n coeffBound c coeffs
 
 -- | Try perturbing each coefficient by ±1 to find a valid decomposition.
 -- O(n) instead of O(3^n) — handles rounding ambiguity for at most one coefficient.
-tryPerturbation :: Complex Double -> [Complex Double] -> Double
-               -> Int -> Int -> [Int] -> Maybe (Int, [Int])
-tryPerturbation target vals tol n _c0 coeffs0 =
+tryPerturbation :: (Rational, Rational) -> [(Rational, Rational)] -> Rational
+               -> Int -> Int -> Int -> [Int] -> Maybe (Int, [Int])
+tryPerturbation (tRe, tIm) vals magSq n coeffBound _c0 coeffs0 =
   let verify c cs =
-        let recon = (fromIntegral c :+ 0) +
-                    sum (zipWith (\a v -> (fromIntegral a :+ 0) * v) cs vals)
-        in magnitude (recon - target) < tol
+        let reconRe = fromIntegral c + sum (zipWith (\a (vRe, _) -> fromIntegral a * vRe) cs vals)
+            reconIm = sum (zipWith (\a (_, vIm) -> fromIntegral a * vIm) cs vals)
+            errSq = (reconRe - tRe)^(2 :: Int) + (reconIm - tIm)^(2 :: Int)
+            cOK = all (\a -> abs a <= coeffBound) cs && abs c <= coeffBound * coeffBound
+        in errSq < magSq * 1e-12 && cOK
 
       -- For each coefficient position, try ±1 perturbation
       perturb i delta =
         let cs = [ if j == i then a + delta else a | (j, a) <- zip [0..] coeffs0 ]
-            resid = target - sum (zipWith (\a v -> (fromIntegral a :+ 0) * v) cs vals)
-            c = round (realPart resid) :: Int
+            residRe = tRe - sum (zipWith (\a (vRe, _) -> fromIntegral a * vRe) cs vals)
+            c = round residRe :: Int
         in if verify c cs then Just (c, cs) else Nothing
 
       attempts = [ perturb i d | i <- [0..n-1], d <- [-1, 1] ]
@@ -446,9 +469,11 @@ solvePeriodViaResolvent q allPeriods p parentExpr subPeriodElems _numVals =
       -- large d_s values (e.g., q=11: d_s ~ 10^6, Double error ~ 1e-8,
       -- which can cause round() to give wrong integer coefficients even
       -- though the reconstruction passes the 1e-6 tolerance check).
-      (dCoeffsHP, resolventValsHP, _resolventPowersHP) =
-        dftCoeffsMP q p subPeriodElems
-      periodValsD = map (sumRootsOfUnity p . periodElems) allPeriods
+      -- Compute DFT and period values using the same 1000-bit ζ powers.
+      -- Computing period values independently causes rounding mismatch with
+      -- dCoeffsHP, leading to wrong integer coefficients in solveLinearIntegerC.
+      (dCoeffsHP, resolventValsHP, _resolventPowersHP, periodValsD) =
+        dftCoeffsMP q p subPeriodElems (map periodElems allPeriods)
 
       -- Match d_s to integer linear combinations of period values.
       dExprs = [ case solveLinearIntegerC (dCoeffsHP !! s) periodValsD of
@@ -461,10 +486,8 @@ solvePeriodViaResolvent q allPeriods p parentExpr subPeriodElems _numVals =
                        ]
                    Nothing ->
                      -- MPBall matching failed. Use literal approximation.
-                     let dvalHP = dCoeffsHP !! s
-                         re = toRational (realPart dvalHP)
-                         im = toRational (imagPart dvalHP)
-                     in if abs (imagPart dvalHP) < 1e-12
+                     let (re, im) = dCoeffsHP !! s
+                     in if abs im < 1e-30
                         then Lit re
                         else Add (Lit re) (Mul (Lit im) (Root 2 (Lit (-1))))
                | s <- [0..q-1] ]

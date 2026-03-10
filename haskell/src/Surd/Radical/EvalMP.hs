@@ -222,11 +222,17 @@ isNegBall b =
 -- 3. R_j^q                     (q-th powers)
 -- 4. d_s = (1/q) Σ ω_q^{-js} · R_j^q  (inverse DFT)
 --
--- Returns (d_s as Complex Double, R_j as Complex Double, R_j^q as Complex Double).
--- Uses 1000-bit precision internally to avoid catastrophic cancellation
--- when q is large (e.g., q=11 where R_j^11 ≈ 350000).
-dftCoeffsMP :: Int -> Integer -> [[Integer]] -> ([Complex Double], [Complex Double], [Complex Double])
-dftCoeffsMP q p subPeriodElems =
+-- Also computes period values for any additional element lists (periodElemLists),
+-- using the same ζ powers. This ensures precision-consistent matching of d_s to
+-- linear combinations of period values.
+--
+-- d_s and period values are returned as (Rational, Rational) pairs (real, imaginary
+-- midpoints from 1000-bit MPBall) to preserve full precision for integer coefficient
+-- matching. For p=89/q=11, d_s ~ 10^8 and coefficients ~ 10^7, requiring > 15 digits.
+-- R_j values are returned as Complex Double (sufficient for branch selection).
+dftCoeffsMP :: Int -> Integer -> [[Integer]] -> [[Integer]]
+            -> ([(Rational, Rational)], [Complex Double], [Complex Double], [(Rational, Rational)])
+dftCoeffsMP q p subPeriodElems periodElemLists =
   let pr = prec 1000
       -- ζ = e^{2πi/p} at high precision
       twoPiOverP = mpBallP pr (2 :: Integer) * piMP pr / mpBallP pr (fromIntegral p :: Integer)
@@ -244,6 +250,9 @@ dftCoeffsMP q p subPeriodElems =
       -- Sub-period values: η_k = Σ ζ^{elem}
       valsMP = [ foldl1 cadd [zetaPow e | e <- elems]
                | elems <- subPeriodElems ]
+      -- Period values using the same ζ powers (precision-consistent)
+      periodVals = [ complexMPToRatPair (foldl1 cadd [zetaPow e | e <- elems])
+                   | elems <- periodElemLists ]
       -- ω_q = e^{2πi/q} at high precision
       twoPiOverQ = mpBallP pr (2 :: Integer) * piMP pr / mpBallP pr (fromIntegral q :: Integer)
       omegaQ = ComplexMP (cos twoPiOverQ) (sin twoPiOverQ)
@@ -261,10 +270,17 @@ dftCoeffsMP q p subPeriodElems =
         [ cmul (omegaPowsMP !! ((q - ((j * s) `mod` q)) `mod` q))
                (resolventPowsMP !! j)
         | j <- [0..q-1] ]
-      dCoeffs = [ complexMPToDouble (dCoeffMP s) | s <- [0..q-1] ]
+      dCoeffs = [ complexMPToRatPair (dCoeffMP s) | s <- [0..q-1] ]
       resolvents = map complexMPToDouble resolventsMP
       resolventPows = map complexMPToDouble resolventPowsMP
-  in (dCoeffs, resolvents, resolventPows)
+  in (dCoeffs, resolvents, resolventPows, periodVals)
+
+-- | Convert ComplexMP to (Rational, Rational) midpoints, preserving full precision.
+complexMPToRatPair :: ComplexMP -> (Rational, Rational)
+complexMPToRatPair (ComplexMP re im) =
+  let mid b = let (l, h) = endpoints b
+              in (toRational l + toRational h) / 2
+  in (mid re, mid im)
 
 -- | π as an MPBall at given precision.
 -- Computed via Newton refinement of sin(x)=0 starting from Double π.
@@ -286,3 +302,5 @@ complexMPToDouble (ComplexMP re im) =
   let mid b = let (l, h) = endpoints b
               in fromRational ((toRational l + toRational h) / 2) :: Double
   in mid re :+ mid im
+
+

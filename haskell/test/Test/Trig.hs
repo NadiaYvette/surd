@@ -155,8 +155,10 @@ tests = testGroup "Trig"
     , testCase "cos(2π/43) — φ(43)=42=2×3×7, needs q=7 resolvent" $ do
         case cosExact 2 43 of
           Radical e -> do
-            let v = realPart (dagEvalComplex (toDAG e))
-            abs (v - cos (2 * pi / 43)) < 1e-4 @?
+            -- Use MPBall evaluation for rigorous verification.
+            let Interval lo hi = ciReal (dagEvalComplexMP 500 (toDAG e))
+                v = fromRational ((lo + hi) / 2) :: Double
+            abs (v - cos (2 * pi / 43)) < 1e-8 @?
               ("cos(2π/43) should be " ++ show (cos (2*pi/43)) ++ " but got " ++ show v)
           MinPoly _ -> assertFailure "expected radical"
 
@@ -174,6 +176,17 @@ tests = testGroup "Trig"
             let v = realPart (dagEvalComplex (toDAG e))
             abs (v - cos (2 * pi / 61)) < 1e-8 @?
               ("cos(2π/61) should be " ++ show (cos (2*pi/61)) ++ " but got " ++ show v)
+          MinPoly _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/89) — φ(89)=88=2³×11, needs q=11 resolvent" $ do
+        case cosExact 2 89 of
+          Radical e -> do
+            -- Use MPBall evaluation (500-bit precision) because q=11
+            -- resolvent has near-zero R_j^q values where Double fails.
+            let Interval lo hi = ciReal (dagEvalComplexMP 500 (toDAG e))
+                v = fromRational ((lo + hi) / 2) :: Double
+            abs (v - cos (2 * pi / 89)) < 1e-8 @?
+              ("cos(2π/89) should be " ++ show (cos (2*pi/89)) ++ " but got " ++ show v)
           MinPoly _ -> assertFailure "expected radical"
 
     , testCase "cos(2π/97) — φ(97)=96=2⁵×3, many periods" $ do
