@@ -8,7 +8,7 @@ import Surd.Trig
 import Surd.Radical.Eval (eval, evalComplex)
 import Surd.Radical.DAG (toDAG, dagEvalComplex)
 import Surd.Radical.EvalMP (dagEvalComplexMP, dagEvalRealMP)
-import Surd.Internal.Interval (ComplexInterval(..), Interval(..))
+import Math.Internal.Interval (ComplexInterval(..), Interval(..))
 
 tests :: TestTree
 tests = testGroup "Trig"

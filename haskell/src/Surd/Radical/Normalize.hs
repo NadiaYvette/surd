@@ -20,8 +20,8 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Ratio (numerator, denominator)
 import Surd.Types
-import Surd.Internal.Positive (Positive)
-import Surd.Internal.PrimeFactors (factorise)
+import Math.Internal.Positive (Positive)
+import Math.Internal.PrimeFactors (factorise)
 
 -- | Apply all normalization passes, iterated to a fixed point.
 normalize :: RadExpr Rational -> RadExpr Rational

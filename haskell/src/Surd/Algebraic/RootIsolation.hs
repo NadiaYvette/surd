@@ -10,8 +10,8 @@ module Surd.Algebraic.RootIsolation
   , sturmCount
   ) where
 
-import Surd.Polynomial.Univariate
-import Surd.Internal.Interval (Interval(..))
+import Math.Polynomial.Univariate
+import Math.Internal.Interval (Interval(..))
 
 -- | An isolating interval for a real root of a polynomial.
 -- The polynomial has exactly one root in the open interval (lo, hi),

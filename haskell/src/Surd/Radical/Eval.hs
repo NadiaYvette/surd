@@ -20,8 +20,8 @@ import qualified Data.IntMap.Strict as IntMap
 import System.IO.Unsafe (unsafePerformIO)
 import System.Mem.StableName (StableName, makeStableName, hashStableName, eqStableName)
 import Surd.Types
-import Surd.Internal.Interval (Interval(..), ComplexInterval(..))
-import qualified Surd.Internal.Interval as I
+import Math.Internal.Interval (Interval(..), ComplexInterval(..))
+import qualified Math.Internal.Interval as I
 
 -- | Exact real type with ~60 decimal digits of precision.
 -- Uses lazy Cauchy sequences internally; comparisons are reliable

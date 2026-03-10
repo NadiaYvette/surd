@@ -20,13 +20,16 @@ module Surd.Polynomial.MinimalPolyTower
   ) where
 
 import Surd.Types
-import Surd.Polynomial.Univariate
-import Surd.Polynomial.Factoring (factorSquareFree)
-import Surd.Polynomial.MinimalPoly (polyResultant)
-import Surd.Field.Extension
+import Math.Polynomial.Univariate
+import Math.Polynomial.Factoring (factorSquareFree)
+import Math.Polynomial.Resultant
+  ( polyResultant, lagrangeInterpolate, negateVar, reciprocalPoly
+  , substituteXN, composedSum, composedProduct )
+import Math.Polynomial.RootBound (approxRoots)
+import Math.Field.Extension
 import Data.Complex (realPart)
 import Surd.Radical.Eval (evalComplex)
-import Surd.Internal.PSLQ (findMinPoly)
+import Math.Internal.PSLQ (findMinPoly)
 import Surd.Radical.Normalize (normalize)
 import Data.List (nub)
 
@@ -247,21 +250,20 @@ simpleAnnihilating :: RadExpr Rational -> Poly Rational
 simpleAnnihilating (Lit r) = mkPoly [-r, 1]
 simpleAnnihilating (Neg e) =
   let p = simpleAnnihilating e
-  in mkPoly $ zipWith (\i c -> if odd (i :: Int) then negate c else c) [0..] (unPoly p)
+  in negateVar p
 simpleAnnihilating (Add a b) =
-  composedSumLocal (simpleAnnihilating a) (simpleAnnihilating b)
+  composedSum (simpleAnnihilating a) (simpleAnnihilating b)
 simpleAnnihilating (Mul a b) =
-  composedProductLocal (simpleAnnihilating a) (simpleAnnihilating b)
+  composedProduct (simpleAnnihilating a) (simpleAnnihilating b)
 simpleAnnihilating (Inv e) =
-  let p = simpleAnnihilating e
-  in mkPoly (reverse (unPoly p))
+  reciprocalPoly (simpleAnnihilating e)
 simpleAnnihilating (Root n (Lit r)) =
   mkPoly $ [-r] ++ replicate (n - 1) 0 ++ [1]
 simpleAnnihilating (Root n e) =
-  substituteXN' n (simpleAnnihilating e)
+  substituteXN n (simpleAnnihilating e)
 simpleAnnihilating (Pow e n)
   | n >= 0 = annihPow (simpleAnnihilating e) n
-  | otherwise = annihPow (mkPoly (reverse (unPoly (simpleAnnihilating e)))) (negate n)
+  | otherwise = annihPow (reciprocalPoly (simpleAnnihilating e)) (negate n)
 
 -- | Norm down one level: given f(x) ∈ K(α)[x], compute
 -- N(x) = Res_t(m(t), f_lifted(x, t)) ∈ K[x].
@@ -279,8 +281,8 @@ normDown1 field f =
       -- For k = Rational, we use fromInteger.
       -- For k = ExtElem Rational, we use fromInteger (which embeds via sentinel).
       points = [fromInteger i | i <- [0..fromIntegral resultDeg]]
-      values = [normAtPt m (evalPolyExt f x0) | (x0 :: k) <- points]
-  in lagrangeInterpK (zip points values)
+      values = [polyResultant m (evalPolyExt f x0) | (x0 :: k) <- points]
+  in lagrangeInterpolate (zip points values)
 
 -- | Evaluate f(x₀) where f has ExtElem coefficients and x₀ is in the base field.
 -- Returns the result as a Poly k (the element's polynomial representation),
@@ -296,40 +298,6 @@ evalPolyExt (Poly cs) x0 =
                zeroPoly
                (zip [0 :: Int ..] cs)
   in result
-
--- | Compute Res_t(m(t), g(t)) where both are univariate in t over k.
--- For k = Rational, this is polyResultant.
--- For k = ExtElem Rational, we use the same Euclidean resultant algorithm.
-normAtPt :: (Eq k, Fractional k) => Poly k -> Poly k -> k
-normAtPt m g = polyResultantK m g
-
--- | Resultant of two polynomials over any field k.
-polyResultantK :: (Eq k, Fractional k) => Poly k -> Poly k -> k
-polyResultantK f g
-  | degree f < 0 || degree g < 0 = 0
-  | degree g == 0 = case leadCoeff g of
-      Just c  -> c ^ degree f
-      Nothing -> 0
-  | otherwise =
-      let (_, r) = divModPoly f g
-          df = degree f
-          dg = degree g
-          lg = case leadCoeff g of Just c -> c; Nothing -> 1
-          dr = degree r
-          sign = if odd (df * dg) then -1 else 1
-      in if degree r < 0
-         then 0
-         else sign * (lg ^ (df - dr)) * polyResultantK g r
-
--- | Lagrange interpolation over any field k.
-lagrangeInterpK :: (Eq k, Fractional k) => [(k, k)] -> Poly k
-lagrangeInterpK points = foldl addPoly zeroPoly terms
-  where
-    terms = [scalePoly yi (lagrangeBasis xi (map fst points)) | (xi, yi) <- points]
-    lagrangeBasis xi xs =
-      let others = filter (/= xi) xs
-      in foldl mulPoly (constPoly 1)
-           [scalePoly (recip (xi - xj)) (mkPoly [-xj, 1]) | xj <- others]
 
 -- | Evaluate a RadExpr in Q(α) given one radical.
 evalInExt :: ExtField Rational
@@ -672,95 +640,10 @@ mkPolyExt _ cs = mkPoly cs
 pickClosest :: Double -> [Poly Rational] -> Poly Rational
 pickClosest _ [f] = f
 pickClosest target factors =
-  let scored = [(f, minimum $ map (\r -> abs (fromRational r - target)) (approxRootsLocal f)) | f <- factors]
+  let scored = [(f, minimum $ map (\r -> abs (fromRational r - target)) (approxRoots f)) | f <- factors]
   in fst $ foldl1 (\(f1, d1) (f2, d2) -> if d1 <= d2 then (f1, d1) else (f2, d2)) scored
 
--- | Find approximate real roots.
-approxRootsLocal :: Poly Rational -> [Rational]
-approxRootsLocal p
-  | degree p <= 0 = [0]
-  | degree p == 1 =
-      case unPoly p of
-        [a, b] -> [-a / b]
-        _      -> [0]
-  | otherwise =
-      let bound = rootBoundLocal p
-          pts = [fromIntegral i / 10 | i <- [floor (-bound * 10) :: Integer .. ceiling (bound * 10)]]
-          signs = [(x, signum (evalPoly p x)) | x <- pts]
-          changes = [(x1, x2) | ((x1, s1), (x2, s2)) <- zip signs (drop 1 signs), s1 /= s2, s1 /= 0, s2 /= 0]
-          roots = [bisect p lo hi 50 | (lo, hi) <- changes]
-      in if null roots then [0] else roots
-
-rootBoundLocal :: Poly Rational -> Rational
-rootBoundLocal (Poly []) = 0
-rootBoundLocal (Poly cs) =
-  let lc = last cs
-      ratios = map (\c -> abs (c / lc)) (init cs)
-  in 1 + maximum (0 : ratios)
-
-bisect :: Poly Rational -> Rational -> Rational -> Int -> Rational
-bisect _ lo _ 0 = lo
-bisect p lo hi n' =
-  let mid = (lo + hi) / 2
-      fmid = evalPoly p mid
-      flo = evalPoly p lo
-  in if fmid == 0 then mid
-     else if signum fmid == signum flo
-          then bisect p mid hi (n' - 1)
-          else bisect p lo mid (n' - 1)
-
--- Helpers for simpleAnnihilating
-
-composedSumLocal :: Poly Rational -> Poly Rational -> Poly Rational
-composedSumLocal p q =
-  let dp = degree p
-      dq = degree q
-      resultDeg = dp * dq
-      points = [fromIntegral i | i <- [0..resultDeg]]
-      values = [resSumAt p q x | x <- points]
-  in lagrangeInterp' (zip points values)
-
-resSumAt :: Poly Rational -> Poly Rational -> Rational -> Rational
-resSumAt p q x0 =
-  let qShifted = substLinear q x0 (-1)
-  in polyResultant p qShifted
-
-substLinear :: Poly Rational -> Rational -> Rational -> Poly Rational
-substLinear (Poly []) _ _ = zeroPoly
-substLinear (Poly cs) a b =
-  let binomial = mkPoly [a, b]
-  in foldr (\c acc -> addPoly (constPoly c) (mulPoly binomial acc)) zeroPoly cs
-
-composedProductLocal :: Poly Rational -> Poly Rational -> Poly Rational
-composedProductLocal p q =
-  let dp = degree p
-      dq = degree q
-      resultDeg = dp * dq
-      points = [fromIntegral i | i <- [1..resultDeg + 1]]
-      values = [resProdAt p q x | x <- points]
-  in lagrangeInterp' (zip points values)
-
-resProdAt :: Poly Rational -> Poly Rational -> Rational -> Rational
-resProdAt p q x0 =
-  let pRev = scaledRecipAt p x0
-  in polyResultant pRev q
-
-scaledRecipAt :: Poly Rational -> Rational -> Poly Rational
-scaledRecipAt (Poly cs) x0 =
-  let n' = length cs - 1
-      newCs = [c * x0 ^ (n' - k) | (k, c) <- zip [0 :: Int ..] (reverse cs)]
-  in mkPoly newCs
-
-substituteXN' :: Int -> Poly Rational -> Poly Rational
-substituteXN' n' (Poly cs) =
-  let indexed = zip [0 :: Int ..] cs
-      maxDeg = (length cs - 1) * n'
-      result = replicate (maxDeg + 1) 0
-      set' xs (i, c) =
-        let pos = i * n'
-        in take pos xs ++ [c] ++ drop (pos + 1) xs
-  in mkPoly $ foldl set' result indexed
-
+-- | Annihilating polynomial for e^n.
 annihPow :: Poly Rational -> Int -> Poly Rational
 annihPow p n'
   | n' == 0 = mkPoly [-1, 1]
@@ -769,18 +652,9 @@ annihPow p n'
       let dp = degree p
           points = [fromIntegral i | i <- [0..dp]]
           values = [powResAt p n' x | x <- points]
-      in lagrangeInterp' (zip points values)
+      in lagrangeInterpolate (zip points values)
 
 powResAt :: Poly Rational -> Int -> Rational -> Rational
 powResAt p n' x0 =
   let ynMinusX0 = mkPoly $ [-x0] ++ replicate (n' - 1) 0 ++ [1]
   in polyResultant p ynMinusX0
-
-lagrangeInterp' :: [(Rational, Rational)] -> Poly Rational
-lagrangeInterp' points = foldl addPoly zeroPoly terms
-  where
-    terms = [scalePoly yi (lagrangeBasis xi (map fst points)) | (xi, yi) <- points]
-    lagrangeBasis xi xs =
-      let others = filter (/= xi) xs
-      in foldl mulPoly (constPoly 1)
-           [scalePoly (1 / (xi - xj)) (mkPoly [-xj, 1]) | xj <- others]

@@ -3,12 +3,12 @@ module Test.Multivariate (tests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Surd.Polynomial.Multivariate
-import Surd.Field.Transcendental
-import Surd.Polynomial.Univariate (Poly(..), mkPoly, divModPoly)
-import qualified Surd.Polynomial.Univariate as U
+import Math.Polynomial.Multivariate
+import Math.Field.Transcendental
+import Math.Polynomial.Univariate (Poly(..), mkPoly, divModPoly)
+import qualified Math.Polynomial.Univariate as U
 import Surd.Types (RadExpr(..))
-import Surd.Field.Extension (ExtField(..), ExtElem(..), mkExtField, generator, embed)
+import Math.Field.Extension (ExtField(..), ExtElem(..), mkExtField, generator, embed)
 
 tests :: TestTree
 tests = testGroup "Tier 4"

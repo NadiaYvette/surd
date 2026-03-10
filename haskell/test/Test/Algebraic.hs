@@ -4,7 +4,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Surd.Types
-import Surd.Polynomial.Univariate
+import Math.Polynomial.Univariate
 import Surd.Algebraic.Number (AlgNum(..), algFromRational, algNeg, algAdd, algMul, algApprox)
 import Surd.Radical.Pretty (pretty)
 import Data.List (isInfixOf)
@@ -12,8 +12,8 @@ import Surd.Algebraic.Convert
 import Surd.Radical.Eval (eval, evalComplex)
 import Surd.Algebraic.RootIsolation (isolateRealRoots, rootInInterval, sturmCount)
 import Surd.Polynomial.MinimalPolyTower (minimalPolyTower, collectRadicals)
-import Surd.Polynomial.TragerFactoring (factorSFOverExtension)
-import Surd.Field.Extension (mkExtField, generator, embed)
+import Math.Polynomial.TragerFactoring (factorSFOverExtension)
+import Math.Field.Extension (mkExtField, generator, embed)
 import Surd.Trig (cosExact, TrigResult(..))
 
 tests :: TestTree

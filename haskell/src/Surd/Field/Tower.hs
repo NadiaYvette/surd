@@ -22,8 +22,8 @@ module Surd.Field.Tower
   ) where
 
 import Surd.Types
-import Surd.Polynomial.Univariate
-import Surd.Field.Extension
+import Math.Polynomial.Univariate
+import Math.Field.Extension
 
 -- | Adjoin an nth root to a field: given an element r ∈ K and
 -- a degree n, construct the extension K(α) where α = ⁿ√r.

@@ -2,16 +2,16 @@
 --
 -- The @n@th cyclotomic polynomial Φₙ(x) is the minimal polynomial of
 -- primitive @n@th roots of unity over Q. It has degree φ(n) (Euler's totient).
-module Surd.Polynomial.Cyclotomic
+module Math.Polynomial.Cyclotomic
   ( cyclotomic
   , euler'sTotient
   , moebiusMu
   , allCyclotomic
   ) where
 
-import Surd.Polynomial.Univariate
-import Surd.Internal.Positive (Positive)
-import Surd.Internal.PrimeFactors (factorise)
+import Math.Polynomial.Univariate
+import Math.Internal.Positive (Positive)
+import Math.Internal.PrimeFactors (factorise)
 
 -- | Compute the @n@th cyclotomic polynomial Φₙ(x) over Q.
 --

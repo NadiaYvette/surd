@@ -36,8 +36,8 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Ratio (numerator, denominator)
 import Surd.Types (RadExpr(..))
-import Surd.Internal.Positive (Positive)
-import Surd.Internal.PrimeFactors (factorise)
+import Math.Internal.Positive (Positive)
+import Math.Internal.PrimeFactors (factorise)
 
 -- | A radical atom: an irreducible nth root of a positive rational.
 --

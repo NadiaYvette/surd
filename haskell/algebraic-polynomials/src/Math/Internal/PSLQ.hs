@@ -15,7 +15,7 @@
 -- Matrix operations use linear-massiv for O(1) indexing and
 -- numerically stable Givens rotations (GVL4 Algorithm 5.1.3).
 {-# LANGUAGE AllowAmbiguousTypes #-}
-module Surd.Internal.PSLQ
+module Math.Internal.PSLQ
   ( pslq
   , findMinPoly
   ) where
@@ -29,8 +29,8 @@ import Numeric.LinearAlgebra.Massiv.Internal
   (makeMatrix, makeVector, reifyDim2, (!), (!.))
 import Numeric.LinearAlgebra.Massiv.Orthogonal.Givens (givensRotation)
 
-import Surd.Polynomial.Univariate (Poly(..), mkPoly, monicPoly)
-import Surd.Polynomial.Factoring (factorSquareFree)
+import Math.Polynomial.Univariate (Poly(..), mkPoly, monicPoly)
+import Math.Polynomial.Factoring (factorSquareFree)
 
 -- | Simplified PSLQ (one-level) for finding integer relations.
 --

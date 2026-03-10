@@ -3,8 +3,8 @@ module Test.Interval (tests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Surd.Internal.Interval
-import Surd.Internal.PSLQ (pslq, findMinPoly)
+import Math.Internal.Interval
+import Math.Internal.PSLQ (pslq, findMinPoly)
 import Surd.Types
 import Surd.Radical.Eval (evalInterval, evalComplexInterval)
 import Surd.Radical.Equality (radicalEq)

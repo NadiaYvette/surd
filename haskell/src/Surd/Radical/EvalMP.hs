@@ -23,7 +23,7 @@ import qualified Data.IntMap.Strict as IntMap
 import AERN2.MP.Ball (MPBall, endpoints, mpBallP)
 import AERN2.MP.Precision (Precision, prec)
 import Surd.Radical.DAG (RadDAG(..), RadNodeOp(..))
-import Surd.Internal.Interval (Interval(..), ComplexInterval(..))
+import Math.Internal.Interval (Interval(..), ComplexInterval(..))
 
 -- | A complex number represented as a pair of MPBalls (real, imaginary).
 data ComplexMP = ComplexMP !MPBall !MPBall

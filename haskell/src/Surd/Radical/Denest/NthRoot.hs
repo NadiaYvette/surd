@@ -23,8 +23,8 @@ module Surd.Radical.Denest.NthRoot
 import Data.Ratio (numerator, denominator)
 import Math.NumberTheory.Roots (exactSquareRoot, exactCubeRoot)
 import Surd.Types
-import Surd.Internal.Positive (Positive)
-import Surd.Internal.PrimeFactors (factorise)
+import Math.Internal.Positive (Positive)
+import Math.Internal.PrimeFactors (factorise)
 import Surd.Radical.Eval (evalExact)
 
 -- | Attempt to denest an nth root expression.

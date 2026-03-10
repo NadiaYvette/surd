@@ -3,7 +3,7 @@
 -- Elements are rational functions (ratios of multivariate polynomials).
 -- When the coefficient type is 'Rational', fractions can be reduced to
 -- lowest terms using 'reduceFrac'.
-module Surd.Field.Transcendental
+module Math.Field.Transcendental
   ( RatFunc(..)
   , mkRatFunc
   , reduceFrac
@@ -14,7 +14,7 @@ module Surd.Field.Transcendental
   ) where
 
 import Data.Ratio (numerator, denominator)
-import Surd.Polynomial.Multivariate
+import Math.Polynomial.Multivariate
 
 -- | An element of Q(x₁,...,xₙ): a ratio of multivariate polynomials.
 --

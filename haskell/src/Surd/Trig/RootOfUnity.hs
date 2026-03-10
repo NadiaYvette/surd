@@ -20,8 +20,8 @@ module Surd.Trig.RootOfUnity
 import Data.Bits qualified as Bits
 import Data.Ratio ((%))
 import Surd.Types
-import Surd.Internal.Positive (Positive)
-import Surd.Internal.PrimeFactors (factorise, isPrime)
+import Math.Internal.Positive (Positive)
+import Math.Internal.PrimeFactors (factorise, isPrime)
 import Surd.Trig.Galois (cosOfUnityViaGauss)
 
 -- | Known Fermat primes (these are the only known ones, and it's

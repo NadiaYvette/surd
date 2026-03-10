@@ -27,11 +27,11 @@ import Data.List.NonEmpty qualified as NE
 import Data.Maybe (mapMaybe)
 import Data.Ord (comparing, Down(..))
 import Surd.Types
-import Surd.Internal.Positive (Positive)
-import Surd.Internal.PrimeFactors (factorise)
+import Math.Internal.Positive (Positive)
+import Math.Internal.PrimeFactors (factorise)
 import Surd.Radical.DAG (toDAG, fromDAG, dagFoldConstants, dagEvalComplex)
 import Surd.Radical.EvalMP (dftCoeffsMP, dagEvalComplexMP)
-import Surd.Internal.Interval (Interval(..), ComplexInterval(..))
+import Math.Internal.Interval (Interval(..), ComplexInterval(..))
 
 -- | DAG-aware constant folding. Converts to explicit DAG (detecting thunk
 -- sharing via StableName), folds constants in O(n) where n = unique nodes,

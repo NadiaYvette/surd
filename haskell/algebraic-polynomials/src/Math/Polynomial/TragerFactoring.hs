@@ -4,7 +4,7 @@
 -- Given f(x) ∈ Q(α)[x] where α is a root of an irreducible m(t) ∈ Q[t],
 -- compute the norm N(x) = Res_t(m(t), f(x - s·t)) ∈ Q[x] for suitable s,
 -- factor N over Q, and lift factors back via GCD.
-module Surd.Polynomial.TragerFactoring
+module Math.Polynomial.TragerFactoring
   ( factorOverExtension
   , factorSFOverExtension
   , factorSFOverExtensionK
@@ -12,10 +12,10 @@ module Surd.Polynomial.TragerFactoring
   , normPolyK
   ) where
 
-import Surd.Polynomial.Univariate
-import Surd.Polynomial.Factoring (factorSquareFree)
-import Surd.Polynomial.MinimalPoly (polyResultant)
-import Surd.Field.Extension
+import Math.Polynomial.Univariate
+import Math.Polynomial.Factoring (factorSquareFree)
+import Math.Polynomial.Resultant (polyResultant, lagrangeInterpolate, shiftPoly)
+import Math.Field.Extension
 
 -- | Factor a polynomial over Q(α) into irreducible factors.
 -- Returns a list of (factor, multiplicity) pairs.
@@ -82,7 +82,7 @@ normPoly field f =
       -- Evaluate at 0, 1, 2, ..., resultDeg
       points = [fromIntegral i | i <- [0..resultDeg]]
       values = [normAtPoint field f x0 | x0 <- points]
-  in lagrangeInterp (zip points values)
+  in lagrangeInterpolate (zip points values)
 
 -- | Evaluate the norm at a specific rational point x₀.
 -- Res_t(m(t), f_lifted(x₀, t)) where f_lifted substitutes x₀ for x
@@ -104,14 +104,6 @@ normAtPoint field f x0 =
                 _  -> foldl addPoly zeroPoly
                         [scalePoly (x0 ^ i) ci | (i, ci) <- zip [0 :: Int ..] coeffs]
   in polyResultant m fAtX0
-
--- | Shift a polynomial: f(x + a) where a ∈ Q(α).
-shiftPoly :: (Eq k, Fractional k) => Poly k -> k -> Poly k
-shiftPoly (Poly []) _ = zeroPoly
-shiftPoly (Poly cs) a =
-  -- f(x + a) via Horner
-  let xPlusA = mkPoly [a, 1]  -- x + a
-  in foldr (\c acc -> addPoly (constPoly c) (mulPoly xPlusA acc)) zeroPoly cs
 
 -- | Lift Q-factors back to Q(α)-factors via GCD.
 -- For each factor g_i(x) of N(x) over Q, compute gcd(f(x), g_i(x - s·α)) in Q(α)[x].
@@ -175,43 +167,14 @@ squareFreeExt :: ExtField Rational
               -> [(Poly (ExtElem Rational), Int)]
 squareFreeExt _ = squareFree
 
--- | Lagrange interpolation.
-lagrangeInterp :: [(Rational, Rational)] -> Poly Rational
-lagrangeInterp points = foldl addPoly zeroPoly terms
-  where
-    terms = [scalePoly yi (lagrangeBasis xi (map fst points)) | (xi, yi) <- points]
-    lagrangeBasis xi xs =
-      let others = filter (/= xi) xs
-      in foldl mulPoly (constPoly 1)
-           [scalePoly (1 / (xi - xj)) (mkPoly [-xj, 1]) | xj <- others]
-
--- | Generalized Lagrange interpolation over any field.
-lagrangeInterpK :: (Eq k, Fractional k) => [(k, k)] -> Poly k
-lagrangeInterpK points = foldl addPoly zeroPoly terms
-  where
-    terms = [scalePoly yi (lagrangeBasis xi (map fst points)) | (xi, yi) <- points]
-    lagrangeBasis xi xs =
-      let others = filter (/= xi) xs
-      in foldl mulPoly (constPoly 1)
-           [scalePoly (recip (xi - xj)) (mkPoly [-xj, 1]) | xj <- others]
-
--- | Resultant of two polynomials over any field.
-polyResultantK :: (Eq k, Fractional k) => Poly k -> Poly k -> k
-polyResultantK f g
-  | degree f < 0 || degree g < 0 = 0
-  | degree g == 0 = case leadCoeff g of
-      Just c  -> c ^ degree f
-      Nothing -> 0
-  | otherwise =
-      let (_, r) = divModPoly f g
-          df = degree f
-          dg = degree g
-          lg = case leadCoeff g of Just c -> c; Nothing -> 1
-          dr = degree r
-          sign = if odd (df * dg) then -1 else 1
-      in if degree r < 0
-         then 0
-         else sign * (lg ^ (df - dr)) * polyResultantK g r
+-- | Evaluate f(x₀) where f has ExtElem k coefficients and x₀ ∈ k.
+evalPolyExtK :: (Eq k, Fractional k) => Poly (ExtElem k) -> k -> Poly k
+evalPolyExtK (Poly []) _ = zeroPoly
+evalPolyExtK (Poly cs) x0 =
+  foldl (\acc (i, ExtElem p _) ->
+           addPoly acc (scalePoly (x0 ^ i) p))
+        zeroPoly
+        (zip [0 :: Int ..] cs)
 
 -- | Compute the norm of f(x) ∈ K(α)[x] over any base field K.
 -- N(x) = Res_t(m(t), f_lifted(x, t)) ∈ K[x].
@@ -222,21 +185,8 @@ normPolyK field f =
       resultDeg = df * dm
       m = genMinPoly field
       points = [fromInteger i | i <- [0..fromIntegral resultDeg]]
-      values = [normAtPointK m (evalPolyExtK f x0) | (x0 :: k) <- points]
-  in lagrangeInterpK (zip points values)
-
--- | Evaluate f(x₀) where f has ExtElem k coefficients and x₀ ∈ k.
-evalPolyExtK :: (Eq k, Fractional k) => Poly (ExtElem k) -> k -> Poly k
-evalPolyExtK (Poly []) _ = zeroPoly
-evalPolyExtK (Poly cs) x0 =
-  foldl (\acc (i, ExtElem p _) ->
-           addPoly acc (scalePoly (x0 ^ i) p))
-        zeroPoly
-        (zip [0 :: Int ..] cs)
-
--- | Compute Res_t(m(t), g(t)) over any field k.
-normAtPointK :: (Eq k, Fractional k) => Poly k -> Poly k -> k
-normAtPointK = polyResultantK
+      values = [polyResultant m (evalPolyExtK f x0) | (x0 :: k) <- points]
+  in lagrangeInterpolate (zip points values)
 
 -- | Factor a square-free polynomial over K(α) given a factoring function for K.
 --

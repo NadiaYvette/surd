@@ -28,11 +28,11 @@ module Surd.Algebraic.Number
   , algShow
   ) where
 
-import Surd.Polynomial.Univariate
-import Surd.Polynomial.Factoring (factorSquareFree)
-import Surd.Polynomial.MinimalPoly (polyResultant)
+import Math.Polynomial.Univariate
+import Math.Polynomial.Factoring (factorSquareFree)
+import Math.Polynomial.Resultant (polyResultant)
 import Surd.Algebraic.RootIsolation
-import Surd.Internal.Interval (Interval(..))
+import Math.Internal.Interval (Interval(..))
 
 -- | A real algebraic number: its minimal polynomial over Q
 -- and an isolating interval pinpointing which root it is.

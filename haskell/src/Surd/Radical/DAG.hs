@@ -38,10 +38,10 @@ import Data.Ratio (numerator, denominator)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Mem.StableName (StableName, makeStableName, hashStableName, eqStableName)
 import Surd.Types
-import Surd.Internal.Positive (Positive)
-import Surd.Internal.PrimeFactors (factorise)
-import Surd.Internal.Interval (ComplexInterval(..), Interval(..))
-import qualified Surd.Internal.Interval as I
+import Math.Internal.Positive (Positive)
+import Math.Internal.PrimeFactors (factorise)
+import Math.Internal.Interval (ComplexInterval(..), Interval(..))
+import qualified Math.Internal.Interval as I
 
 type NodeId = Int
 

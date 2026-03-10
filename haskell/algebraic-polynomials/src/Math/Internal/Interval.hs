@@ -1,6 +1,6 @@
 -- | Interval arithmetic with rational endpoints for root isolation
 -- and numerical evaluation.
-module Surd.Internal.Interval
+module Math.Internal.Interval
   ( Interval(..)
   , midpoint
   , width

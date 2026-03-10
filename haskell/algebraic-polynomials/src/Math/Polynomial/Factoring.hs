@@ -4,7 +4,7 @@
 -- and rational root testing. Sufficient for the radical denesting and
 -- trig evaluation use cases where we typically factor cyclotomic
 -- polynomials and low-degree minimal polynomials.
-module Surd.Polynomial.Factoring
+module Math.Polynomial.Factoring
   ( factor
   , rationalRoots
   , isIrreducible
@@ -13,9 +13,9 @@ module Surd.Polynomial.Factoring
 
 import Data.Ratio (numerator, denominator)
 import Data.Maybe (mapMaybe)
-import Surd.Polynomial.Univariate
-import Surd.Internal.Positive (Positive)
-import Surd.Internal.PrimeFactors (factorise)
+import Math.Polynomial.Univariate
+import Math.Internal.Positive (Positive)
+import Math.Internal.PrimeFactors (factorise)
 
 -- | Factor a polynomial over Q into irreducible factors.
 -- Returns a list of (irreducible factor, multiplicity) pairs.

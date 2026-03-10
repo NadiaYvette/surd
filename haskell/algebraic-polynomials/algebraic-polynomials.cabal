@@ -1,0 +1,37 @@
+cabal-version:   3.0
+name:            algebraic-polynomials
+version:         0.1.0.0
+synopsis:        Polynomial arithmetic, factoring over algebraic extensions, and resultants
+description:
+  Pure Haskell implementations of polynomial algorithms including Trager
+  factoring over algebraic extension fields Q(α), resultant computation,
+  Lagrange interpolation, Kronecker factoring over Q, cyclotomic polynomials,
+  multivariate polynomial GCD via subresultant pseudo-remainder sequences,
+  and PSLQ integer relation finding.
+license:         BSD-3-Clause
+build-type:      Simple
+
+library
+  hs-source-dirs:   src
+  default-language: GHC2021
+  ghc-options:      -Wall -Wcompat
+  exposed-modules:
+    Math.Polynomial.Univariate
+    Math.Polynomial.Multivariate
+    Math.Polynomial.Factoring
+    Math.Polynomial.Cyclotomic
+    Math.Polynomial.Resultant
+    Math.Polynomial.RootBound
+    Math.Polynomial.TragerFactoring
+    Math.Field.Extension
+    Math.Field.Transcendental
+    Math.Internal.Positive
+    Math.Internal.PrimeFactors
+    Math.Internal.Interval
+    Math.Internal.PSLQ
+  build-depends:
+    base >= 4.18 && < 5,
+    containers >= 0.6,
+    integer-roots >= 1.0,
+    linear-massiv >= 0.1,
+    massiv >= 1.0

@@ -4,7 +4,7 @@
 -- @[a0, a1, ..., an]@ means @a0 + a1*x + ... + an*x^n@.
 -- Invariant: trailing zeros are stripped (the leading coefficient is nonzero),
 -- except for the zero polynomial which is @[]@.
-module Surd.Polynomial.Univariate
+module Math.Polynomial.Univariate
   ( Poly(..)
   , mkPoly
   , zeroPoly

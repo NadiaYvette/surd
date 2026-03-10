@@ -1,4 +1,6 @@
-packages: .
+packages:
+  .
+  algebraic-polynomials
 
 optional-packages: /home/nyc/src/linear-massiv/linear-massiv.cabal
 

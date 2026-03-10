@@ -3,9 +3,9 @@ module Test.TragerFactoring (tests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Surd.Polynomial.Univariate
-import Surd.Polynomial.TragerFactoring
-import Surd.Field.Extension
+import Math.Polynomial.Univariate
+import Math.Polynomial.TragerFactoring
+import Math.Field.Extension
 
 tests :: TestTree
 tests = testGroup "TragerFactoring"

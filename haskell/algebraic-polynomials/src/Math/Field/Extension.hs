@@ -7,7 +7,7 @@
 -- 'ExtElem' has 'Num' and 'Fractional' instances, enabling natural
 -- arithmetic syntax and nesting for field towers:
 -- @ExtElem (ExtElem Rational)@ represents Q(α)(β).
-module Surd.Field.Extension
+module Math.Field.Extension
   ( ExtField(..)
   , ExtElem(..)
   , mkExtField
@@ -24,7 +24,7 @@ module Surd.Field.Extension
   , isSentinelField
   ) where
 
-import Surd.Polynomial.Univariate
+import Math.Polynomial.Univariate
 
 -- | A simple algebraic extension K(α)/K defined by the minimal
 -- polynomial of α over K.

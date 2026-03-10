@@ -3,7 +3,7 @@
 -- This eliminates runtime errors for functions that require positive input
 -- (factorise, cyclotomic, euler's totient, etc.) by encoding the constraint
 -- in the type system.
-module Surd.Internal.Positive
+module Math.Internal.Positive
   ( Positive
   , unPositive
   , positive

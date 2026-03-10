@@ -22,14 +22,14 @@ module Surd.Trig
 import Control.Exception (SomeException, evaluate, try)
 import Surd.Types
 import Surd.Trig.RootOfUnity (cosOfUnity)
-import Surd.Polynomial.Univariate (Poly)
-import Surd.Polynomial.Cyclotomic (cyclotomic)
+import Math.Polynomial.Univariate (Poly)
+import Math.Polynomial.Cyclotomic (cyclotomic)
 import Surd.Radical.Normalize (normalize)
 import Surd.Radical.Denest (denest)
 import Surd.Radical.Eval (evalInterval)
 import Surd.Radical.DAG (toDAG, fromDAG, dagSize, dagDepth, dagFoldConstants)
 import Surd.Radical.EvalMP (dagEvalComplexMP)
-import Surd.Internal.Interval (Interval, ComplexInterval(..), width, overlaps)
+import Math.Internal.Interval (Interval, ComplexInterval(..), width, overlaps)
 import System.IO.Unsafe (unsafePerformIO)
 
 -- | Result of exact trig evaluation.

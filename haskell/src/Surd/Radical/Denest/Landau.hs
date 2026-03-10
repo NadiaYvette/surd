@@ -12,9 +12,9 @@ module Surd.Radical.Denest.Landau
   ) where
 
 import Surd.Types
-import Surd.Polynomial.Univariate
-import Surd.Polynomial.TragerFactoring (factorSFOverExtension, factorSFOverExtensionK)
-import Surd.Field.Extension
+import Math.Polynomial.Univariate
+import Math.Polynomial.TragerFactoring (factorSFOverExtension, factorSFOverExtensionK)
+import Math.Field.Extension
 import Surd.Radical.Eval (evalComplexExact)
 import Data.Complex (Complex(..))
 import Data.List (nub)

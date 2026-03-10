@@ -11,19 +11,8 @@ library
   ghc-options:      -Wall -Wcompat
   exposed-modules:
     Surd.Types
-    Surd.Internal.Positive
-    Surd.Internal.PrimeFactors
-    Surd.Internal.Interval
-    Surd.Internal.PSLQ
-    Surd.Polynomial.Univariate
-    Surd.Polynomial.Multivariate
-    Surd.Polynomial.Cyclotomic
-    Surd.Polynomial.Factoring
     Surd.Polynomial.MinimalPoly
     Surd.Polynomial.MinimalPolyTower
-    Surd.Polynomial.TragerFactoring
-    Surd.Field.Extension
-    Surd.Field.Transcendental
     Surd.Field.Tower
     Surd.Algebraic.RootIsolation
     Surd.Algebraic.Number
@@ -48,11 +37,10 @@ library
   build-depends:
     base >= 4.18 && < 5,
     aern2-mp >= 0.2.15,
+    algebraic-polynomials,
     containers >= 0.6,
     exact-real >= 0.12,
     integer-roots >= 1.0,
-    linear-massiv >= 0.1,
-    massiv >= 1.0,
     mixed-types-num >= 0.6,
     collect-errors >= 0.1.5,
     vector >= 0.13
@@ -74,6 +62,7 @@ test-suite surd-test
     Test.TragerFactoring
   build-depends:
     base >= 4.18 && < 5,
+    algebraic-polynomials,
     surd,
     tasty >= 1.4,
     tasty-hunit >= 0.10,

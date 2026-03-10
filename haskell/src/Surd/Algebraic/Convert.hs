@@ -18,16 +18,16 @@ module Surd.Algebraic.Convert
 
 import Data.Ratio (numerator, denominator)
 import Surd.Types
-import Surd.Polynomial.Univariate
+import Math.Polynomial.Univariate
 import Surd.Radical.LaTeX (latex)
 import Surd.Polynomial.MinimalPoly (minimalPoly, annihilatingPoly)
 import Surd.Polynomial.MinimalPolyTower (minimalPolyTower)
-import Surd.Polynomial.Factoring (rationalRoots)
+import Math.Polynomial.Factoring (rationalRoots)
 import Surd.Radical.Eval (evalComplex, evalExact, evalComplexExact, ExactReal)
 import Surd.Radical.Normalize (normalize)
 import Data.Complex (realPart)
 import Surd.Algebraic.Number
-import Surd.Internal.Interval (Interval(..))
+import Math.Internal.Interval (Interval(..))
 
 -- | Convert a radical expression to its canonical algebraic number form.
 --

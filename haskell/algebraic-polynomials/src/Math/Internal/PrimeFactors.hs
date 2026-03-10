@@ -1,5 +1,5 @@
 -- | Small prime factorization and related utilities.
-module Surd.Internal.PrimeFactors
+module Math.Internal.PrimeFactors
   ( factorise
   , primeFactors
   , isPrime
@@ -8,7 +8,7 @@ module Surd.Internal.PrimeFactors
 
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
-import Surd.Internal.Positive (Positive, unPositive)
+import Math.Internal.Positive (Positive, unPositive)
 
 -- | Factorise a positive integer into (prime, exponent) pairs.
 --

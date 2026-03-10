@@ -3,7 +3,7 @@ module Test.Polynomial (tests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Surd.Polynomial.Univariate
+import Math.Polynomial.Univariate
 
 tests :: TestTree
 tests = testGroup "Polynomial.Univariate"

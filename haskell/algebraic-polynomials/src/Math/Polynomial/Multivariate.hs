@@ -3,7 +3,7 @@
 -- Representation: @Map Mono k@ where each monomial maps to its
 -- non-zero coefficient.  Monomials are products of variables
 -- raised to positive integer powers.
-module Surd.Polynomial.Multivariate
+module Math.Polynomial.Multivariate
   ( Var(..)
   , Mono(..)
   , MPoly(..)
@@ -42,7 +42,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 
-import qualified Surd.Polynomial.Univariate as U
+import qualified Math.Polynomial.Univariate as U
 
 -- | Variable identifier.
 newtype Var = Var Int
