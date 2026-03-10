@@ -2,9 +2,13 @@
 module Surd.Radical.LaTeX
   ( latex
   , latexPrec
+  , latexDAG
   ) where
 
 import Data.Ratio (numerator, denominator)
+import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntSet as IntSet
+import Surd.Radical.DAG (RadDAG(..), RadNodeOp(..), NodeId, toDAG, dagSize)
 import Surd.Types
 
 -- | Render a radical expression as a LaTeX math-mode string.
@@ -135,3 +139,97 @@ joinMul :: [String] -> String
 joinMul []     = ""
 joinMul [x]    = x
 joinMul (x:xs) = x ++ concatMap (" \\cdot " ++) xs
+
+-- --------------------------------------------------------------------------
+-- DAG-based rendering
+-- --------------------------------------------------------------------------
+
+-- | Render a radical expression via its DAG, naming shared subexpressions.
+-- For small expressions (DAG size ≤ threshold), falls back to tree rendering.
+-- For large expressions, returns @(definitions, expression)@ where definitions
+-- is a list of @(name, body)@ pairs for multiply-referenced subexpressions,
+-- and expression is the root formula referencing those names.
+latexDAG :: RadExpr Rational -> ([(String, String)], String)
+latexDAG e =
+  let dag = toDAG e
+  in if dagSize dag <= 40
+     then ([], latex e)
+     else renderDAG dag
+
+renderDAG :: RadDAG Rational -> ([(String, String)], String)
+renderDAG dag =
+  let nodes = IntMap.toAscList (dagNodes dag)
+      -- Count references to identify which nodes need names
+      refCounts = countRefs dag
+      needsName nid = IntSet.member nid multiRef
+      multiRef = IntSet.fromList
+        [ nid | (nid, _) <- nodes
+        , IntMap.findWithDefault 0 nid refCounts > 1
+        , not (isLit (dagNodes dag IntMap.! nid))
+        ]
+      -- Build definitions for multiply-referenced non-trivial nodes
+      defs = [ (nodeVar nid, renderOp dag needsName nid op)
+             | (nid, op) <- nodes
+             , needsName nid
+             ]
+      rootExpr = case dagNodes dag IntMap.! dagRoot dag of
+        NLit r -> latexRat r
+        op | needsName (dagRoot dag) -> nodeVar (dagRoot dag)
+           | otherwise -> renderOp dag needsName (dagRoot dag) op
+  in (defs, rootExpr)
+
+-- | Render a single DAG node operation.
+renderOp :: RadDAG Rational -> (NodeId -> Bool) -> NodeId -> RadNodeOp Rational -> String
+renderOp dag needsName _ op =
+  let ref nid = case dagNodes dag IntMap.! nid of
+        NLit r -> latexRat r
+        _ | needsName nid -> nodeVar nid
+          | otherwise     -> renderOp dag needsName nid (dagNodes dag IntMap.! nid)
+      -- Reference with parens for contexts needing an atom
+      refAtom nid = case dagNodes dag IntMap.! nid of
+        NLit r  -> latexRat r
+        NRoot{} | needsName nid -> nodeVar nid
+                | otherwise -> renderOp dag needsName nid (dagNodes dag IntMap.! nid)
+        _ | needsName nid -> nodeVar nid
+          | otherwise ->
+              let s = renderOp dag needsName nid (dagNodes dag IntMap.! nid)
+              in "\\left(" ++ s ++ "\\right)"
+  in case op of
+    NLit r     -> latexRat r
+    NNeg a     -> "-" ++ refAtom a
+    NAdd a b   ->
+      let bStr = ref b
+      in case bStr of
+        ('-':rest) -> ref a ++ " - " ++ rest
+        _          -> ref a ++ " + " ++ bStr
+    NMul a b   -> refAtom a ++ " \\cdot " ++ refAtom b
+    NInv a     -> "\\frac{1}{" ++ ref a ++ "}"
+    NRoot 2 a  -> case dagNodes dag IntMap.! a of
+                    NLit (-1) -> "\\mathrm{i}"
+                    _         -> "\\sqrt{" ++ ref a ++ "}"
+    NRoot n a  -> "\\sqrt[" ++ show n ++ "]{" ++ ref a ++ "}"
+    NPow a n
+      | n == 0    -> "1"
+      | n < 0     -> "\\frac{1}{" ++ refAtom a ++ "^{" ++ show (negate n) ++ "}}"
+      | otherwise -> refAtom a ++ "^{" ++ show n ++ "}"
+
+-- | Generate a variable name for a DAG node: x_1, x_2, etc.
+nodeVar :: NodeId -> String
+nodeVar nid = "x_{" ++ show nid ++ "}"
+
+-- | Count how many times each node is referenced by other nodes.
+countRefs :: RadDAG Rational -> IntMap.IntMap Int
+countRefs dag = IntMap.foldl' addRefs IntMap.empty (dagNodes dag)
+  where
+    addRefs m op = foldl (\m' nid -> IntMap.insertWith (+) nid 1 m') m (children op)
+    children (NLit _)    = []
+    children (NNeg a)    = [a]
+    children (NAdd a b)  = [a, b]
+    children (NMul a b)  = [a, b]
+    children (NInv a)    = [a]
+    children (NRoot _ a) = [a]
+    children (NPow a _)  = [a]
+
+isLit :: RadNodeOp k -> Bool
+isLit (NLit _) = True
+isLit _        = False

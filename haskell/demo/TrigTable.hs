@@ -32,7 +32,7 @@ import System.IO (hPutStrLn, stderr)
 
 import Surd.Types (RadExpr(..))
 import Surd.Trig (cosExact, TrigResult(..), simplifyTrigResult, simplifiedSin)
-import Surd.Radical.LaTeX (latex)
+import Surd.Radical.LaTeX (latex, latexDAG)
 import Surd.Radical.Normalize (normalize)
 import Surd.Radical.Pretty (pretty)
 
@@ -147,11 +147,19 @@ textFrac 1 q    = "π/" ++ show q
 textFrac (-1) q = "-π/" ++ show q
 textFrac p q    = show p ++ "π/" ++ show q
 
-renderResult :: Format -> TrigResult -> String
-renderResult LaTeX (Radical e) = latex e
-renderResult LaTeX (MinPoly p) = "\\text{minpoly: }" ++ show p
-renderResult Text  (Radical e) = pretty e
-renderResult Text  (MinPoly p) = "minpoly: " ++ show p
+-- | A rendered result may carry DAG definitions for large expressions.
+data RenderedResult = RenderedResult
+  { rrDefs :: [(String, String)]  -- ^ DAG variable definitions (name, body)
+  , rrExpr :: String              -- ^ The expression (may reference DAG variables)
+  }
+
+renderResult :: Format -> TrigResult -> RenderedResult
+renderResult LaTeX (Radical e) =
+  let (defs, expr) = latexDAG e
+  in RenderedResult defs expr
+renderResult LaTeX (MinPoly p) = RenderedResult [] ("\\text{minpoly: }" ++ show p)
+renderResult Text  (Radical e) = RenderedResult [] (pretty e)
+renderResult Text  (MinPoly p) = RenderedResult [] ("minpoly: " ++ show p)
 
 -- --------------------------------------------------------------------------
 -- Table generation
@@ -159,10 +167,14 @@ renderResult Text  (MinPoly p) = "minpoly: " ++ show p
 
 data Row = Row
   { rowAngle :: String
-  , rowCos   :: Maybe String
-  , rowSin   :: Maybe String
-  , rowTan   :: Maybe String
+  , rowCos   :: Maybe RenderedResult
+  , rowSin   :: Maybe RenderedResult
+  , rowTan   :: Maybe RenderedResult
   }
+
+-- | Collect all DAG definitions from a row.
+rowDefs :: Row -> [(String, String)]
+rowDefs r = concatMap (maybe [] rrDefs) [rowCos r, rowSin r, rowTan r]
 
 computeRow :: Config -> Angle -> Row
 computeRow cfg (p, q) =
@@ -180,7 +192,7 @@ computeRow cfg (p, q) =
                else Nothing
   }
 
-computeTan :: Config -> TrigResult -> Integer -> Integer -> String
+computeTan :: Config -> TrigResult -> Integer -> Integer -> RenderedResult
 computeTan cfg simpCos p q =
   let simpSin = simplifiedSin p q simpCos
   in case (simpSin, simpCos) of
@@ -192,8 +204,8 @@ computeTan cfg simpCos p q =
   where
     isZero (Lit 0) = True
     isZero _       = False
-    undefinedStr LaTeX = "\\text{undefined}"
-    undefinedStr Text  = "undefined"
+    undefinedStr LaTeX = RenderedResult [] "\\text{undefined}"
+    undefinedStr Text  = RenderedResult [] "undefined"
 
 -- --------------------------------------------------------------------------
 -- LaTeX output
@@ -204,6 +216,18 @@ latexTable cfg rows =
   let cols  = colSpec cfg
       hdr   = header cfg
       body  = unlines $ map (latexRow cfg) rows
+      -- Collect and deduplicate DAG definitions from all rows
+      allDefs = dedup (concatMap rowDefs rows)
+      defsBlock
+        | null allDefs = ""
+        | otherwise = unlines
+            [ "\\noindent\\textbf{Where:}"
+            , "\\begin{align*}"
+            , unlines [ name ++ " &= " ++ defn ++ " \\\\" | (name, defn) <- init allDefs ]
+               ++ let (name, defn) = last allDefs in name ++ " &= " ++ defn
+            , "\\end{align*}"
+            , ""
+            ]
       table = unlines
         [ "\\begin{longtable}{" ++ cols ++ "}"
         , "\\toprule"
@@ -215,8 +239,12 @@ latexTable cfg rows =
         , "\\end{longtable}"
         ]
   in if cfgStandalone cfg
-     then latexPreamble ++ table ++ "\\end{document}\n"
-     else table
+     then latexPreamble ++ defsBlock ++ table ++ "\\end{document}\n"
+     else defsBlock ++ table
+  where
+    -- Remove duplicate definitions (same name)
+    dedup [] = []
+    dedup ((n,d):rest) = (n,d) : dedup (filter (\(n',_) -> n' /= n) rest)
 
 colSpec :: Config -> String
 colSpec cfg = 'c' : replicate (numCols cfg) 'l'
@@ -236,9 +264,9 @@ latexRow :: Config -> Row -> String
 latexRow _cfg r = intercalate " & " (map wrapMath fields) ++ " \\\\"
   where
     fields = [rowAngle r]
-      ++ maybe [] (:[]) (fmap latexWrap (rowCos r))
-      ++ maybe [] (:[]) (fmap latexWrap (rowSin r))
-      ++ maybe [] (:[]) (fmap latexWrap (rowTan r))
+      ++ maybe [] (\rr -> [latexWrap (rrExpr rr)]) (rowCos r)
+      ++ maybe [] (\rr -> [latexWrap (rrExpr rr)]) (rowSin r)
+      ++ maybe [] (\rr -> [latexWrap (rrExpr rr)]) (rowTan r)
     wrapMath s = "$" ++ s ++ "$"
 
 latexPreamble :: String
@@ -276,9 +304,9 @@ textHeader cfg = padCols cfg
 
 textRow :: Config -> Row -> String
 textRow _cfg r = intercalate "  │  " $ [rowAngle r]
-  ++ maybe [] (:[]) (fmap wrapExpr (rowCos r))
-  ++ maybe [] (:[]) (fmap wrapExpr (rowSin r))
-  ++ maybe [] (:[]) (fmap wrapExpr (rowTan r))
+  ++ maybe [] (\rr -> [wrapExpr (rrExpr rr)]) (rowCos r)
+  ++ maybe [] (\rr -> [wrapExpr (rrExpr rr)]) (rowSin r)
+  ++ maybe [] (\rr -> [wrapExpr (rrExpr rr)]) (rowTan r)
 
 padCols :: Config -> [String] -> [String] -> [String] -> [String] -> String
 padCols _ a b c d = intercalate "  │  " (a ++ b ++ c ++ d)
