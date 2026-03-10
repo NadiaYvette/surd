@@ -1,12 +1,13 @@
 module Test.Trig (tests) where
 
-import Data.Complex (Complex(..), realPart, imagPart)
+import Data.Complex (realPart, imagPart)
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import Surd.Trig
 import Surd.Radical.Eval (eval, evalComplex)
-import Surd.Radical.DAG (toDAG, dagEvalComplex, dagEvalComplexInterval)
+import Surd.Radical.DAG (toDAG, dagEvalComplex)
+import Surd.Radical.EvalMP (dagEvalComplexMP, dagEvalRealMP)
 import Surd.Internal.Interval (ComplexInterval(..), Interval(..))
 
 tests :: TestTree
@@ -230,17 +231,15 @@ tests = testGroup "Trig"
           MinPoly _ -> assertFailure "expected radical"
     ]
 
-  , testGroup "Rigorous interval verification"
+  , testGroup "Rigorous interval verification (rational)"
     [ testCase "cos(π/4) — tight interval bounds" $ do
         case cosExact 1 4 of
           Radical e -> do
-            let ci = dagEvalComplexInterval (toDAG e)
+            let ci = dagEvalComplexMP 200 (toDAG e)
                 iv = ciReal ci
                 w = hi iv - lo iv
-            -- Should be very tight (< 1e-17)
             w < 1e-17 @?
               ("interval width should be < 1e-17 but got " ++ show (fromRational w :: Double))
-            -- Midpoint should match Double cos
             let mid = fromRational ((lo iv + hi iv) / 2) :: Double
             abs (mid - sqrt 2 / 2) < 1e-15 @?
               ("midpoint should be √2/2 but got " ++ show mid)
@@ -249,7 +248,7 @@ tests = testGroup "Trig"
     , testCase "cos(π/5) — interval width < 1e-17" $ do
         case cosExact 1 5 of
           Radical e -> do
-            let ci = dagEvalComplexInterval (toDAG e)
+            let ci = dagEvalComplexMP 200 (toDAG e)
                 iv = ciReal ci
                 w = hi iv - lo iv
             w < 1e-17 @?
@@ -259,7 +258,7 @@ tests = testGroup "Trig"
     , testCase "cos(2π/32) — tight bounds at depth 7" $ do
         case cosExact 2 32 of
           Radical e -> do
-            let ci = dagEvalComplexInterval (toDAG e)
+            let ci = dagEvalComplexMP 200 (toDAG e)
                 iv = ciReal ci
                 w = hi iv - lo iv
                 mid = fromRational ((lo iv + hi iv) / 2) :: Double
@@ -273,12 +272,88 @@ tests = testGroup "Trig"
     , testCase "cos(2π/257) — constructible Fermat prime, deep intervals" $ do
         case cosExact 2 257 of
           Radical e -> do
-            let ci = dagEvalComplexInterval (toDAG e)
+            let ci = dagEvalComplexMP 500 (toDAG e)
                 iv = ciReal ci
                 mid = fromRational ((lo iv + hi iv) / 2) :: Double
                 expected = cos (2 * pi / 257)
             abs (mid - expected) < 1e-10 @?
               ("cos(2π/257) midpoint should be close to " ++ show expected ++ " but got " ++ show mid)
+          _ -> assertFailure "expected radical"
+    ]
+
+  , testGroup "MPBall arbitrary-precision eval"
+    [ testCase "cos(2π/7) — tight at 200 bits" $ do
+        case cosExact 2 7 of
+          Radical e -> do
+            let iv = dagEvalRealMP 200 (toDAG e)
+                w = fromRational (hi iv - lo iv) :: Double
+                mid = fromRational ((lo iv + hi iv) / 2) :: Double
+                expected = cos (2 * pi / 7)
+            w < 1e-40 @?
+              ("width should be < 1e-40 but got " ++ show w)
+            abs (mid - expected) < 1e-14 @?
+              ("midpoint should match cos(2π/7) but err=" ++ show (abs (mid - expected)))
+          _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/9) — complex intermediates, tight at 500 bits" $ do
+        case cosExact 2 9 of
+          Radical e -> do
+            let iv = dagEvalRealMP 500 (toDAG e)
+                w = fromRational (hi iv - lo iv) :: Double
+                mid = fromRational ((lo iv + hi iv) / 2) :: Double
+                expected = cos (2 * pi / 9)
+            w < 1e-100 @?
+              ("width should be < 1e-100 but got " ++ show w)
+            abs (mid - expected) < 1e-14 @?
+              ("midpoint should match cos(2π/9) but err=" ++ show (abs (mid - expected)))
+          _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/11) — quintic resolvent, tight at 500 bits" $ do
+        case cosExact 2 11 of
+          Radical e -> do
+            let iv = dagEvalRealMP 500 (toDAG e)
+                w = fromRational (hi iv - lo iv) :: Double
+            w < 1e-30 @?
+              ("width should be < 1e-30 but got " ++ show w)
+          _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/97) — deep DAG, tight at 500 bits" $ do
+        case cosExact 2 97 of
+          Radical e -> do
+            let iv = dagEvalRealMP 500 (toDAG e)
+                w = fromRational (hi iv - lo iv) :: Double
+                mid = fromRational ((lo iv + hi iv) / 2) :: Double
+                expected = cos (2 * pi / 97)
+            w < 1e-100 @?
+              ("width should be < 1e-100 but got " ++ show w)
+            abs (mid - expected) < 1e-14 @?
+              ("midpoint should match cos(2π/97) but err=" ++ show (abs (mid - expected)))
+          _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/61) — deep quintic, tight at 500 bits" $ do
+        case cosExact 2 61 of
+          Radical e -> do
+            let iv = dagEvalRealMP 500 (toDAG e)
+                w = fromRational (hi iv - lo iv) :: Double
+                mid = fromRational ((lo iv + hi iv) / 2) :: Double
+                expected = cos (2 * pi / 61)
+            w < 1e-30 @?
+              ("width should be < 1e-30 but got " ++ show w)
+            abs (mid - expected) < 1e-14 @?
+              ("midpoint should match cos(2π/61) but err=" ++ show (abs (mid - expected)))
+          _ -> assertFailure "expected radical"
+
+    , testCase "cos(2π/37) — quadratic+cubic, tight at 500 bits" $ do
+        case cosExact 2 37 of
+          Radical e -> do
+            let iv = dagEvalRealMP 500 (toDAG e)
+                w = fromRational (hi iv - lo iv) :: Double
+                mid = fromRational ((lo iv + hi iv) / 2) :: Double
+                expected = cos (2 * pi / 37)
+            w < 1e-20 @?
+              ("width should be < 1e-20 but got " ++ show w)
+            abs (mid - expected) < 1e-14 @?
+              ("midpoint should match cos(2π/37) but err=" ++ show (abs (mid - expected)))
           _ -> assertFailure "expected radical"
     ]
   ]

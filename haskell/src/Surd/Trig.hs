@@ -20,7 +20,6 @@ module Surd.Trig
   ) where
 
 import Control.Exception (SomeException, evaluate, try)
-import Data.Complex (realPart, imagPart)
 import Surd.Types
 import Surd.Trig.RootOfUnity (cosOfUnity)
 import Surd.Polynomial.Univariate (Poly)
@@ -28,8 +27,9 @@ import Surd.Polynomial.Cyclotomic (cyclotomic)
 import Surd.Radical.Normalize (normalize)
 import Surd.Radical.Denest (denest)
 import Surd.Radical.Eval (evalInterval)
-import Surd.Radical.DAG (toDAG, fromDAG, dagSize, dagDepth, dagFoldConstants, dagEvalComplex)
-import Surd.Internal.Interval (Interval, width, overlaps)
+import Surd.Radical.DAG (toDAG, fromDAG, dagSize, dagDepth, dagFoldConstants)
+import Surd.Radical.EvalMP (dagEvalComplexMP)
+import Surd.Internal.Interval (Interval, ComplexInterval(..), width, overlaps)
 import System.IO.Unsafe (unsafePerformIO)
 
 -- | Result of exact trig evaluation.
@@ -161,7 +161,7 @@ safeDenestAndNormalize e =
 -- period descent), return the original expression.
 --
 -- Uses interval arithmetic for rigorous verification when possible.
--- Falls back to Complex Double comparison via dagEvalComplex when
+-- Falls back to MPBall evaluation (500-bit precision) when rational
 -- interval eval fails (complex intermediates like √(-3)).
 safeNormalize :: RadExpr Rational -> RadExpr Rational
 safeNormalize e
@@ -174,12 +174,14 @@ safeNormalize e
       in case tryEvalInterval e of
            Nothing ->
              -- Interval evaluation failed (complex intermediates).
-             -- Fall back to Complex Double verification via DAG eval.
-             let origVal = dagEvalComplex (toDAG e)
-                 normVal = dagEvalComplex (toDAG normed)
-                 err = abs (realPart origVal - realPart normVal)
-                       + abs (imagPart origVal - imagPart normVal)
-             in if err < 1e-6 then normed else e
+             -- Fall back to MPBall verification at 500-bit precision.
+             let origCI = dagEvalComplexMP 500 (toDAG e)
+                 normCI = dagEvalComplexMP 500 (toDAG normed)
+                 origRe = ciReal origCI
+                 normRe = ciReal normCI
+             in if overlaps origRe normRe
+                then normed
+                else e
            Just origIv ->
              case tryEvalInterval normed of
                Nothing -> e
