@@ -47,8 +47,11 @@ latexPrec p (Inv e) =
 latexPrec _ (Root 2 (Lit (-1))) = "\\mathrm{i}"
 latexPrec _ (Root 2 e) = "\\sqrt{" ++ latexRadicand e ++ "}"
 latexPrec _ (Root n e) = "\\sqrt[" ++ show n ++ "]{" ++ latexRadicand e ++ "}"
-latexPrec p (Pow e n) =
-  parensIf (p > precPow) $ latexBase e ++ "^{" ++ show n ++ "}"
+latexPrec _ (Pow _ 0) = "1"
+latexPrec p (Pow e n)
+  | n < 0     = latexPrec p (Inv (Pow e (negate n)))
+  | n == 1    = latexPrec p e
+  | otherwise = parensIf (p > precPow) $ latexBase e ++ "^{" ++ show n ++ "}"
 latexPrec p e@(Mul _ _) =
   parensIf (p > precMul) $ renderFactors (flattenMul e)
 
@@ -93,8 +96,16 @@ flattenAdd :: RadExpr Rational -> [(Bool, RadExpr Rational)]
 flattenAdd (Add a b) = flattenAdd a ++ flattenAdd b
 flattenAdd (Neg e)   = map (\(s, t) -> (not s, t)) (flattenAdd e)
 flattenAdd (Lit r) | r < 0 = [(False, Lit (negate r))]
-flattenAdd (Mul (Lit r) b) | r < 0 = [(False, Mul (Lit (negate r)) b)]
+flattenAdd (Mul (Neg a) b) = [(False, Mul a b)]
+flattenAdd e@(Mul _ _) = case flattenMul e of
+  (Lit r : rest) | r < 0 -> [(False, rebuildMul (Lit (negate r) : rest))]
+  _ -> [(True, e)]
 flattenAdd e = [(True, e)]
+
+rebuildMul :: [RadExpr Rational] -> RadExpr Rational
+rebuildMul []     = Lit 1
+rebuildMul [x]    = x
+rebuildMul (x:xs) = foldl Mul x xs
 
 renderTerms :: [(Bool, RadExpr Rational)] -> String
 renderTerms [] = "0"

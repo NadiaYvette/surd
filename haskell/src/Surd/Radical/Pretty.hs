@@ -118,8 +118,11 @@ renderWith names = go 0
     pp _ (Root 3 e) = "∛" ++ radicand e
     pp _ (Root n e) = show n ++ "√" ++ radicand e
 
-    pp p (Pow e n) =
-      parensIf (p > precPow) $ go precPow e ++ "^" ++ show n
+    pp _ (Pow _ 0) = "1"
+    pp p (Pow e n)
+      | n < 0     = pp p (Inv (Pow e (negate n)))
+      | n == 1    = go p e
+      | otherwise = parensIf (p > precPow) $ go precPow e ++ "^" ++ show n
 
     radicand e@(Lit r)
       | r >= 0 && denominator r == 1 = show (numerator r)
@@ -135,8 +138,15 @@ renderWith names = go 0
     flattenAdd (Add a b) = flattenAdd a ++ flattenAdd b
     flattenAdd (Neg e)   = map (\(s, t) -> (not s, t)) (flattenAdd e)
     flattenAdd (Lit r) | r < 0 = [(False, Lit (negate r))]
-    flattenAdd (Mul (Lit r) b) | r < 0 = [(False, Mul (Lit (negate r)) b)]
+    flattenAdd (Mul (Neg a) b) = [(False, Mul a b)]
+    flattenAdd e@(Mul _ _) = case flattenMul e of
+      (Lit r : rest) | r < 0 -> [(False, rebuildMul (Lit (negate r) : rest))]
+      _ -> [(True, e)]
     flattenAdd e = [(True, e)]
+
+    rebuildMul []     = Lit 1
+    rebuildMul [x]    = x
+    rebuildMul (x:xs) = foldl Mul x xs
 
     renderTerms [] = "0"
     renderTerms ((s, t):rest) =
@@ -197,8 +207,11 @@ prettyPrec _ (Root 2 (Lit (-1))) = "i"
 prettyPrec _ (Root 2 e) = "√" ++ prettyRadicandBasic e
 prettyPrec _ (Root 3 e) = "∛" ++ prettyRadicandBasic e
 prettyPrec _ (Root n e) = show n ++ "√" ++ prettyRadicandBasic e
-prettyPrec p (Pow e n) =
-  parensIf (p > precPow) $ prettyPrec precPow e ++ "^" ++ show n
+prettyPrec _ (Pow _ 0) = "1"
+prettyPrec p (Pow e n)
+  | n < 0     = prettyPrec p (Inv (Pow e (negate n)))
+  | n == 1    = prettyPrec p e
+  | otherwise = parensIf (p > precPow) $ prettyPrec precPow e ++ "^" ++ show n
 
 -- --------------------------------------------------------------------------
 -- Shared helpers
@@ -239,7 +252,14 @@ flattenAddBasic :: RadExpr Rational -> [(Bool, RadExpr Rational)]
 flattenAddBasic (Add a b) = flattenAddBasic a ++ flattenAddBasic b
 flattenAddBasic (Neg e)   = map (\(s, t) -> (not s, t)) (flattenAddBasic e)
 flattenAddBasic (Lit r) | r < 0 = [(False, Lit (negate r))]
-flattenAddBasic (Mul (Lit r) b) | r < 0 = [(False, Mul (Lit (negate r)) b)]
+flattenAddBasic (Mul (Neg a) b) = [(False, Mul a b)]
+flattenAddBasic e@(Mul _ _) = case flattenMulBasic e of
+  (Lit r : rest) | r < 0 -> [(False, rebuildMul (Lit (negate r) : rest))]
+  _ -> [(True, e)]
+  where
+    rebuildMul []     = Lit 1
+    rebuildMul [x]    = x
+    rebuildMul (x:xs) = foldl Mul x xs
 flattenAddBasic e = [(True, e)]
 
 renderTermsBasic :: [(Bool, RadExpr Rational)] -> String

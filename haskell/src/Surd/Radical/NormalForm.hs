@@ -234,10 +234,11 @@ reduceAtom (c, m) atom@(RatRoot n r) e =
       c' = c * r ^^ full
       m' = if rem' == 0 then m else Map.insert atom rem' m
   in (c', m')
-reduceAtom (c, m) atom@(NestedRoot _ _) e =
+reduceAtom (c, m) atom@(NestedRoot _ _) e
+  | e == 0    = (c, m)  -- NestedRoot^0 = 1, drop it
   -- NestedRoot reduction is handled by reduceNestedRoots (post-pass)
   -- because extracting the radicand produces a NormExpr, not a Rational.
-  (c, Map.insert atom e m)
+  | otherwise = (c, Map.insert atom e m)
 
 -- | Integer power.
 normPow :: NormExpr -> Int -> NormExpr
@@ -627,10 +628,11 @@ fromNormExpr (NormExpr m) = case Map.toList m of
            _          -> Mul coeffExpr nestedProd
 
     atomToExpr :: Atom -> Int -> RadExpr Rational
-    atomToExpr ImagUnit 1       = Root 2 (Lit (-1))
-    atomToExpr ImagUnit e       = Pow (Root 2 (Lit (-1))) e
-    atomToExpr (RatRoot n r) 1  = Root n (Lit r)
-    atomToExpr (RatRoot n r) e  = Pow (Root n (Lit r)) e
+    atomToExpr _ 0                    = Lit 1
+    atomToExpr ImagUnit 1             = Root 2 (Lit (-1))
+    atomToExpr ImagUnit e             = Pow (Root 2 (Lit (-1))) e
+    atomToExpr (RatRoot n r) 1        = Root n (Lit r)
+    atomToExpr (RatRoot n r) e        = Pow (Root n (Lit r)) e
     atomToExpr (NestedRoot n inner) 1 = Root n inner
     atomToExpr (NestedRoot n inner) e = Pow (Root n inner) e
 
