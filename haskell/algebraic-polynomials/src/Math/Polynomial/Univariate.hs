@@ -1,15 +1,24 @@
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
+
 -- | Dense univariate polynomial arithmetic over an arbitrary field.
 --
 -- Polynomials are represented as coefficient lists, low-degree first:
 -- @[a0, a1, ..., an]@ means @a0 + a1*x + ... + an*x^n@.
 -- Invariant: trailing zeros are stripped (the leading coefficient is nonzero),
 -- except for the zero polynomial which is @[]@.
+--
+-- Pattern synonyms for convenient construction and matching:
+--
+-- >>> X + 3 :: Poly Rational       -- the polynomial x + 3
+-- >>> case p of { X -> "is x"; _ -> "other" }
 module Math.Polynomial.Univariate
   ( Poly(..)
   , mkPoly
   , zeroPoly
   , constPoly
   , monoX
+  , pattern X
   , degree
   , leadCoeff
   , evalPoly
@@ -30,6 +39,21 @@ module Math.Polynomial.Univariate
 newtype Poly k = Poly { unPoly :: [k] }
   deriving (Eq, Show, Functor)
 
+-- | Polynomial arithmetic via 'Num'. Enables natural syntax:
+--
+-- >>> (X + 1) * (X - 1) :: Poly Rational
+-- Poly [-1, 0, 1]
+instance (Eq k, Num k) => Num (Poly k) where
+  (+) = addPoly
+  (-) = subPoly
+  (*) = mulPoly
+  negate (Poly cs) = Poly (map negate cs)
+  abs    = id
+  signum _ = Poly [1]
+  fromInteger n
+    | n == 0    = Poly []
+    | otherwise = Poly [fromInteger n]
+
 -- | Smart constructor: strip trailing zeros.
 mkPoly :: (Eq k, Num k) => [k] -> Poly k
 mkPoly = Poly . stripZeros
@@ -47,6 +71,18 @@ constPoly c = Poly [c]
 -- | The polynomial @x@.
 monoX :: Num k => Poly k
 monoX = Poly [0, 1]
+
+-- | Bidirectional pattern for the indeterminate @x@.
+--
+-- Construction: @X :: Poly Rational@ builds the polynomial @x@.
+-- Matching: @case p of X -> ...; _ -> ...@ matches when @p@ is exactly @x@.
+pattern X :: (Eq k, Num k) => Poly k
+pattern X <- (isX -> True)
+  where X = Poly [0, 1]
+
+isX :: (Eq k, Num k) => Poly k -> Bool
+isX (Poly [a, b]) = a == 0 && b == 1
+isX _             = False
 
 -- | Degree of the polynomial. Returns @-1@ for the zero polynomial.
 degree :: Poly k -> Int
