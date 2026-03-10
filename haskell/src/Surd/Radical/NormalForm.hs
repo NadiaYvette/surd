@@ -506,9 +506,54 @@ toNormExpr (Root n a) =
               normMul acc (rootOfAtomPow n atom e)) (normLit 1) atoms
         in normMul rootC rootAtoms
       -- Multi-term radicand: can't decompose into atoms.
-      -- Wrap as an opaque NestedRoot atom. Exponent reduction still works:
-      -- (NestedRoot n e)^n extracts e as a NormExpr factor.
-      _ -> normAtom (NestedRoot n (fromNormExpr inner))
+      -- Canonicalize: clear denominators and extract common content
+      -- so the radicand has integer, coprime coefficients.
+      -- ⁿ√(E/d) = (1/d) · ⁿ√(E · d^(n-1))  where E has integer coefficients.
+      -- Then extract GCD content: ⁿ√(g · E') = ⁿ√g · ⁿ√E'.
+      -- Exponent reduction still works: (NestedRoot n e)^n extracts e.
+      terms ->
+        let coeffs = map snd terms
+            -- LCD of all coefficient denominators
+            lcd = foldl lcm 1 (map denominator coeffs)
+            -- Scale radicand so all coefficients are integers: E = lcd · inner
+            intCoeffs = [ numerator (c * fromInteger lcd) | (_, c) <- terms ]
+            -- GCD of all integer coefficients (the "content" of E)
+            g = foldl gcd 0 (map abs intCoeffs)
+            -- ⁿ√(E / lcd) = ⁿ√(E · lcd^(n-1)) / lcd
+            -- E · lcd^(n-1) = g · lcd^(n-1) · E'  where E' = E/g coprime
+            -- ⁿ√(g · lcd^(n-1) · E') / lcd = ⁿ√(g · lcd^(n-1)) · ⁿ√(E') / lcd
+            -- Factor g · lcd^(n-1) into nth power:
+            totalContent = g * lcd ^ (n - 1)
+            (nthOut, nthRem) = extractNthPower n totalContent
+            -- = (nthOut / lcd) · ⁿ√nthRem · ⁿ√(E')
+            outerCoeff = nthOut / fromInteger lcd
+            -- E' = E/g has coprime integer coefficients
+            cleanedTerms =
+              [ (mono, c * fromInteger lcd / fromInteger g) | (mono, c) <- terms ]
+            cleanedRadicand = NormExpr $ Map.fromList cleanedTerms
+            -- ⁿ√nthRem as a separate atom (integer, nth-power-free).
+            -- For odd roots, ⁿ√(a·b) = ⁿ√a · ⁿ√b always holds.
+            -- For even roots, only split if nthRem = 1 (to avoid sign issues).
+            canSplitRem = odd n || nthRem == 1
+        in if normIsZero cleanedRadicand || g == 0
+           then normZero
+           else if not canSplitRem
+           then
+             -- Even root with nthRem > 1: keep nthRem inside the radicand
+             let fullRadicand = normScale nthRem cleanedRadicand
+             in normScale outerCoeff
+                  (normAtom (NestedRoot n (fromNormExpr fullRadicand)))
+           else case normCoeff cleanedRadicand of
+             Just r  ->
+               -- Radicand simplified to a single rational
+               normScale outerCoeff (normMul (normRoot n nthRem) (normRoot n r))
+             Nothing ->
+               -- Coprime integer-coefficient radicand under NestedRoot
+               let nestedPart = normAtom (NestedRoot n (fromNormExpr cleanedRadicand))
+               in if nthRem == 1
+                  then normScale outerCoeff nestedPart
+                  else normScale outerCoeff
+                         (normMul (normRoot n nthRem) nestedPart)
 toNormExpr (Inv a) = normInv (toNormExpr a)
 toNormExpr (Pow a n)
   | n >= 0    = normPow (toNormExpr a) n

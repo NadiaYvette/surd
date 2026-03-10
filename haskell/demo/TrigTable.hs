@@ -31,7 +31,7 @@ import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
 
 import Surd.Types (RadExpr(..))
-import Surd.Trig (cosExact, sinExact, TrigResult(..))
+import Surd.Trig (cosExact, TrigResult(..), simplifyTrigResult, simplifiedSin)
 import Surd.Radical.LaTeX (latex)
 import Surd.Radical.Normalize (normalize)
 import Surd.Radical.Pretty (pretty)
@@ -165,26 +165,29 @@ data Row = Row
   }
 
 computeRow :: Config -> Angle -> Row
-computeRow cfg (p, q) = Row
+computeRow cfg (p, q) =
+  let simpCos = simplifyTrigResult (cosExact p q)
+  in Row
   { rowAngle = renderAngle (cfgFormat cfg) (p, q)
   , rowCos   = if cfgCols cfg /= SinOnly
-               then Just (renderResult (cfgFormat cfg) (cosExact p q))
+               then Just (renderResult (cfgFormat cfg) simpCos)
                else Nothing
   , rowSin   = if cfgCols cfg /= CosOnly
-               then Just (renderResult (cfgFormat cfg) (sinExact p q))
+               then Just (renderResult (cfgFormat cfg) (simplifiedSin p q simpCos))
                else Nothing
   , rowTan   = if cfgTan cfg
-               then Just $ computeTan cfg p q
+               then Just $ computeTan cfg simpCos p q
                else Nothing
   }
 
-computeTan :: Config -> Integer -> Integer -> String
-computeTan cfg p q =
-  case (sinExact p q, cosExact p q) of
+computeTan :: Config -> TrigResult -> Integer -> Integer -> String
+computeTan cfg simpCos p q =
+  let simpSin = simplifiedSin p q simpCos
+  in case (simpSin, simpCos) of
     (Radical s, Radical c)
       | isZero c  -> undefinedStr (cfgFormat cfg)
       | isZero s  -> renderResult (cfgFormat cfg) (Radical (Lit 0))
-      | otherwise -> renderResult (cfgFormat cfg) (Radical (normalize (Mul s (Inv c))))
+      | otherwise -> renderResult (cfgFormat cfg) (simplifyTrigResult (Radical (normalize (Mul s (Inv c)))))
     _ -> undefinedStr (cfgFormat cfg)
   where
     isZero (Lit 0) = True

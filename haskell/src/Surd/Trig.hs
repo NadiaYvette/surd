@@ -17,9 +17,13 @@ module Surd.Trig
   , tanExact
   , cosMinPoly
   , TrigResult(..)
+  , simplifyTrigResult
+  , simplifiedSin
   ) where
 
 import Control.Exception (SomeException, evaluate, try)
+import System.Timeout (timeout)
+import Surd.Radical.Expr (collectRadicals)
 import Surd.Types
 import Surd.Trig.RootOfUnity (cosOfUnity)
 import Math.Polynomial.Univariate (Poly)
@@ -28,6 +32,7 @@ import Surd.Radical.Normalize (normalize)
 import Surd.Radical.NormalForm (toNormExpr, fromNormExpr)
 import Surd.Radical.Denest (denest)
 import Surd.Radical.Eval (evalInterval)
+import Surd.Algebraic.Convert (simplifyViaCanonical)
 import Surd.Radical.DAG (toDAG, fromDAG, dagSize, dagDepth, dagFoldConstants)
 import Surd.Radical.EvalMP (dagEvalComplexMP)
 import Math.Internal.Interval (Interval, ComplexInterval(..), width, overlaps)
@@ -88,8 +93,24 @@ cosReduced p q =
 
 sinReduced :: Integer -> Integer -> TrigResult
 sinReduced p q =
-  -- sin(pπ/q) = cos(π/2 - pπ/q) = cos((q - 2p)π/(2q))
-  cosExact (q - 2 * p) (2 * q)
+  -- Use sin(pπ/q) = ±√(1 - cos²(pπ/q)) to avoid doubling the denominator.
+  -- This keeps the radical complexity the same as cos.
+  -- Sign: sin is non-negative in [0, π], non-positive in [π, 2π].
+  let p' = p `mod` (2 * q)
+      p'' = if p' < 0 then p' + 2 * q else p'
+      -- p''/q is in [0, 2) so p''π/q is in [0, 2π)
+      positive = p'' >= 0 && p'' <= q  -- sin ≥ 0 for angle in [0, π]
+  in if p'' == 0 || p'' == q then Radical (Lit 0)  -- sin(0) = sin(π) = 0
+     else case cosExact p q of
+       Radical c ->
+         -- sin²(x) = 1 - cos²(x), so sin(x) = ±√(1 - cos²(x))
+         -- Use NormalForm to simplify 1 - cos², then wrap in √.
+         let sin2 = fromNormExpr (toNormExpr (Add (Lit 1) (Neg (Mul c c))))
+             sin2folded = fromDAG (dagFoldConstants (toDAG sin2))
+             sinExpr = Root 2 sin2folded
+             signed = if positive then sinExpr else Neg sinExpr
+         in Radical (safeDenestAndNormalize signed)
+       minpoly -> minpoly
 
 -- | cos(pπ/q) where 0 ≤ p ≤ 2q (i.e., angle in [0, 2π]).
 cosInRange :: Integer -> Integer -> TrigResult
@@ -123,12 +144,18 @@ cosFirstQuadrant p q =
      else
        case cosOfUnity n of
          Just base ->
-           -- Chebyshev builds T_k(x) symbolically, producing (sum)*(sum)
-           -- products that the tree normalizer can't distribute. NormalForm
-           -- handles this automatically via monomial multiplication.
            let cheb = chebyshev k base
-               simplified = fromNormExpr (toNormExpr cheb)
-           in Radical (safeDenestAndNormalize simplified)
+               nRads = length (collectRadicals cheb)
+           in if nRads > 3
+              then
+                -- Complex base (Cardano etc.): NormalForm would expand
+                -- (sum)*(sum) products into thousands of monomials. Return
+                -- the compact Chebyshev tree; simplifyTrigResult can handle it.
+                Radical (safeDenestAndNormalize cheb)
+              else
+                -- Simple base: NormalForm distributes products cleanly
+                let simplified = fromNormExpr (toNormExpr cheb)
+                in Radical (safeDenestAndNormalize simplified)
          Nothing -> MinPoly (cyclotomic n)
 
 -- | Try denesting followed by normalization.
@@ -138,7 +165,7 @@ cosFirstQuadrant p q =
 --
 -- Three tiers:
 -- - Small (d ≤ 20, s ≤ 500): dagFoldConstants → denest → tree normalize
--- - Medium (d ≤ 50, s ≤ 5000): dagFoldConstants → dagNormalize (O(n), no sharing breakage)
+-- - Medium (d ≤ 50, s ≤ 5000): dagFoldConstants only
 -- - Large (d > 50 or s > 5000): dagFoldConstants only
 safeDenestAndNormalize :: RadExpr Rational -> RadExpr Rational
 safeDenestAndNormalize e =
@@ -150,16 +177,70 @@ safeDenestAndNormalize e =
      else if d <= 20 && s <= 500
      then
        -- Small: try denesting, then tree normalize with verification
-       let e' = fromDAG (dagFoldConstants dag)
-           denested = denest e'
+       let folded = fromDAG (dagFoldConstants dag)
+           denested = denest folded
            sDen = dagSize (toDAG denested)
-           best = if sDen < s then denested else e'
+           best = if sDen < s then denested else folded
        in safeNormalize best
      else
        -- Medium: DAG simplification (constant folding, power simplification,
        -- perfect power extraction). dagNormalize is available but not used
        -- here because Gauss period output rarely has like terms to collect.
        fromDAG (dagFoldConstants dag)
+
+-- | Try simplifyViaCanonical if the expression is moderately large.
+-- Returns the simpler of the original and simplified forms.
+-- Skips expressions that are too small (already fine) or too large
+-- (canonical simplification would be prohibitively expensive).
+tryCanonicalSimplify :: RadExpr Rational -> RadExpr Rational
+tryCanonicalSimplify e =
+  let s = dagSize (toDAG e)
+      nRads = length (collectRadicals e)
+  in if s <= 30 || s > 200 || nRads > 5
+     then e
+     else unsafePerformIO $ do
+       -- 5 second timeout: minimalPolyTower can hang on complex towers
+       result <- timeout 5000000 $ tryAny (evaluate (simplifyViaCanonical e))
+       case result of
+         Nothing -> return e  -- timed out
+         Just (Left _) -> return e  -- exception
+         Just (Right simplified) ->
+           let s' = dagSize (toDAG simplified)
+           in return (if s' < s then simplified else e)
+
+tryAny :: IO a -> IO (Either SomeException a)
+tryAny = try
+
+-- | Simplify a trig result for display. Applies canonical simplification
+-- (minimal polynomial → Cardano/Ferrari) to reduce complex Gauss period
+-- or Chebyshev expressions to compact radical forms. This is separate from
+-- 'cosExact'/'sinExact' because the simplified form, while more readable,
+-- can be harder for downstream algebraic operations (e.g., minimalPolyTower).
+simplifyTrigResult :: TrigResult -> TrigResult
+simplifyTrigResult (Radical e) = Radical (tryCanonicalSimplify e)
+simplifyTrigResult other = other
+
+-- | Compute simplified sin from simplified cos for display.
+-- sin(x) = ±√(1 - cos²(x)), using the already-simplified cos value.
+simplifiedSin :: Integer -> Integer -> TrigResult -> TrigResult
+simplifiedSin p q (Radical c) =
+  let p' = (p `mod` (2 * q))
+      p'' = if p' < 0 then p' + 2 * q else p'
+      positive = p'' >= 0 && p'' <= q
+  in if p'' == 0 || p'' == q then Radical (Lit 0)
+     else let sin2 = fromNormExpr (toNormExpr (Add (Lit 1) (Neg (Mul c c))))
+              sin2folded = fromDAG (dagFoldConstants (toDAG sin2))
+              sinExpr = Root 2 sin2folded
+              signed = if positive then sinExpr else Neg sinExpr
+              -- NF round-trip canonicalizes NestedRoot radicands
+              -- (clears denominators, extracts content, coprime integer coefficients)
+              canonical = fromNormExpr (toNormExpr signed)
+              s = dagSize (toDAG canonical)
+              result
+                | s <= 30   = safeNormalize canonical
+                | otherwise = tryCanonicalSimplify canonical
+          in Radical result
+simplifiedSin _ _ other = other
 
 -- | Normalize, but verify the result. If normalization changes the
 -- numerical value (can happen with complex intermediates from Gauss
