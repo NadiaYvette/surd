@@ -31,7 +31,9 @@ import Data.Complex (realPart)
 import Surd.Radical.Eval (evalComplex)
 import Math.Internal.PSLQ (findMinPoly)
 import Surd.Radical.Normalize (normalize)
-import Data.List (nub)
+import Surd.Radical.Expr (topoSortRadicals, allRootsResolved)
+import qualified Surd.Radical.Expr as Expr
+
 
 -- | Compute the minimal polynomial of a radical expression over Q,
 -- using the extension tower approach.
@@ -65,17 +67,7 @@ annihilatingPolyTower expr =
 -- Uses structural equality to identify shared radicals.
 -- Radicands are normalized to improve sharing.
 collectRadicals :: RadExpr Rational -> [(Int, RadExpr Rational)]
-collectRadicals = dedup . go . normalize
-  where
-    go (Lit _)    = []
-    go (Neg a)    = go a
-    go (Add a b)  = go a ++ go b
-    go (Mul a b)  = go a ++ go b
-    go (Inv a)    = go a
-    go (Pow a _)  = go a
-    go (Root n a) = go a ++ [(n, a)]  -- a is already normalized by outer normalize
-
-    dedup = nub
+collectRadicals = Expr.collectRadicals . normalize
 
 -- | Try to evaluate a RadExpr as a pure rational (no radicals).
 evalRational :: RadExpr Rational -> Maybe Rational
@@ -223,26 +215,18 @@ computeDeepFallback expr radicals =
 
 -- | Build dependency chain: order radicals so that each radical's
 -- radicand only uses radicals earlier in the chain.
+-- Unlike 'topoSortRadicals', drops unresolvable radicals (the tower
+-- can only handle radicals with fully resolved dependencies).
 buildChain :: [(Int, RadExpr Rational)] -> [(Int, RadExpr Rational)]
-buildChain rads = go [] rads
+buildChain = dropUnresolved . topoSortRadicals
   where
-    go chain [] = chain
-    go chain remaining =
-      let ready = [r | r <- remaining, radicandResolvable chain (snd r)]
-          remaining' = filter (`notElem` ready) remaining
-      in if null ready then chain
-         else go (chain ++ ready) remaining'
-
-    radicandResolvable chain = allRootsIn (map snd chain)
-
-    allRootsIn :: [RadExpr Rational] -> RadExpr Rational -> Bool
-    allRootsIn _ (Lit _) = True
-    allRootsIn resolved (Neg a) = allRootsIn resolved a
-    allRootsIn resolved (Add a b) = allRootsIn resolved a && allRootsIn resolved b
-    allRootsIn resolved (Mul a b) = allRootsIn resolved a && allRootsIn resolved b
-    allRootsIn resolved (Inv a) = allRootsIn resolved a
-    allRootsIn resolved (Pow a _) = allRootsIn resolved a
-    allRootsIn resolved (Root _ a) = a `elem` resolved && allRootsIn resolved a
+    -- topoSortRadicals appends unresolvable radicals at the end;
+    -- drop them by keeping only the resolved prefix.
+    dropUnresolved = go []
+    go resolved [] = resolved
+    go resolved (r:rs)
+      | allRootsResolved resolved (snd r) = go (resolved ++ [r]) rs
+      | otherwise                         = resolved
 
 -- | Simple annihilating polynomial (non-tower, for fallback).
 -- Same as the original annihilatingPoly but defined here to avoid circular imports.

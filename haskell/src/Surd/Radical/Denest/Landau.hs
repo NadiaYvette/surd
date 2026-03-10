@@ -16,8 +16,8 @@ import Math.Polynomial.Univariate
 import Math.Polynomial.TragerFactoring (factorSFOverExtension, factorSFOverExtensionK)
 import Math.Field.Extension
 import Surd.Radical.Eval (evalComplexExact)
+import Surd.Radical.Expr (collectRadicals, topoSortRadicals)
 import Data.Complex (Complex(..))
-import Data.List (nub)
 
 -- | Try to denest all radicals in an expression using Landau's algorithm.
 -- Applies denesting recursively, bottom-up.
@@ -234,33 +234,7 @@ extElemToRadExpr _ _ (deg, rad) (ExtElem (Poly cs) _) =
 -- so that radicals with rational radicands come first, followed by
 -- radicals whose radicands depend only on earlier radicals.
 collectRadicalsSimple :: RadExpr Rational -> [(Int, RadExpr Rational)]
-collectRadicalsSimple = topoSort . nub . go
-  where
-    go (Lit _)    = []
-    go (Neg a)    = go a
-    go (Add a b)  = go a ++ go b
-    go (Mul a b)  = go a ++ go b
-    go (Inv a)    = go a
-    go (Pow a _)  = go a
-    go (Root n a) = go a ++ [(n, a)]
-
-    topoSort rads = topoGo [] rads
-    topoGo sorted [] = sorted
-    topoGo sorted remaining =
-      let ready = [r | r <- remaining, allRootsIn sorted (snd r)]
-          remaining' = filter (`notElem` ready) remaining
-      in if null ready
-         then sorted ++ remaining  -- can't resolve more; append as-is
-         else topoGo (sorted ++ ready) remaining'
-
-    allRootsIn :: [(Int, RadExpr Rational)] -> RadExpr Rational -> Bool
-    allRootsIn _ (Lit _) = True
-    allRootsIn resolved (Neg a) = allRootsIn resolved a
-    allRootsIn resolved (Add a b) = allRootsIn resolved a && allRootsIn resolved b
-    allRootsIn resolved (Mul a b) = allRootsIn resolved a && allRootsIn resolved b
-    allRootsIn resolved (Inv a) = allRootsIn resolved a
-    allRootsIn resolved (Pow a _) = allRootsIn resolved a
-    allRootsIn resolved (Root n a) = (n, a) `elem` resolved
+collectRadicalsSimple = topoSortRadicals . collectRadicals
 
 -- | Evaluate a RadExpr in Q(α).
 evalInK :: ExtField Rational
