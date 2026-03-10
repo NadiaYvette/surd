@@ -236,9 +236,9 @@ latexRow :: Config -> Row -> String
 latexRow _cfg r = intercalate " & " (map wrapMath fields) ++ " \\\\"
   where
     fields = [rowAngle r]
-      ++ maybe [] (:[]) (rowCos r)
-      ++ maybe [] (:[]) (rowSin r)
-      ++ maybe [] (:[]) (rowTan r)
+      ++ maybe [] (:[]) (fmap latexWrap (rowCos r))
+      ++ maybe [] (:[]) (fmap latexWrap (rowSin r))
+      ++ maybe [] (:[]) (fmap latexWrap (rowTan r))
     wrapMath s = "$" ++ s ++ "$"
 
 latexPreamble :: String
@@ -282,6 +282,43 @@ textRow _cfg r = intercalate "  │  " $ [rowAngle r]
 
 padCols :: Config -> [String] -> [String] -> [String] -> [String] -> String
 padCols _ a b c d = intercalate "  │  " (a ++ b ++ c ++ d)
+
+-- | Wrap a long LaTeX math expression using aligned environment.
+-- Breaks at top-level + or - (brace depth 0), placing continuation
+-- terms on new lines.  Short expressions pass through unchanged.
+latexWrap :: String -> String
+latexWrap s
+  | length s <= 120 = s
+  | otherwise =
+      let parts = splitLatexTerms s
+      in case parts of
+        []  -> s
+        [_] -> s
+        (first:rest) ->
+          "\\begin{aligned} & " ++ first ++
+          concatMap (\t -> " \\\\\n& " ++ t) rest ++
+          "\\end{aligned}"
+
+-- | Split a LaTeX expression into top-level terms at + and - boundaries.
+-- Tracks brace depth to avoid splitting inside \\sqrt{...}, \\frac{...}{...}, etc.
+splitLatexTerms :: String -> [String]
+splitLatexTerms = finish . go 0 0 ""
+  where
+    -- go depth col acc str
+    go _ _ acc [] = [reverse acc]
+    go d col acc ('{':cs)  = go (d+1) (col+1) ('{':acc) cs
+    go d col acc ('}':cs)  = go (max 0 (d-1)) (col+1) ('}':acc) cs
+    go d col acc (c:cs)
+      -- At depth 0, past column 60, split before " + " or " - "
+      | d == 0, col >= 60, c == ' ', Just (op, rest) <- matchOp cs =
+          reverse acc : go 0 (length op) (reverse op) rest
+      | otherwise = go d (col+1) (c:acc) cs
+
+    matchOp ('+':' ':rest) = Just ("+ ", rest)
+    matchOp ('-':' ':rest) = Just ("- ", rest)
+    matchOp _              = Nothing
+
+    finish = filter (not . null)
 
 -- | Wrap a long expression at ' + ' or ' - ' boundaries.
 -- Only breaks at low nesting depth (≤1 paren deep) to avoid splitting
