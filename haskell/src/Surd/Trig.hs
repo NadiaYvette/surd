@@ -25,7 +25,9 @@ import Control.Exception (SomeException, evaluate, try)
 import System.Timeout (timeout)
 import Surd.Radical.Expr (collectRadicals)
 import Surd.Types
+import Data.Map.Strict qualified as Map
 import Surd.Trig.RootOfUnity (cosOfUnity)
+import Surd.Trig.Galois (allPeriodsViaGauss)
 import Math.Polynomial.Univariate (Poly)
 import Math.Polynomial.Cyclotomic (cyclotomic)
 import Surd.Radical.Normalize (normalize)
@@ -93,24 +95,59 @@ cosReduced p q =
 
 sinReduced :: Integer -> Integer -> TrigResult
 sinReduced p q =
-  -- Use sin(pπ/q) = ±√(1 - cos²(pπ/q)) to avoid doubling the denominator.
-  -- This keeps the radical complexity the same as cos.
-  -- Sign: sin is non-negative in [0, π], non-positive in [π, 2π].
   let p' = p `mod` (2 * q)
       p'' = if p' < 0 then p' + 2 * q else p'
       -- p''/q is in [0, 2) so p''π/q is in [0, 2π)
       positive = p'' >= 0 && p'' <= q  -- sin ≥ 0 for angle in [0, π]
   in if p'' == 0 || p'' == q then Radical (Lit 0)  -- sin(0) = sin(π) = 0
-     else case cosExact p q of
-       Radical c ->
-         -- sin²(x) = 1 - cos²(x), so sin(x) = ±√(1 - cos²(x))
-         -- Use NormalForm to simplify 1 - cos², then wrap in √.
-         let sin2 = fromNormExpr (toNormExpr (Add (Lit 1) (Neg (Mul c c))))
-             sin2folded = fromDAG (dagFoldConstants (toDAG sin2))
-             sinExpr = Root 2 sin2folded
-             signed = if positive then sinExpr else Neg sinExpr
-         in Radical (safeDenestAndNormalize signed)
-       minpoly -> minpoly
+     else
+       -- Try direct period lookup: sin(2πk/n) = (ζ^k − ζ^{n-k})/(2i)
+       let g = gcd p'' (2 * q)
+           n = fromIntegral (2 * q `div` g) :: Int
+           k = fromIntegral (p'' `div` g) :: Int
+       in case directPeriodSin n k of
+         Just sinExpr ->
+           -- NF already simplified; just fold constants (denest hangs on
+           -- complex intermediates from casus irreducibilis cube roots).
+           Radical (fromDAG (dagFoldConstants (toDAG sinExpr)))
+         Nothing ->
+           -- Fall back to ±√(1 - cos²)
+           case cosExact p q of
+             Radical c ->
+               let sin2 = fromNormExpr (toNormExpr (Add (Lit 1) (Neg (Mul c c))))
+                   sin2folded = fromDAG (dagFoldConstants (toDAG sin2))
+                   sinExpr = Root 2 sin2folded
+                   signed = if positive then sinExpr else Neg sinExpr
+               in Radical (safeDenestAndNormalize signed)
+             minpoly -> minpoly
+
+-- | Compute sin(2πk/n) directly from Gauss period expressions.
+--
+-- Pre-simplifies individual period expressions through NormalForm,
+-- then forms sin = (-i/2)(ζ^k − ζ^{n-k}) and runs NF to cancel
+-- the imaginary unit. Returns Nothing if periods are unavailable
+-- or have too many radicals for NF.
+directPeriodSin :: Int -> Int -> Maybe (RadExpr Rational)
+directPeriodSin n k = do
+  periods <- allPeriodsViaGauss n
+  pk  <- Map.lookup k periods
+  pnk <- Map.lookup (n - k) periods
+  -- Pre-simplify individual periods through NF to reduce expression size.
+  -- This makes the subsequent NF on the sin formula tractable.
+  let nRadsPk = length (collectRadicals pk)
+      nRadsPnk = length (collectRadicals pnk)
+  -- Guard: skip if periods have too many radicals for NF (denom ≥ 11)
+  if nRadsPk > 10 || nRadsPnk > 10
+    then Nothing
+    else
+      let pk'  = fromNormExpr (toNormExpr pk)
+          pnk' = fromNormExpr (toNormExpr pnk)
+          -- sin(2πk/n) = (ζ^k − ζ^{n-k}) / (2i) = (-i/2)(ζ^k − ζ^{n-k})
+          i = Root 2 (Lit (-1))
+          sinForm = Mul (Mul (Inv (Lit 2)) (Neg i)) (Add pk' (Neg pnk'))
+          -- NF round-trip cancels i factors (i·√(-x) → -√x via isRadicandNegative)
+          sinNF = fromNormExpr (toNormExpr sinForm)
+      in Just sinNF
 
 -- | cos(pπ/q) where 0 ≤ p ≤ 2q (i.e., angle in [0, 2π]).
 cosInRange :: Integer -> Integer -> TrigResult

@@ -32,13 +32,16 @@ module Surd.Radical.NormalForm
   , normCoeff
   ) where
 
+import Control.Exception (SomeException, evaluate, try)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Ratio (numerator, denominator)
 import Surd.Types (RadExpr(..))
-import Surd.Radical.Eval (eval)
+import Surd.Radical.Eval (eval, evalInterval)
+import Math.Internal.Interval (strictlyNegative)
 import Math.Internal.Positive (Positive)
 import Math.Internal.PrimeFactors (factorise)
+import System.IO.Unsafe (unsafePerformIO)
 
 -- | A radical atom: an irreducible nth root of a positive rational.
 --
@@ -547,36 +550,49 @@ toNormExpr (Root n a) =
             -- complexity (ω prefactors) without clear readability gains, and
             -- the Cardano casus irreducibilis radicands are already in a natural
             -- conjugate-pair form that would be disrupted.
-            (outerCoeff, cleanedRadicand)
+            (outerCoeff, cleanedRadicand, evenRootNeg)
               | odd n =
                   let v = eval (fromNormExpr cleanedRadicand0)
                   in if not (isNaN v) && v < 0
-                     then (negate outerCoeff0, normNeg cleanedRadicand0)
-                     else (outerCoeff0, cleanedRadicand0)
-              | otherwise = (outerCoeff0, cleanedRadicand0)
+                     then (negate outerCoeff0, normNeg cleanedRadicand0, False)
+                     else (outerCoeff0, cleanedRadicand0, False)
+              | even n =
+                  -- For even roots, check if the radicand is strictly negative.
+                  -- If so, √(-x) = i·√(x) — factor out ImagUnit.
+                  -- Use Double eval as fast path, rigorous interval as fallback.
+                  let isNeg = isRadicandNegative (fromNormExpr cleanedRadicand0)
+                  in if isNeg
+                     then (outerCoeff0, normNeg cleanedRadicand0, True)
+                     else (outerCoeff0, cleanedRadicand0, False)
+              | otherwise = (outerCoeff0, cleanedRadicand0, False)
             -- ⁿ√nthRem as a separate atom (integer, nth-power-free).
             -- For odd roots, ⁿ√(a·b) = ⁿ√a · ⁿ√b always holds.
             -- For even roots, only split if nthRem = 1 (to avoid sign issues).
             canSplitRem = odd n || nthRem == 1
+            -- Wrap result with ImagUnit if we factored out negativity from even root
+            wrapI expr = if evenRootNeg
+                         then normMul (normAtom ImagUnit) expr
+                         else expr
         in if normIsZero cleanedRadicand || g == 0
            then normZero
            else if not canSplitRem
            then
              -- Even root with nthRem > 1: keep nthRem inside the radicand
              let fullRadicand = normScale nthRem cleanedRadicand
-             in normScale outerCoeff
-                  (normAtom (NestedRoot n (fromNormExpr fullRadicand)))
+             in normScale outerCoeff $ wrapI $
+                  normAtom (NestedRoot n (fromNormExpr fullRadicand))
            else case normCoeff cleanedRadicand of
              Just r  ->
                -- Radicand simplified to a single rational
-               normScale outerCoeff (normMul (normRoot n nthRem) (normRoot n r))
+               normScale outerCoeff $ wrapI $
+                 normMul (normRoot n nthRem) (normRoot n r)
              Nothing ->
                -- Coprime integer-coefficient radicand under NestedRoot
                let nestedPart = normAtom (NestedRoot n (fromNormExpr cleanedRadicand))
                in if nthRem == 1
-                  then normScale outerCoeff nestedPart
-                  else normScale outerCoeff
-                         (normMul (normRoot n nthRem) nestedPart)
+                  then normScale outerCoeff $ wrapI nestedPart
+                  else normScale outerCoeff $ wrapI $
+                         normMul (normRoot n nthRem) nestedPart
 toNormExpr (Inv a) = normInv (toNormExpr a)
 toNormExpr (Pow a n)
   | n >= 0    = normPow (toNormExpr a) n
@@ -651,3 +667,22 @@ fromNormExpr (NormExpr m) = case Map.toList m of
     buildSum []     = Lit 0
     buildSum [x]    = x
     buildSum (x:xs) = foldl Add x xs
+
+-- | Check if a radical expression is strictly negative.
+-- Used for factoring i out of even-root radicands: √(-x) = i·√x.
+--
+-- Uses Double evaluation as a fast path (works for real radicands).
+-- Falls back to rigorous interval arithmetic for expressions where
+-- Double returns NaN (complex intermediates like √(-7)).
+-- Returns False when the sign cannot be determined.
+isRadicandNegative :: RadExpr Rational -> Bool
+isRadicandNegative expr =
+  let v = eval expr
+  in if not (isNaN v)
+     then v < 0
+     else -- Double eval failed (complex intermediates). Try interval arithmetic.
+       unsafePerformIO $ do
+         result <- try (evaluate (evalInterval expr))
+         case result of
+           Left (_ :: SomeException) -> return False
+           Right iv -> return (strictlyNegative iv)

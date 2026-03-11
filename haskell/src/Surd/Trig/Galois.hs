@@ -14,6 +14,7 @@
 -- radicals of degree equal to the prime index of that step.
 module Surd.Trig.Galois
   ( cosOfUnityViaGauss
+  , allPeriodsViaGauss
   , gaussPeriods
   , primitiveRoot
   , subgroupChain
@@ -24,6 +25,7 @@ import Data.Complex (Complex(..), magnitude, realPart, imagPart, mkPolar, phase)
 import Data.List (nub, sort, sortBy)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
+import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Ord (comparing, Down(..))
 import Surd.Types
@@ -55,7 +57,24 @@ dagEval = dagEvalComplex . toDAG
 -- The resulting expression may involve complex intermediates
 -- (e.g., √(-3) for cubic steps), but evaluates to a real number.
 cosOfUnityViaGauss :: Int -> Maybe (RadExpr Rational)
-cosOfUnityViaGauss n
+cosOfUnityViaGauss n = do
+  periods <- allPeriodsViaGauss n
+  let n' = fromIntegral n :: Integer
+  target <- Map.lookup 1 periods
+  let conjElem = fromIntegral (n' - 1) :: Int
+  conjugate <- Map.lookup conjElem periods
+  Just $ Mul (Inv (Lit 2)) (Add target conjugate)
+
+-- | Compute all primitive nth roots of unity as radical expressions via
+-- Gauss period descent.
+--
+-- Returns a map from element k to the radical expression for ζ^k = e^{2πik/n},
+-- for all k coprime to n. This enables direct computation of cos(2πk/n)
+-- and sin(2πk/n) without Chebyshev polynomials or √(1-cos²).
+--
+-- The map values are lazy: only accessed entries trigger computation.
+allPeriodsViaGauss :: Int -> Maybe (Map.Map Int (RadExpr Rational))
+allPeriodsViaGauss n
   | n <= 2    = Nothing  -- handled elsewhere
   | otherwise =
       let n' = fromIntegral n :: Integer
@@ -83,22 +102,14 @@ cosOfUnityViaGauss n
                 }
               -- Descend through each prime step
               finalPeriods = foldl descendStep [initPeriod] steps
-              -- Find the period containing the element 1 (since ζ^1 = e^{2πi/n})
-              target = case filter (\ps -> 1 `elem` periodElems ps) finalPeriods of
-                         (ps:_) -> periodExpr ps
-                         []     -> error "cosOfUnityViaGauss: element 1 not found"
-              -- ζ^{-1} = ζ^{n-1} for prime n, but for general n we need the
-              -- element k such that k·1 ≡ -1 (mod n), i.e., k = n-1.
-              -- But n-1 might not be coprime to n. Instead, find the element
-              -- whose angle is the conjugate: for ζ^a, its conjugate is ζ^{n-a}.
-              conjElem = n' - 1
-              conjugate = case filter (\ps -> conjElem `elem` periodElems ps) finalPeriods of
-                            (ps:_) -> periodExpr ps
-                            []     ->
-                              -- n-1 not in our coprime set (e.g., n=9, n-1=8, gcd(8,9)=1, so it should be)
-                              -- If somehow not found, compute cos(2π/n) via exact real
-                              Lit (toRational (cos (2 * pi / fromIntegral n') :: Double))
-          in Just $ Mul (Inv (Lit 2)) (Add target conjugate)
+              -- Build map from element k to period expression.
+              -- After full descent, each period has exactly one element.
+              periodMap = Map.fromList
+                [ (fromIntegral k, periodExpr ps)
+                | ps <- finalPeriods
+                , k <- periodElems ps  -- should be exactly one element per period
+                ]
+          in Just periodMap
 
 -- | State of a Gauss period during the descent.
 data PeriodState = PeriodState

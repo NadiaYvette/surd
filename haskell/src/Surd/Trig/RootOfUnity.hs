@@ -13,16 +13,19 @@
 module Surd.Trig.RootOfUnity
   ( cosOfUnity
   , sinOfUnity
+  , allCosOfUnity
+  , allSinOfUnity
   , isConstructible
   , fermatPrimes
   ) where
 
 import Data.Bits qualified as Bits
+import Data.Map.Strict qualified as Map
 import Data.Ratio ((%))
 import Surd.Types
 import Math.Internal.Positive (Positive)
 import Math.Internal.PrimeFactors (factorise, isPrime)
-import Surd.Trig.Galois (cosOfUnityViaGauss)
+import Surd.Trig.Galois (cosOfUnityViaGauss, allPeriodsViaGauss)
 
 -- | Known Fermat primes (these are the only known ones, and it's
 -- conjectured there are no others).
@@ -257,3 +260,39 @@ sinFromCos c = Root 2 (Add (Lit 1) (Neg (Mul c c)))
 
 isPowerOf2 :: Int -> Bool
 isPowerOf2 n = n > 0 && (n Bits..&. (n - 1)) == 0
+
+-- | All cos(2πk/n) for k coprime to n, computed directly from Gauss periods.
+--
+-- cos(2πk/n) = (ζ^k + ζ^{n-k})/2 where ζ = e^{2πi/n}.
+-- Only works when (Z/nZ)* is cyclic (primes, odd prime powers, twice odd prime powers).
+-- Returns Nothing for composite n that doesn't have a primitive root.
+allCosOfUnity :: Int -> Maybe (Map.Map Int (RadExpr Rational))
+allCosOfUnity n = do
+  periods <- allPeriodsViaGauss n
+  Just $ Map.mapWithKey (\k pk ->
+    let nk = n - k
+        pnk = periods Map.! nk  -- ζ^{n-k} = conjugate of ζ^k; always exists since gcd(n-k,n)=gcd(k,n)=1
+    in Mul (Inv (Lit 2)) (Add pk pnk)
+    ) periods
+
+-- | All sin(2πk/n) for k coprime to n, computed directly from Gauss periods.
+--
+-- sin(2πk/n) = (ζ^k − ζ^{n-k})/(2i)
+--
+-- Since 1/i = −i, this is: −i/2 · (ζ^k − ζ^{n-k})
+-- The result is real because ζ^k − ζ^{n-k} is purely imaginary.
+-- NormalForm round-trip cancels the i factors.
+--
+-- The sign is correct: for k < n/2, sin > 0; for k > n/2, sin < 0.
+allSinOfUnity :: Int -> Maybe (Map.Map Int (RadExpr Rational))
+allSinOfUnity n = do
+  periods <- allPeriodsViaGauss n
+  let i = Root 2 (Lit (-1))
+      -- sin(2πk/n) = (ζ^k - ζ^{n-k}) / (2i) = (ζ^k - ζ^{n-k}) · (-i) / 2
+      negIOver2 = Mul (Inv (Lit 2)) (Neg i)
+  Just $ Map.mapWithKey (\k pk ->
+    let nk = n - k
+        pnk = periods Map.! nk
+        diff = Add pk (Neg pnk)
+    in Mul negIOver2 diff
+    ) periods
