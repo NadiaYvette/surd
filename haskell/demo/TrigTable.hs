@@ -16,6 +16,7 @@
 --   --cos-only         omit sine column
 --   --sin-only         omit cosine column
 --   --tan              include tangent column
+--   --force-radical    render formulas without simplification limits
 --
 -- Examples:
 --   surd-trig-table 12
@@ -47,11 +48,12 @@ data Config = Config
   { cfgFormat :: Format,
     cfgStandalone :: Bool,
     cfgCols :: Cols,
-    cfgTan :: Bool
+    cfgTan :: Bool,
+    cfgForceRadical :: Bool
   }
 
 defaultConfig :: Config
-defaultConfig = Config LaTeX True CosAndSin False
+defaultConfig = Config LaTeX True CosAndSin False False
 
 -- --------------------------------------------------------------------------
 -- Angle specification
@@ -96,6 +98,7 @@ applyOpt "--no-standalone" c = Right c {cfgStandalone = False}
 applyOpt "--cos-only" c = Right c {cfgCols = CosOnly}
 applyOpt "--sin-only" c = Right c {cfgCols = SinOnly}
 applyOpt "--tan" c = Right c {cfgTan = True}
+applyOpt "--force-radical" c = Right c {cfgForceRadical = True}
 applyOpt o _ = Left $ "unknown option: " ++ o
 
 parseSpec :: String -> Either String Spec
@@ -188,8 +191,9 @@ rowDefs r = concatMap (maybe [] rrDefs) [rowCos r, rowSin r, rowTan r]
 
 computeRow :: Config -> Angle -> Row
 computeRow cfg (p, q) =
-  let simpCos = simplifyTrigResult (cosExact p q)
-      simpSin = simplifyTrigResult (sinExact p q)
+  let simp = if cfgForceRadical cfg then id else simplifyTrigResult
+      simpCos = simp (cosExact p q)
+      simpSin = simp (sinExact p q)
    in Row
         { rowAngle = renderAngle (cfgFormat cfg) (p, q),
           rowCos =
@@ -440,7 +444,8 @@ usage =
       "  --no-standalone    table fragment only",
       "  --cos-only         omit sine column",
       "  --sin-only         omit cosine column",
-      "  --tan              include tangent column"
+      "  --tan              include tangent column",
+      "  --force-radical    render radical formulas without simplification limits"
     ]
 
 main :: IO ()
