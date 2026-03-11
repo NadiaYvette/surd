@@ -228,8 +228,8 @@ computeTan cfg simpCos simpSin =
   where
     isZero (Lit 0) = True
     isZero _ = False
-    undefinedStr LaTeX = RenderedResult [] "\\text{undefined}"
     undefinedStr Text = RenderedResult [] "undefined"
+    undefinedStr _ = RenderedResult [] "\\text{undefined}"
 
 -- --------------------------------------------------------------------------
 -- LaTeX output
@@ -465,38 +465,33 @@ towerOutput cfg angles =
    in preamble ++ body ++ postamble
 
 towerAngle :: Config -> Angle -> String
-towerAngle cfg (p, q) =
+towerAngle _cfg (p, q) =
   let -- cos(pπ/q) = cos(2πp/(2q)), so n = 2q/gcd(p,2q), k = p/gcd(p,2q)
       g = gcd (abs p) (2 * q)
       n = fromIntegral (2 * q `div` g) :: Int
-      label = case cfgFormat cfg of
-        LaTeX -> "\\cos " ++ latexFrac p q
-        _ -> "cos " ++ textFrac p q
-      cosLabel = label
-      sinLabel = case cfgFormat cfg of
-        LaTeX -> "\\sin " ++ latexFrac p q
-        _ -> "sin " ++ textFrac p q
+      cosLabel = "\\cos " ++ latexFrac p q
+      sinLabel = "\\sin " ++ latexFrac p q
    in case allPeriodsViaTower n of
         Just tr ->
           let cosDisp = extractTower cosLabel (trCos tr)
               sinDisp = extractTower sinLabel (trSin tr)
-              cosOut = case cfgFormat cfg of
-                LaTeX -> latexTower cosDisp
-                _ -> prettyTower cosDisp
-              sinOut = case cfgFormat cfg of
-                LaTeX -> latexTower sinDisp
-                _ -> prettyTower sinDisp
+              cosOut = latexTower cosDisp
+              sinOut = latexTower sinDisp
               sections
-                | cfgCols cfg == CosOnly = [cosOut]
-                | cfgCols cfg == SinOnly = [sinOut]
+                | cfgCols _cfg == CosOnly = [cosOut]
+                | cfgCols _cfg == SinOnly = [sinOut]
                 | otherwise = [cosOut, "", sinOut]
            in unlines sections
         Nothing ->
           -- Fall back to radical display
           let result = simplifyTrigResult (cosExact p q)
            in case result of
-                Radical e -> label ++ " = " ++ pretty e ++ "\n"
-                MinPoly poly -> label ++ ": minpoly " ++ show poly ++ "\n"
+                Radical e ->
+                  "\\begin{align*}\n& " ++ cosLabel ++ " = " ++ latex e
+                    ++ "\n\\end{align*}\n"
+                MinPoly poly ->
+                  "\\begin{align*}\n& " ++ cosLabel ++ " = \\text{minpoly: }"
+                    ++ show poly ++ "\n\\end{align*}\n"
 
 -- --------------------------------------------------------------------------
 -- Main

@@ -25,7 +25,7 @@ module Surd.Field.DynTower.Display
   )
 where
 
-import Data.List (sortBy)
+import Data.List (intercalate, sortBy)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Ord (comparing)
@@ -197,36 +197,96 @@ buildNameMap td =
 
 -- | Render a tower element as a complete LaTeX display.
 -- Shows the tower of field extensions and the element's expression.
+-- Uses @alignat*@ with two column pairs: the first for the name and @=@,
+-- the second for the expression.  This separates the alignment of @=@
+-- from the start of potentially long right-hand sides.
 latexTower :: TowerDisplay -> String
 latexTower td =
   let nm = buildNameMap td
-      steps = map (latexStep nm) (tdSteps td)
+      steps = concatMap (latexStep nm) (tdSteps td)
       elemStr = latexTE nm (tdElement td)
+      elemLines = latexElemLines (tdLabel td) elemStr
    in unlines $
-        [ "\\begin{align*}" ]
-          ++ [ "& \\textbf{Tower of extensions:} \\\\" | not (null (tdSteps td)) ]
+        [ "\\begin{alignat*}{2}" ]
+          ++ [ "& & \\textbf{Tower of extensions:} \\\\" | not (null (tdSteps td)) ]
           ++ steps
-          ++ [ "& " ++ tdLabel td ++ " = " ++ elemStr,
-               "\\end{align*}"
-             ]
+          ++ elemLines
+          ++ [ "\\end{alignat*}" ]
 
 -- | Render a single extension step in LaTeX.
-latexStep :: NameMap -> ExtensionStep -> String
+-- Short radicands (≤80 chars) are shown on one line with an inline bracket.
+-- Long radicands put the bracket on a separate alignment row, giving it
+-- the full text width rather than squeezing it inside a sub-environment.
+-- Returns a list of alignment rows.
+latexStep :: NameMap -> ExtensionStep -> [String]
 latexStep nm step =
   let name = esLatexName step
       n = esDegree step
       rad = latexTE nm (esRadicand step)
-   in "& " ++ name ++ "^{" ++ show n ++ "} = " ++ rad
-        ++ " \\qquad "
-        ++ "\\bigl["
-        ++ name ++ " = "
-        ++ rootExpr name n rad
-        ++ "\\bigr]"
-        ++ " \\\\"
+      lhs = name ++ "^{" ++ show n ++ "}"
+      bracketInline = "\\bigl[" ++ name ++ " = " ++ rootExpr n rad ++ "\\bigr]"
+      bracketRow = "\\bigl[" ++ name ++ " &= &" ++ rootExpr n rad ++ "\\bigr]"
+   in if length rad <= 80
+        then [lhs ++ " &= &" ++ rad ++ " \\qquad " ++ bracketInline ++ " \\\\"]
+        else
+          [ lhs ++ " &= &" ++ rad ++ " \\\\",
+            bracketRow ++ " \\\\"
+          ]
   where
-    rootExpr _ 2 r = "\\sqrt{" ++ r ++ "}"
-    rootExpr _ 3 r = "\\sqrt[3]{" ++ r ++ "}"
-    rootExpr _ deg r = "\\sqrt[" ++ show deg ++ "]{" ++ r ++ "}"
+    rootExpr 2 r = "\\sqrt{" ++ r ++ "}"
+    rootExpr 3 r = "\\sqrt[3]{" ++ r ++ "}"
+    rootExpr deg r = "\\sqrt[" ++ show deg ++ "]{" ++ r ++ "}"
+
+-- | Render the final element line(s).  Short expressions go on one row;
+-- long ones use @split@ to break at top-level @+@/@-@ boundaries.
+latexElemLines :: String -> String -> [String]
+latexElemLines label expr
+  | length expr <= 120 = [label ++ " &= &" ++ expr]
+  | otherwise =
+      let terms = splitAtTerms expr
+       in case terms of
+            [] -> [label ++ " &= &" ++ expr]
+            [_] -> [label ++ " &= &" ++ expr]
+            (first : rest) ->
+              [ label ++ " &= \\begin{split} &" ++ first ++ " \\\\"
+              ]
+                ++ map (\t -> "  &" ++ t ++ " \\\\") (init rest)
+                ++ [ "  &" ++ last rest,
+                     "  \\end{split}"
+                   ]
+
+-- | Split a rendered LaTeX expression at top-level @+@ or @-@ boundaries
+-- (brace/delimiter depth 0), aiming for lines of roughly 80–100 characters.
+splitAtTerms :: String -> [String]
+splitAtTerms = finish . go (0 :: Int) (0 :: Int) (0 :: Int) ""
+  where
+    go _ _ _ acc [] = [reverse acc]
+    go bd dd col acc ('{' : cs) = go (bd + 1) dd (col + 1) ('{' : acc) cs
+    go bd dd col acc ('}' : cs) = go (max 0 (bd - 1)) dd (col + 1) ('}' : acc) cs
+    go bd dd col acc ('\\' : cs)
+      | Just rest <- stripPfx "left" cs =
+          go bd (dd + 1) (col + 5) ('t' : 'f' : 'e' : 'l' : '\\' : acc) rest
+      | Just rest <- stripPfx "right" cs =
+          go bd (max 0 (dd - 1)) (col + 6) ('t' : 'h' : 'g' : 'i' : 'r' : '\\' : acc) rest
+      | otherwise = go bd dd (col + 1) ('\\' : acc) cs
+    go bd dd col acc (c : cs)
+      | bd == 0,
+        dd == 0,
+        col >= 80,
+        c == ' ',
+        Just (op, rest) <- matchOp cs =
+          reverse acc : go 0 0 (length op) (reverse op) rest
+      | otherwise = go bd dd (col + 1) (c : acc) cs
+
+    matchOp ('+' : ' ' : rest) = Just ("+ ", rest)
+    matchOp ('-' : ' ' : rest) = Just ("- ", rest)
+    matchOp _ = Nothing
+
+    stripPfx [] s = Just s
+    stripPfx (p : ps) (x : xs) | p == x = stripPfx ps xs
+    stripPfx _ _ = Nothing
+
+    finish = filter (not . null)
 
 -- | Render a TowerElem as LaTeX, using named generators.
 latexTowerElem :: TowerDisplay -> TowerElem -> String

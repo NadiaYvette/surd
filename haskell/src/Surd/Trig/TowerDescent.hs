@@ -342,7 +342,7 @@ towerSolveCubic
         )
 
 -- ---------------------------------------------------------------------------
--- Resolvent solver for q ≥ 5 (tower-native)
+-- Resolvent solver for q ≥ 5
 -- ---------------------------------------------------------------------------
 
 towerSolveResolvent ::
@@ -359,124 +359,145 @@ towerSolveResolvent
   q
   allPeriods
   nextId
-  _parent
+  parent
+  subPeriodElems
+  subPeriodValues
+  periodValues
+  p
+    | q == 5 =
+        towerSolveQ5
+          allPeriods
+          nextId
+          parent
+          subPeriodElems
+          subPeriodValues
+          periodValues
+          p
+    | otherwise =
+        -- Fallback for q > 5: match sub-periods numerically.
+        -- Works when sub-periods are in K (single-element periods).
+        let subPeriodTower =
+              map
+                (matchToTowerElem allPeriods (map (sumRootsOfUnity p . tpElems) allPeriods) p)
+                subPeriodValues
+         in ( [ TPeriodState {tpElem = te, tpElems = es, tpP = p}
+                | (te, es) <- zip subPeriodTower subPeriodElems
+              ],
+              nextId
+            )
+
+-- ---------------------------------------------------------------------------
+-- Tower-native quintic resolvent (q = 5)
+-- ---------------------------------------------------------------------------
+
+-- | Tower-native resolvent for q = 5.
+--
+-- Builds ω₅ = cos(2π/5) + i·sin(2π/5) as a tower element using:
+--   cos(2π/5) = (√5 - 1)/4
+--   sin(2π/5) = √(10 + 2√5)/4
+--
+-- Then computes Lagrange resolvents R_j and recovers sub-periods via
+-- inverse DFT, all in exact tower arithmetic.
+towerSolveQ5 ::
+  [TPeriodState] ->
+  Int ->
+  TPeriodState ->
+  [[Integer]] ->
+  [Complex Double] ->
+  [Complex Double] ->
+  Integer ->
+  ([TPeriodState], Int)
+towerSolveQ5
+  allPeriods
+  nextId
+  parent
   subPeriodElems
   subPeriodValues
   periodValues
   p =
-    let -- Compute ω_q = e^{2πi/q} as a tower element.
-        -- For q ≥ 5, ω_q satisfies the (q-1)-th cyclotomic polynomial.
-        -- We build it via cos(2π/q) + i·sin(2π/q).
-        --
-        -- cos(2π/q) is itself built via Gauss period descent (recursive).
-        -- For now, we use numerical matching: ω_q^k values are known exactly.
-        --
-        -- The DFT approach: R_j = Σ ω^{jk} η_k, R_j^q ∈ K(ω_q)
-        -- d_s = (1/q) Σ_j ω^{-js} R_j^q ∈ K (the period field)
-        --
-        -- We compute d_s numerically and match to K-elements.
+    let q = 5 :: Int
 
-        omegaC = exp (0 :+ (2 * pi / fromIntegral q)) :: Complex Double
-
-        -- Compute R_j numerically
+        -- Numerical DFT to get d_s coefficients
+        omegaC = exp (0 :+ (2 * pi / 5)) :: Complex Double
         resolventVals =
           [ sum
-              [ (omegaC ^ (j * k)) * (subPeriodValues !! k)
+              [ omegaC ^ ((j * k) `mod` q) * subPeriodValues !! k
                 | k <- [0 .. q - 1]
               ]
             | j <- [0 .. q - 1]
           ]
-
-        -- Compute R_j^q numerically
         resolventPowers = [rv ^ q | rv <- resolventVals]
-
-        -- Compute d_s = (1/q) Σ_j ω^{-js} R_j^q
         dCoeffsNum =
-          [ (1 / fromIntegral q)
+          [ (1 / 5)
               * sum
-                [ (omegaC ^ (-(j * s))) * (resolventPowers !! j)
+                [ omegaC ^ (negate (j * s) `mod` q) * resolventPowers !! j
                   | j <- [0 .. q - 1]
                 ]
             | s <- [0 .. q - 1]
           ]
-
-        -- Match each d_s to a K-element (integer combination of periods)
         dCoeffs = map (matchToTowerElem allPeriods periodValues p) dCoeffsNum
 
-        -- Build ω as a tower element via cyclotomic extension.
-        -- The minimal polynomial of ω_q over Q is Φ_q(x) = x^{q-1} + ... + x + 1.
-        -- Adjoin ω as a root of Φ_q.
-        -- For simplicity, use x^q - 1 = (x-1)(x^{q-1} + ... + 1).
-        -- Since ω ≠ 1, we use Φ_q as the minimal polynomial.
-        -- But our tower only supports x^n - r form... so we need a workaround.
-        --
-        -- Alternative: build ω from cos(2π/q) and sin(2π/q) using nested roots.
-        -- cos(2π/q) can be obtained recursively via cosViaTower.
-        -- For now: embed ω via its real/imaginary parts using rational approximation
-        -- of the DFT coefficients, since d_s matching is the key step.
-        --
-        -- Actually: R_j^q = Σ_s d_s · ω^{js}. We know d_s (matched to K-elements).
-        -- We need to reconstruct R_j as ⁿ√(R_j^q) with correct branch.
-        -- Then η_k = (1/q) Σ_j ω^{-jk} R_j.
-        --
-        -- The key insight: for the tower approach, we don't need ω as a tower element!
-        -- Instead, use the DFT structure:
-        --   R_j^q = Σ_s d_s · ω^{js}  (numerical, for branch selection)
-        --   η_k = (1/q) · (R_0 + Σ_{j=1}^{q-1} ω^{-jk} · R_j)
-        --
-        -- But η_k needs ω^{-jk} as tower elements... unless we observe that
-        -- the linear combination Σ ω^{-jk} R_j is itself an element of K(ω_q)(⁵√...).
-        --
-        -- For now, fall back to RadExpr-based resolvent and re-embed.
-        -- This loses tower structure for q≥5 steps but keeps quadratic/cubic native.
+        -- Build ω₅ as a tower element via square root adjunctions:
+        --   √5, √(10 + 2√5), √(-1)
+        (_, sqrt5) = adjoinTowerRoot nextId 2 (TRat 5)
+        cos2pi5 = (sqrt5 - TRat 1) / TRat 4
+        sinRadicand = TRat 10 + TRat 2 * sqrt5
+        (_, sqrtSinRad) = adjoinTowerRoot (nextId + 1) 2 sinRadicand
+        sin2pi5 = sqrtSinRad / TRat 4
+        (_, iUnit) = adjoinTowerRoot (nextId + 2) 2 (TRat (-1))
+        omega = cos2pi5 + iUnit * sin2pi5
 
-        -- Fallback: use RadExpr from existing Galois.hs
-        -- TODO: implement tower-native resolvent for q≥5
-        fallbackPeriods =
-          fallbackResolvent
-            q
-            allPeriods
-            subPeriodElems
-            subPeriodValues
-            dCoeffs
-            nextId
-            p
-     in fallbackPeriods
+        -- Powers ω₅^k, k = 0..4
+        omPows = take q $ iterate (* omega) (TRat 1)
 
--- | Fallback for q≥5: build sub-period expressions using the DFT structure
--- with numerical ω values and tower d_s coefficients.
---
--- This is a hybrid approach: d_s are exact tower elements, but ω^k factors
--- are baked into the reconstruction numerically.
-fallbackResolvent ::
-  Int ->
-  [TPeriodState] ->
-  [[Integer]] ->
-  [Complex Double] ->
-  [TowerElem] ->
-  Int ->
-  Integer ->
-  ([TPeriodState], Int)
-fallbackResolvent
-  _q
-  allPeriods
-  subPeriodElems
-  subPeriodValues
-  _dCoeffs
-  nextId
-  p =
-    let -- For the fallback: compute sub-periods numerically,
-        -- match each to a tower element. This works when sub-periods
-        -- are in K (which they are for single-element periods at the
-        -- end of the descent).
+        -- R_j^5 = Σ_s d_s · ω₅^{js} as tower elements
+        rjq =
+          [ sum [dCoeffs !! s * omPows !! ((j * s) `mod` q) | s <- [0 .. q - 1]]
+            | j <- [0 .. q - 1]
+          ]
+
+        -- R₀ = parent (known); adjoin ⁵√(R_j^5) for j = 1..4
+        -- with branch selection via numerical matching.
+        r0 = tpElem parent
+
+        adjoinAndSelect nid j =
+          let radicand = rjq !! j
+              (_, alpha) = adjoinTowerRoot nid 5 radicand
+              -- Five candidate roots: ω₅^m · α for m = 0..4
+              candidates = [omPows !! m * alpha | m <- [0 .. q - 1]]
+              target = resolventVals !! j
+              candVals = map (`evalTowerApprox` p) candidates
+              bestM =
+                snd $
+                  minimumBy
+                    (comparing fst)
+                    [ (magnitude (cv - target), m)
+                      | (cv, m) <- zip candVals [0 :: Int ..]
+                    ]
+           in (candidates !! bestM, nid + 1)
+
+        (r1, nid1) = adjoinAndSelect (nextId + 3) 1
+        (r2, nid2) = adjoinAndSelect nid1 2
+        (r3, nid3) = adjoinAndSelect nid2 3
+        (r4, nid4) = adjoinAndSelect nid3 4
+
+        rjs = [r0, r1, r2, r3, r4]
+
+        -- Inverse DFT: η_k = (1/5) Σ_j ω₅^{-jk} · R_j
         subPeriodTower =
-          map
-            (matchToTowerElem allPeriods (map (sumRootsOfUnity p . tpElems) allPeriods) p)
-            subPeriodValues
-     in ( [ TPeriodState {tpElem = te, tpElems = es, tpP = p}
-            | (te, es) <- zip subPeriodTower subPeriodElems
+          [ TRat (1 / fromIntegral q)
+              * sum
+                [ omPows !! (negate (j * k) `mod` q) * rjs !! j
+                  | j <- [0 .. q - 1]
+                ]
+            | k <- [0 .. q - 1]
+          ]
+
+        assigned = assignTowerByValue subPeriodTower subPeriodValues
+     in ( [ TPeriodState {tpElem = r, tpElems = es, tpP = p}
+            | (r, es) <- zip assigned subPeriodElems
           ],
-          nextId
+          nid4
         )
 
 -- ---------------------------------------------------------------------------
