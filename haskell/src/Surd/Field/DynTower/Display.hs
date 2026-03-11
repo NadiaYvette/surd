@@ -63,27 +63,79 @@ data TowerDisplay = TowerDisplay
   deriving (Show)
 
 -- | Extract the tower structure from a TowerElem.
--- Collects all distinct tower levels referenced (transitively)
--- and orders them from bottom to top.
+-- Collects all distinct tower levels referenced (transitively),
+-- merges levels with the same degree and radicand (e.g., two √(-3)
+-- extensions created for different periods), and orders from bottom to top.
 extractTower :: String -> TowerElem -> TowerDisplay
 extractTower label e =
   let levels = collectLevels e
       sorted = sortBy (comparing tlId) (Map.elems levels)
-      steps = zipWith mkStep [1 ..] sorted
+      -- Group levels by (degree, radicand) and assign canonical names.
+      -- Within each group, the first (lowest ID) level is canonical.
+      (steps, _) = mergeEquivLevels sorted
    in TowerDisplay
         { tdSteps = steps,
           tdElement = e,
           tdLabel = label
         }
-  where
-    mkStep i lvl =
-      ExtensionStep
-        { esLevel = lvl,
-          esName = greekName i,
-          esLatexName = greekLatexName i,
-          esDegree = tlDegree lvl,
-          esRadicand = tlRadicand lvl
-        }
+
+-- | Merge tower levels that have the same degree and radicand.
+-- Returns deduplicated steps and a map from each level ID to its
+-- canonical ExtensionStep (so the renderer uses the right name).
+mergeEquivLevels :: [TowerLevel] -> ([ExtensionStep], Map Int ExtensionStep)
+mergeEquivLevels lvls =
+  let -- Group by structural equivalence of (degree, radicand).
+      -- Two levels are equivalent if they have the same degree and
+      -- their radicands are structurally equal (TowerElem Eq).
+      go [] _ = ([], Map.empty)
+      go (l : ls) nextName =
+        -- Find all levels equivalent to l that haven't been assigned yet
+        let -- Partition ls into equivalent and non-equivalent
+            (moreEquivs, nonEquivs) = foldr classifyLevel ([], []) ls
+            classifyLevel l' (eq, ne)
+              | tlDegree l == tlDegree l' && radicandEquiv (tlRadicand l) (tlRadicand l') =
+                  (l' : eq, ne)
+              | otherwise = (eq, l' : ne)
+            step =
+              ExtensionStep
+                { esLevel = l,
+                  esName = greekName nextName,
+                  esLatexName = greekLatexName nextName,
+                  esDegree = tlDegree l,
+                  esRadicand = tlRadicand l
+                }
+            -- Map all equivalent level IDs to this step
+            idEntries = [(tlId l, step)] ++ [(tlId l', step) | l' <- moreEquivs]
+            (restSteps, restMap) = go nonEquivs (nextName + 1)
+         in (step : restSteps, Map.union (Map.fromList idEntries) restMap)
+   in go lvls 1
+
+-- | Check if two radicands are semantically equivalent.
+-- Normalizes both to a canonical form (stripping tower-level wrappers
+-- and comparing by underlying coefficients and level structure) to
+-- detect equivalent radicands expressed through different parent levels.
+radicandEquiv :: TowerElem -> TowerElem -> Bool
+radicandEquiv a b = canonicalize a == canonicalize b
+
+-- | Canonical form for comparison: strip tower level wrappers,
+-- keeping only the essential structure (rationals, coefficient lists,
+-- and root degrees/radicands at each level).
+data CanonElem
+  = CRat !Rational
+  | CExt ![CanonElem] !Int !CanonElem -- coeffs, rootDeg, radicand
+  deriving (Eq)
+
+canonicalize :: TowerElem -> CanonElem
+canonicalize (TRat r) = CRat r
+-- Constant polynomial (just the first coefficient, rest zero):
+-- collapse to the coefficient's canonical form
+canonicalize (TExt (c : cs) _)
+  | all tIsZero cs = canonicalize c
+canonicalize (TExt cs lvl) =
+  CExt
+    (map canonicalize cs)
+    (tlRootDeg lvl)
+    (canonicalize (tlRadicand lvl))
 
 -- | Collect all distinct TowerLevels referenced by a TowerElem.
 collectLevels :: TowerElem -> Map Int TowerLevel
@@ -123,8 +175,21 @@ greekLatexName i = greekLetters !! (i - 1)
 
 type NameMap = Map Int ExtensionStep
 
-buildNameMap :: [ExtensionStep] -> NameMap
-buildNameMap steps = Map.fromList [(tlId (esLevel s), s) | s <- steps]
+buildNameMap :: TowerDisplay -> NameMap
+buildNameMap td =
+  let -- The mergeEquivLevels already built a complete ID→step map,
+      -- but we stored only the deduplicated steps. Rebuild from the element.
+      levels = collectLevels (tdElement td)
+      steps = tdSteps td
+      -- For each level ID, find the step with matching (degree, radicand)
+      findStep lvl =
+        case filter (\s -> esDegree s == tlDegree lvl && radicandEquiv (esRadicand s) (tlRadicand lvl)) steps of
+          (s : _) -> s
+          [] -> -- Fallback: find by exact level ID match
+            case filter (\s -> tlId (esLevel s) == tlId lvl) steps of
+              (s : _) -> s
+              [] -> error $ "buildNameMap: no step for level " ++ show (tlId lvl)
+   in Map.fromList [(lid, findStep lvl) | (lid, lvl) <- Map.toList levels]
 
 -- ---------------------------------------------------------------------------
 -- LaTeX rendering
@@ -134,7 +199,7 @@ buildNameMap steps = Map.fromList [(tlId (esLevel s), s) | s <- steps]
 -- Shows the tower of field extensions and the element's expression.
 latexTower :: TowerDisplay -> String
 latexTower td =
-  let nm = buildNameMap (tdSteps td)
+  let nm = buildNameMap td
       steps = map (latexStep nm) (tdSteps td)
       elemStr = latexTE nm (tdElement td)
    in unlines $
@@ -165,7 +230,7 @@ latexStep nm step =
 
 -- | Render a TowerElem as LaTeX, using named generators.
 latexTowerElem :: TowerDisplay -> TowerElem -> String
-latexTowerElem td = latexTE (buildNameMap (tdSteps td))
+latexTowerElem td = latexTE (buildNameMap td)
 
 latexTE :: NameMap -> TowerElem -> String
 latexTE _ (TRat r) = latexRat r
@@ -240,7 +305,7 @@ latexRat r
 -- | Render a tower element as a complete text display.
 prettyTower :: TowerDisplay -> String
 prettyTower td =
-  let nm = buildNameMap (tdSteps td)
+  let nm = buildNameMap td
       steps = map (prettyStep nm) (tdSteps td)
       elemStr = prettyTE nm (tdElement td)
    in unlines $
@@ -263,7 +328,7 @@ prettyStep nm step =
 
 -- | Render a TowerElem as text, using named generators.
 prettyTowerElem :: TowerDisplay -> TowerElem -> String
-prettyTowerElem td = prettyTE (buildNameMap (tdSteps td))
+prettyTowerElem td = prettyTE (buildNameMap td)
 
 prettyTE :: NameMap -> TowerElem -> String
 prettyTE _ (TRat r) = prettyRat r
