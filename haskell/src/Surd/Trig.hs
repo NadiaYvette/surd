@@ -12,43 +12,44 @@
 -- A 'MinPoly' fallback is provided for cases not yet handled
 -- by the radical machinery.
 module Surd.Trig
-  ( cosExact
-  , sinExact
-  , tanExact
-  , cosMinPoly
-  , TrigResult(..)
-  , simplifyTrigResult
-  , simplifiedSin
-  ) where
+  ( cosExact,
+    sinExact,
+    tanExact,
+    cosMinPoly,
+    TrigResult (..),
+    simplifyTrigResult,
+    simplifiedSin,
+  )
+where
 
 import Control.Exception (SomeException, evaluate, try)
-import System.Timeout (timeout)
-import Surd.Radical.Expr (collectRadicals)
-import Surd.Types
 import Data.Map.Strict qualified as Map
-import Surd.Trig.RootOfUnity (cosOfUnity)
-import Surd.Trig.Galois (allPeriodsViaGauss)
-import Math.Polynomial.Univariate (Poly)
+import Math.Internal.Interval (ComplexInterval (..), Interval, overlaps, width)
 import Math.Polynomial.Cyclotomic (cyclotomic)
-import Surd.Radical.Normalize (normalize)
-import Surd.Radical.NormalForm (toNormExpr, fromNormExpr)
+import Math.Polynomial.Univariate (Poly)
+import Surd.Algebraic.Convert (simplifyViaCanonical)
+import Surd.Radical.DAG (dagDepth, dagFoldConstants, dagSize, fromDAG, toDAG)
 import Surd.Radical.Denest (denest)
 import Surd.Radical.Eval (evalInterval)
-import Surd.Algebraic.Convert (simplifyViaCanonical)
-import Surd.Radical.DAG (toDAG, fromDAG, dagSize, dagDepth, dagFoldConstants)
 import Surd.Radical.EvalMP (dagEvalComplexMP)
-import Math.Internal.Interval (Interval, ComplexInterval(..), width, overlaps)
+import Surd.Radical.Expr (collectRadicals)
+import Surd.Radical.NormalForm (fromNormExpr, toNormExpr)
+import Surd.Radical.Normalize (normalize)
+import Surd.Trig.Galois (allPeriodsViaGauss)
+import Surd.Trig.RootOfUnity (cosOfUnity)
+import Surd.Types
 import System.IO.Unsafe (unsafePerformIO)
+import System.Timeout (timeout)
 
 -- | Result of exact trig evaluation.
 data TrigResult
-  = Radical (RadExpr Rational)
-    -- ^ Exact radical expression (may involve complex intermediates
+  = -- | Exact radical expression (may involve complex intermediates
     -- like @√(-3)@ for non-constructible angles, but the final
     -- value is real)
-  | MinPoly (Poly Rational)
-    -- ^ Minimal polynomial (fallback when radical computation is
+    Radical (RadExpr Rational)
+  | -- | Minimal polynomial (fallback when radical computation is
     -- not yet implemented for this case)
+    MinPoly (Poly Rational)
   deriving (Show)
 
 -- | Compute cos(pπ/q) exactly.
@@ -62,22 +63,22 @@ data TrigResult
 -- Radical (Mul (Inv (Lit (2 % 1))) (Root 2 (Lit (2 % 1))))
 cosExact :: Integer -> Integer -> TrigResult
 cosExact p q
-  | q <= 0    = error "cosExact: non-positive denominator"
+  | q <= 0 = error "cosExact: non-positive denominator"
   | otherwise =
       let g = gcd (abs p) q
           p' = p `div` g
           q' = q `div` g
-      in cosReduced p' q'
+       in cosReduced p' q'
 
 -- | Compute sin(pπ/q) exactly.
 sinExact :: Integer -> Integer -> TrigResult
 sinExact p q
-  | q <= 0    = error "sinExact: non-positive denominator"
+  | q <= 0 = error "sinExact: non-positive denominator"
   | otherwise =
       let g = gcd (abs p) q
           p' = p `div` g
           q' = q `div` g
-      in sinReduced p' q'
+       in sinReduced p' q'
 
 -- | Compute tan(pπ/q) exactly, as sin/cos.
 tanExact :: Integer -> Integer -> Maybe TrigResult
@@ -91,35 +92,36 @@ cosReduced :: Integer -> Integer -> TrigResult
 cosReduced p q =
   let p' = p `mod` (2 * q)
       p'' = if p' < 0 then p' + 2 * q else p'
-  in cosInRange p'' q
+   in cosInRange p'' q
 
 sinReduced :: Integer -> Integer -> TrigResult
 sinReduced p q =
   let p' = p `mod` (2 * q)
       p'' = if p' < 0 then p' + 2 * q else p'
       -- p''/q is in [0, 2) so p''π/q is in [0, 2π)
-      positive = p'' >= 0 && p'' <= q  -- sin ≥ 0 for angle in [0, π]
-  in if p'' == 0 || p'' == q then Radical (Lit 0)  -- sin(0) = sin(π) = 0
-     else
-       -- Try direct period lookup: sin(2πk/n) = (ζ^k − ζ^{n-k})/(2i)
-       let g = gcd p'' (2 * q)
-           n = fromIntegral (2 * q `div` g) :: Int
-           k = fromIntegral (p'' `div` g) :: Int
-       in case directPeriodSin n k of
-         Just sinExpr ->
-           -- NF already simplified; just fold constants (denest hangs on
-           -- complex intermediates from casus irreducibilis cube roots).
-           Radical (fromDAG (dagFoldConstants (toDAG sinExpr)))
-         Nothing ->
-           -- Fall back to ±√(1 - cos²)
-           case cosExact p q of
-             Radical c ->
-               let sin2 = fromNormExpr (toNormExpr (Add (Lit 1) (Neg (Mul c c))))
-                   sin2folded = fromDAG (dagFoldConstants (toDAG sin2))
-                   sinExpr = Root 2 sin2folded
-                   signed = if positive then sinExpr else Neg sinExpr
-               in Radical (safeDenestAndNormalize signed)
-             minpoly -> minpoly
+      positive = p'' >= 0 && p'' <= q -- sin ≥ 0 for angle in [0, π]
+   in if p'' == 0 || p'' == q
+        then Radical (Lit 0) -- sin(0) = sin(π) = 0
+        else
+          -- Try direct period lookup: sin(2πk/n) = (ζ^k − ζ^{n-k})/(2i)
+          let g = gcd p'' (2 * q)
+              n = fromIntegral (2 * q `div` g) :: Int
+              k = fromIntegral (p'' `div` g) :: Int
+           in case directPeriodSin n k of
+                Just sinExpr ->
+                  -- NF already simplified; just fold constants (denest hangs on
+                  -- complex intermediates from casus irreducibilis cube roots).
+                  Radical (fromDAG (dagFoldConstants (toDAG sinExpr)))
+                Nothing ->
+                  -- Fall back to ±√(1 - cos²)
+                  case cosExact p q of
+                    Radical c ->
+                      let sin2 = fromNormExpr (toNormExpr (Add (Lit 1) (Neg (Mul c c))))
+                          sin2folded = fromDAG (dagFoldConstants (toDAG sin2))
+                          sinExpr = Root 2 sin2folded
+                          signed = if positive then sinExpr else Neg sinExpr
+                       in Radical (safeDenestAndNormalize signed)
+                    minpoly -> minpoly
 
 -- | Compute sin(2πk/n) directly from Gauss period expressions.
 --
@@ -130,7 +132,7 @@ sinReduced p q =
 directPeriodSin :: Int -> Int -> Maybe (RadExpr Rational)
 directPeriodSin n k = do
   periods <- allPeriodsViaGauss n
-  pk  <- Map.lookup k periods
+  pk <- Map.lookup k periods
   pnk <- Map.lookup (n - k) periods
   -- Pre-simplify individual periods through NF to reduce expression size.
   -- This makes the subsequent NF on the sin formula tractable.
@@ -140,30 +142,30 @@ directPeriodSin n k = do
   if nRadsPk > 10 || nRadsPnk > 10
     then Nothing
     else
-      let pk'  = fromNormExpr (toNormExpr pk)
+      let pk' = fromNormExpr (toNormExpr pk)
           pnk' = fromNormExpr (toNormExpr pnk)
           -- sin(2πk/n) = (ζ^k − ζ^{n-k}) / (2i) = (-i/2)(ζ^k − ζ^{n-k})
           i = Root 2 (Lit (-1))
           sinForm = Mul (Mul (Inv (Lit 2)) (Neg i)) (Add pk' (Neg pnk'))
           -- NF round-trip cancels i factors (i·√(-x) → -√x via isRadicandNegative)
           sinNF = fromNormExpr (toNormExpr sinForm)
-      in Just sinNF
+       in Just sinNF
 
 -- | cos(pπ/q) where 0 ≤ p ≤ 2q (i.e., angle in [0, 2π]).
 cosInRange :: Integer -> Integer -> TrigResult
 cosInRange p q
-  | p == 0         = Radical (Lit 1)
-  | 2 * p == q     = Radical (Lit 0)
-  | p == q         = Radical (Lit (-1))
+  | p == 0 = Radical (Lit 1)
+  | 2 * p == q = Radical (Lit 0)
+  | p == q = Radical (Lit (-1))
   | 2 * p == 3 * q = Radical (Lit 0)
   | 2 * p > q && p < q =
       case cosInRange (q - p) q of
         Radical e -> Radical (Neg e)
-        other     -> other
+        other -> other
   | p > q && 2 * p < 3 * q =
       case cosInRange (p - q) q of
         Radical e -> Radical (Neg e)
-        other     -> other
+        other -> other
   | 2 * p >= 3 * q =
       cosInRange (2 * q - p) q
   | otherwise = cosFirstQuadrant p q
@@ -173,27 +175,25 @@ cosFirstQuadrant p q =
   let g = gcd p (2 * q)
       n = fromIntegral (2 * q `div` g) :: Int
       k = fromIntegral (p `div` g) :: Int
-  in if k == 1
-     then
-       case cosOfUnity n of
-         Just e  -> Radical (safeDenestAndNormalize e)
-         Nothing -> MinPoly (cyclotomic n)
-     else
-       case cosOfUnity n of
-         Just base ->
-           let cheb = chebyshev k base
-               nRads = length (collectRadicals cheb)
-           in if nRads > 3
-              then
-                -- Complex base (Cardano etc.): NormalForm would expand
-                -- (sum)*(sum) products into thousands of monomials. Return
-                -- the compact Chebyshev tree; simplifyTrigResult can handle it.
-                Radical (safeDenestAndNormalize cheb)
-              else
-                -- Simple base: NormalForm distributes products cleanly
-                let simplified = fromNormExpr (toNormExpr cheb)
-                in Radical (safeDenestAndNormalize simplified)
-         Nothing -> MinPoly (cyclotomic n)
+   in if k == 1
+        then case cosOfUnity n of
+          Just e -> Radical (safeDenestAndNormalize e)
+          Nothing -> MinPoly (cyclotomic n)
+        else case cosOfUnity n of
+          Just base ->
+            let cheb = chebyshev k base
+                nRads = length (collectRadicals cheb)
+             in if nRads > 3
+                  then
+                    -- Complex base (Cardano etc.): NormalForm would expand
+                    -- (sum)*(sum) products into thousands of monomials. Return
+                    -- the compact Chebyshev tree; simplifyTrigResult can handle it.
+                    Radical (safeDenestAndNormalize cheb)
+                  else
+                    -- Simple base: NormalForm distributes products cleanly
+                    let simplified = fromNormExpr (toNormExpr cheb)
+                     in Radical (safeDenestAndNormalize simplified)
+          Nothing -> MinPoly (cyclotomic n)
 
 -- | Try denesting followed by normalization.
 -- Only attempts denesting on small expressions where Landau's algorithm
@@ -207,23 +207,24 @@ cosFirstQuadrant p q =
 safeDenestAndNormalize :: RadExpr Rational -> RadExpr Rational
 safeDenestAndNormalize e =
   let dag = toDAG e
-      d   = dagDepth dag
-      s   = dagSize dag
-  in if d > 50 || s > 5000
-     then fromDAG (dagFoldConstants dag)
-     else if d <= 20 && s <= 500
-     then
-       -- Small: try denesting, then tree normalize with verification
-       let folded = fromDAG (dagFoldConstants dag)
-           denested = denest folded
-           sDen = dagSize (toDAG denested)
-           best = if sDen < s then denested else folded
-       in safeNormalize best
-     else
-       -- Medium: DAG simplification (constant folding, power simplification,
-       -- perfect power extraction). dagNormalize is available but not used
-       -- here because Gauss period output rarely has like terms to collect.
-       fromDAG (dagFoldConstants dag)
+      d = dagDepth dag
+      s = dagSize dag
+   in if d > 50 || s > 5000
+        then fromDAG (dagFoldConstants dag)
+        else
+          if d <= 20 && s <= 500
+            then
+              -- Small: try denesting, then tree normalize with verification
+              let folded = fromDAG (dagFoldConstants dag)
+                  denested = denest folded
+                  sDen = dagSize (toDAG denested)
+                  best = if sDen < s then denested else folded
+               in safeNormalize best
+            else
+              -- Medium: DAG simplification (constant folding, power simplification,
+              -- perfect power extraction). dagNormalize is available but not used
+              -- here because Gauss period output rarely has like terms to collect.
+              fromDAG (dagFoldConstants dag)
 
 -- | Try simplifyViaCanonical if the expression is moderately large.
 -- Returns the simpler of the original and simplified forms.
@@ -233,17 +234,17 @@ tryCanonicalSimplify :: RadExpr Rational -> RadExpr Rational
 tryCanonicalSimplify e =
   let s = dagSize (toDAG e)
       nRads = length (collectRadicals e)
-  in if s <= 30 || s > 200 || nRads > 5
-     then e
-     else unsafePerformIO $ do
-       -- 5 second timeout: minimalPolyTower can hang on complex towers
-       result <- timeout 5000000 $ tryAny (evaluate (simplifyViaCanonical e))
-       case result of
-         Nothing -> return e  -- timed out
-         Just (Left _) -> return e  -- exception
-         Just (Right simplified) ->
-           let s' = dagSize (toDAG simplified)
-           in return (if s' < s then simplified else e)
+   in if s <= 30 || s > 200 || nRads > 5
+        then e
+        else unsafePerformIO $ do
+          -- 5 second timeout: minimalPolyTower can hang on complex towers
+          result <- timeout 5000000 $ tryAny (evaluate (simplifyViaCanonical e))
+          case result of
+            Nothing -> return e -- timed out
+            Just (Left _) -> return e -- exception
+            Just (Right simplified) ->
+              let s' = dagSize (toDAG simplified)
+               in return (if s' < s then simplified else e)
 
 tryAny :: IO a -> IO (Either SomeException a)
 tryAny = try
@@ -261,9 +262,9 @@ simplifyTrigResult (Radical e) =
   -- exponential blowup in toNormExpr (16 radicals for denom 11, etc.).
   let simplified = tryCanonicalSimplify e
       nRads = length (collectRadicals simplified)
-  in if nRads > 5
-     then Radical simplified
-     else Radical (fromNormExpr (toNormExpr simplified))
+   in if nRads > 5
+        then Radical simplified
+        else Radical (fromNormExpr (toNormExpr simplified))
 simplifyTrigResult other = other
 
 -- | Compute simplified sin from simplified cos for display.
@@ -275,28 +276,32 @@ simplifiedSin p q (Radical c) =
       positive = p'' >= 0 && p'' <= q
       rads = collectRadicals c
       hasComplex = any (\(_, r) -> r == Lit (-1)) rads
-  in if p'' == 0 || p'' == q then Radical (Lit 0)
-     -- For complex cos forms (containing i), NF round-trip of 1-cos² explodes
-     -- because squaring complex monomials creates exponentially many terms.
-     -- Skip NF and use basic DAG fold instead.
-     else if hasComplex
-     then let oneMinusCos2 = Add (Lit 1) (Neg (Mul c c))
-              folded = fromDAG (dagFoldConstants (toDAG oneMinusCos2))
-              sinExpr = Root 2 folded
-              signed = if positive then sinExpr else Neg sinExpr
-          in Radical (fromDAG (dagFoldConstants (toDAG signed)))
-     else let sin2 = fromNormExpr (toNormExpr (Add (Lit 1) (Neg (Mul c c))))
-              sin2folded = fromDAG (dagFoldConstants (toDAG sin2))
-              sinExpr = Root 2 sin2folded
-              signed = if positive then sinExpr else Neg sinExpr
-              -- NF round-trip canonicalizes NestedRoot radicands
-              -- (clears denominators, extracts content, coprime integer coefficients)
-              canonical = fromNormExpr (toNormExpr signed)
-              s = dagSize (toDAG canonical)
-              result
-                | s <= 30   = safeNormalize canonical
-                | otherwise = tryCanonicalSimplify canonical
-          in Radical result
+   in if p'' == 0 || p'' == q
+        then Radical (Lit 0)
+        -- For complex cos forms (containing i), NF round-trip of 1-cos² explodes
+        -- because squaring complex monomials creates exponentially many terms.
+        -- Skip NF and use basic DAG fold instead.
+        else
+          if hasComplex
+            then
+              let oneMinusCos2 = Add (Lit 1) (Neg (Mul c c))
+                  folded = fromDAG (dagFoldConstants (toDAG oneMinusCos2))
+                  sinExpr = Root 2 folded
+                  signed = if positive then sinExpr else Neg sinExpr
+               in Radical (fromDAG (dagFoldConstants (toDAG signed)))
+            else
+              let sin2 = fromNormExpr (toNormExpr (Add (Lit 1) (Neg (Mul c c))))
+                  sin2folded = fromDAG (dagFoldConstants (toDAG sin2))
+                  sinExpr = Root 2 sin2folded
+                  signed = if positive then sinExpr else Neg sinExpr
+                  -- NF round-trip canonicalizes NestedRoot radicands
+                  -- (clears denominators, extracts content, coprime integer coefficients)
+                  canonical = fromNormExpr (toNormExpr signed)
+                  s = dagSize (toDAG canonical)
+                  result
+                    | s <= 30 = safeNormalize canonical
+                    | otherwise = tryCanonicalSimplify canonical
+               in Radical result
 simplifiedSin _ _ other = other
 
 -- | Normalize, but verify the result. If normalization changes the
@@ -309,29 +314,30 @@ simplifiedSin _ _ other = other
 safeNormalize :: RadExpr Rational -> RadExpr Rational
 safeNormalize e
   | let dag = toDAG e
-        d   = dagDepth dag
-        s   = dagSize dag
-    in d > 30 || s > 500 = e
+        d = dagDepth dag
+        s = dagSize dag
+     in d > 30 || s > 500 =
+      e
   | otherwise =
       let normed = normalize e
-      in case tryEvalInterval e of
-           Nothing ->
-             -- Interval evaluation failed (complex intermediates).
-             -- Fall back to MPBall verification at 500-bit precision.
-             let origCI = dagEvalComplexMP 500 (toDAG e)
-                 normCI = dagEvalComplexMP 500 (toDAG normed)
-                 origRe = ciReal origCI
-                 normRe = ciReal normCI
-             in if overlaps origRe normRe
-                then normed
-                else e
-           Just origIv ->
-             case tryEvalInterval normed of
-               Nothing -> e
-               Just normIv ->
-                 if overlaps origIv normIv && width origIv >= width normIv
-                 then normed
-                 else e
+       in case tryEvalInterval e of
+            Nothing ->
+              -- Interval evaluation failed (complex intermediates).
+              -- Fall back to MPBall verification at 500-bit precision.
+              let origCI = dagEvalComplexMP 500 (toDAG e)
+                  normCI = dagEvalComplexMP 500 (toDAG normed)
+                  origRe = ciReal origCI
+                  normRe = ciReal normCI
+               in if overlaps origRe normRe
+                    then normed
+                    else e
+            Just origIv ->
+              case tryEvalInterval normed of
+                Nothing -> e
+                Just normIv ->
+                  if overlaps origIv normIv && width origIv >= width normIv
+                    then normed
+                    else e
 
 -- | Try to evaluate an expression via interval arithmetic, returning
 -- Nothing if it fails (e.g., due to negative radicands from complex
@@ -351,10 +357,10 @@ chebyshev 1 x = x
 chebyshev k x = go 2 (Lit 1) x
   where
     go n t0 t1
-      | n > k     = t1
-      | otherwise  =
+      | n > k = t1
+      | otherwise =
           let t2 = Add (Mul (Mul (Lit 2) x) t1) (Neg t0)
-          in go (n + 1) t1 t2
+           in go (n + 1) t1 t2
 
 -- | Return the minimal polynomial of cos(2π/n).
 --

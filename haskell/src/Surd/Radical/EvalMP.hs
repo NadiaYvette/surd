@@ -10,20 +10,21 @@
 -- nth roots we use Newton's method: w_{k+1} = ((n-1)·w_k + z/w_k^(n-1))/n
 -- starting from a Complex Double estimate, converging quadratically.
 module Surd.Radical.EvalMP
-  ( dagEvalComplexMP
-  , dagEvalRealMP
-  , mpBallToInterval
-  , complexMPToComplexInterval
-  , dftCoeffsMP
-  ) where
+  ( dagEvalComplexMP,
+    dagEvalRealMP,
+    mpBallToInterval,
+    complexMPToComplexInterval,
+    dftCoeffsMP,
+  )
+where
 
-import Data.Complex (Complex(..), magnitude)
-import qualified Data.IntMap.Lazy as IntMapL
-import qualified Data.IntMap.Strict as IntMap
 import AERN2.MP.Ball (MPBall, endpoints, mpBallP)
 import AERN2.MP.Precision (Precision, prec)
-import Surd.Radical.DAG (RadDAG(..), RadNodeOp(..))
-import Math.Internal.Interval (Interval(..), ComplexInterval(..))
+import Data.Complex (Complex (..), magnitude)
+import Data.IntMap.Lazy qualified as IntMapL
+import Data.IntMap.Strict qualified as IntMap
+import Math.Internal.Interval (ComplexInterval (..), Interval (..))
+import Surd.Radical.DAG (RadDAG (..), RadNodeOp (..))
 
 -- | A complex number represented as a pair of MPBalls (real, imaginary).
 data ComplexMP = ComplexMP !MPBall !MPBall
@@ -45,20 +46,20 @@ dagEvalComplexMP :: Int -> RadDAG Rational -> ComplexInterval
 dagEvalComplexMP bits dag =
   let p = prec (fromIntegral bits)
       result = evalDAG p dag
-  in complexMPToComplexInterval result
+   in complexMPToComplexInterval result
 
 -- | Evaluate a DAG and return just the real-part interval.
 dagEvalRealMP :: Int -> RadDAG Rational -> Interval
 dagEvalRealMP bits dag =
   let p = prec (fromIntegral bits)
       ComplexMP re _ = evalDAG p dag
-  in mpBallToInterval re
+   in mpBallToInterval re
 
 -- | Convert an MPBall to our Interval type (rational endpoints).
 mpBallToInterval :: MPBall -> Interval
 mpBallToInterval ball =
   let (l, h) = endpoints ball
-  in Interval (toRational l) (toRational h)
+   in Interval (toRational l) (toRational h)
 
 -- | Convert a ComplexMP to our ComplexInterval type.
 complexMPToComplexInterval :: ComplexMP -> ComplexInterval
@@ -71,21 +72,21 @@ evalDAG p (RadDAG nodes rootId) = mpVals IntMap.! rootId
   where
     -- Double-precision evaluation for Newton starting points
     dblVals = IntMapL.map evDbl nodes
-    evDbl (NLit r)    = fromRational r :+ 0
-    evDbl (NNeg a)    = negate (dblVals IntMap.! a)
-    evDbl (NAdd a b)  = (dblVals IntMap.! a) + (dblVals IntMap.! b)
-    evDbl (NMul a b)  = (dblVals IntMap.! a) * (dblVals IntMap.! b)
-    evDbl (NInv a)    = 1 / (dblVals IntMap.! a)
+    evDbl (NLit r) = fromRational r :+ 0
+    evDbl (NNeg a) = negate (dblVals IntMap.! a)
+    evDbl (NAdd a b) = (dblVals IntMap.! a) + (dblVals IntMap.! b)
+    evDbl (NMul a b) = (dblVals IntMap.! a) * (dblVals IntMap.! b)
+    evDbl (NInv a) = 1 / (dblVals IntMap.! a)
     evDbl (NRoot n a) = dblNthRoot n (dblVals IntMap.! a)
     evDbl (NPow a n)
-      | n >= 0    = (dblVals IntMap.! a) ^ n
+      | n >= 0 = (dblVals IntMap.! a) ^ n
       | otherwise = 1 / ((dblVals IntMap.! a) ^ negate n)
 
     dblNthRoot :: Int -> Complex Double -> Complex Double
     dblNthRoot n z =
-      let r     = magnitude z
+      let r = magnitude z
           theta = atan2 (imagPart z) (realPart z)
-      in mkPolarD (r ** (1 / fromIntegral n)) (theta / fromIntegral n)
+       in mkPolarD (r ** (1 / fromIntegral n)) (theta / fromIntegral n)
       where
         realPart (x :+ _) = x
         imagPart (_ :+ y) = y
@@ -95,16 +96,16 @@ evalDAG p (RadDAG nodes rootId) = mpVals IntMap.! rootId
     mpVals = IntMapL.map ev nodes
 
     ev :: RadNodeOp Rational -> ComplexMP
-    ev (NLit r)    = ComplexMP (mpBallP p r) (zeroBall p)
-    ev (NNeg a)    = cneg (mpVals IntMap.! a)
-    ev (NAdd a b)  = cadd (mpVals IntMap.! a) (mpVals IntMap.! b)
-    ev (NMul a b)  = cmul (mpVals IntMap.! a) (mpVals IntMap.! b)
-    ev (NInv a)    = cinv p (mpVals IntMap.! a)
-    ev (NPow a n)  = cpow p (mpVals IntMap.! a) n
+    ev (NLit r) = ComplexMP (mpBallP p r) (zeroBall p)
+    ev (NNeg a) = cneg (mpVals IntMap.! a)
+    ev (NAdd a b) = cadd (mpVals IntMap.! a) (mpVals IntMap.! b)
+    ev (NMul a b) = cmul (mpVals IntMap.! a) (mpVals IntMap.! b)
+    ev (NInv a) = cinv p (mpVals IntMap.! a)
+    ev (NPow a n) = cpow p (mpVals IntMap.! a) n
     ev (NRoot n a) =
       let z = mpVals IntMap.! a
-          z0 = dblVals IntMap.! a  -- Double estimate for Newton start
-      in cnthroot p n z z0
+          z0 = dblVals IntMap.! a -- Double estimate for Newton start
+       in cnthroot p n z z0
 
 -- Complex arithmetic on MPBall pairs
 
@@ -121,14 +122,14 @@ cmul (ComplexMP r1 i1) (ComplexMP r2 i2) =
 cinv :: Precision -> ComplexMP -> ComplexMP
 cinv _ (ComplexMP r i) =
   let magSq = r * r + i * i
-  in ComplexMP (r / magSq) (negate i / magSq)
+   in ComplexMP (r / magSq) (negate i / magSq)
 
 cpow :: Precision -> ComplexMP -> Int -> ComplexMP
 cpow p _ 0 = ComplexMP (oneBall p) (zeroBall p)
 cpow _ z 1 = z
 cpow p z n
-  | n < 0     = cpow p (cinv p z) (negate n)
-  | even n    = let half = cpow p z (n `div` 2) in cmul half half
+  | n < 0 = cpow p (cinv p z) (negate n)
+  | even n = let half = cpow p z (n `div` 2) in cmul half half
   | otherwise = cmul z (cpow p z (n - 1))
 
 -- | Complex nth root via Newton's method.
@@ -151,15 +152,18 @@ cnthroot p n z _z0Dbl
           -- for near-zero values where Double's phase is garbage).
           zMid = complexMPToDouble z
           w0Dbl = dblNthRoot n zMid
-          w0 = ComplexMP (mpBallP p (toRational (realP w0Dbl)))
-                         (mpBallP p (toRational (imagP w0Dbl)))
+          w0 =
+            ComplexMP
+              (mpBallP p (toRational (realP w0Dbl)))
+              (mpBallP p (toRational (imagP w0Dbl)))
           nBall = mpBallP p (fromIntegral n :: Integer)
           n1Ball = mpBallP p (fromIntegral (n - 1) :: Integer)
           nC = ComplexMP nBall (zeroBall p)
           n1C = ComplexMP n1Ball (zeroBall p)
-          step w = let wn1 = cpow p w (n - 1)
-                   in cdiv p (cadd (cmul n1C w) (cdiv p z wn1)) nC
-      in iterate step w0 !! 20
+          step w =
+            let wn1 = cpow p w (n - 1)
+             in cdiv p (cadd (cmul n1C w) (cdiv p z wn1)) nC
+       in iterate step w0 !! 20
   where
     ComplexMP re im = z
     isNonNegReal = isZeroBall im && isNonNegBall re
@@ -170,10 +174,10 @@ cnthroot p n z _z0Dbl
 
     dblNthRoot :: Int -> Complex Double -> Complex Double
     dblNthRoot m w =
-      let r     = magnitude w
+      let r = magnitude w
           theta = atan2 (imagP w) (realP w)
-      in (r ** (1 / fromIntegral m) * cos (theta / fromIntegral m))
-         :+ (r ** (1 / fromIntegral m) * sin (theta / fromIntegral m))
+       in (r ** (1 / fromIntegral m) * cos (theta / fromIntegral m))
+            :+ (r ** (1 / fromIntegral m) * sin (theta / fromIntegral m))
 
 cdiv :: Precision -> ComplexMP -> ComplexMP -> ComplexMP
 cdiv p a b = cmul a (cinv p b)
@@ -195,24 +199,24 @@ newtonNthRoot p n x
           nBall = mpBallP p (fromIntegral n :: Integer)
           n1Ball = mpBallP p (fromIntegral (n - 1) :: Integer)
           step y = (n1Ball * y + x / y ^ (n - 1)) / nBall
-      in iterate step y0 !! 20
+       in iterate step y0 !! 20
 
 -- Predicates on MPBalls (checking endpoints)
 
 isZeroBall :: MPBall -> Bool
 isZeroBall b =
   let (l, h) = endpoints b
-  in toRational l >= 0 && toRational h <= 0
+   in toRational l >= 0 && toRational h <= 0
 
 isNonNegBall :: MPBall -> Bool
 isNonNegBall b =
   let (l, _) = endpoints b
-  in toRational l >= 0
+   in toRational l >= 0
 
 isNegBall :: MPBall -> Bool
 isNegBall b =
   let (_, h) = endpoints b
-  in toRational h < 0
+   in toRational h < 0
 
 -- | Compute d_s DFT coefficients at high precision.
 --
@@ -230,8 +234,12 @@ isNegBall b =
 -- midpoints from 1000-bit MPBall) to preserve full precision for integer coefficient
 -- matching. For p=89/q=11, d_s ~ 10^8 and coefficients ~ 10^7, requiring > 15 digits.
 -- R_j values are returned as Complex Double (sufficient for branch selection).
-dftCoeffsMP :: Int -> Integer -> [[Integer]] -> [[Integer]]
-            -> ([(Rational, Rational)], [Complex Double], [Complex Double], [(Rational, Rational)])
+dftCoeffsMP ::
+  Int ->
+  Integer ->
+  [[Integer]] ->
+  [[Integer]] ->
+  ([(Rational, Rational)], [Complex Double], [Complex Double], [(Rational, Rational)])
 dftCoeffsMP q p subPeriodElems periodElemLists =
   let pr = prec 1000
       -- ζ = e^{2πi/p} at high precision
@@ -245,42 +253,55 @@ dftCoeffsMP q p subPeriodElems periodElemLists =
       zetaPow :: Integer -> ComplexMP
       zetaPow k =
         let k' = k `mod` p
-        in cpow pr oneC 0 `seq` zetaPows !! fromIntegral k'
+         in cpow pr oneC 0 `seq` zetaPows !! fromIntegral k'
       zetaPows = take (fromIntegral p) $ iterate (cmul zeta) oneC
       -- Sub-period values: η_k = Σ ζ^{elem}
-      valsMP = [ foldl1 cadd [zetaPow e | e <- elems]
-               | elems <- subPeriodElems ]
+      valsMP =
+        [ foldl1 cadd [zetaPow e | e <- elems]
+          | elems <- subPeriodElems
+        ]
       -- Period values using the same ζ powers (precision-consistent)
-      periodVals = [ complexMPToRatPair (foldl1 cadd [zetaPow e | e <- elems])
-                   | elems <- periodElemLists ]
+      periodVals =
+        [ complexMPToRatPair (foldl1 cadd [zetaPow e | e <- elems])
+          | elems <- periodElemLists
+        ]
       -- ω_q = e^{2πi/q} at high precision
       twoPiOverQ = mpBallP pr (2 :: Integer) * piMP pr / mpBallP pr (fromIntegral q :: Integer)
       omegaQ = ComplexMP (cos twoPiOverQ) (sin twoPiOverQ)
       omegaPowsMP = take q $ iterate (cmul omegaQ) oneC
       -- R_j = Σ_{k=0}^{q-1} ω_q^{jk} · η_k
-      resolventMP j = foldl1 cadd
-        [ cmul (omegaPowsMP !! ((j * k) `mod` q)) (valsMP !! k)
-        | k <- [0..q-1] ]
-      resolventsMP = [resolventMP j | j <- [0..q-1]]
+      resolventMP j =
+        foldl1
+          cadd
+          [ cmul (omegaPowsMP !! ((j * k) `mod` q)) (valsMP !! k)
+            | k <- [0 .. q - 1]
+          ]
+      resolventsMP = [resolventMP j | j <- [0 .. q - 1]]
       -- R_j^q
       resolventPowsMP = map (cpowMP pr q) resolventsMP
       -- d_s = (1/q) Σ_j ω_q^{-js} · R_j^q
       recipQ = ComplexMP (mpBallP pr (recip (fromIntegral q) :: Rational)) (zeroBall pr)
-      dCoeffMP s = cmul recipQ $ foldl1 cadd
-        [ cmul (omegaPowsMP !! ((q - ((j * s) `mod` q)) `mod` q))
-               (resolventPowsMP !! j)
-        | j <- [0..q-1] ]
-      dCoeffs = [ complexMPToRatPair (dCoeffMP s) | s <- [0..q-1] ]
+      dCoeffMP s =
+        cmul recipQ $
+          foldl1
+            cadd
+            [ cmul
+                (omegaPowsMP !! ((q - ((j * s) `mod` q)) `mod` q))
+                (resolventPowsMP !! j)
+              | j <- [0 .. q - 1]
+            ]
+      dCoeffs = [complexMPToRatPair (dCoeffMP s) | s <- [0 .. q - 1]]
       resolvents = map complexMPToDouble resolventsMP
       resolventPows = map complexMPToDouble resolventPowsMP
-  in (dCoeffs, resolvents, resolventPows, periodVals)
+   in (dCoeffs, resolvents, resolventPows, periodVals)
 
 -- | Convert ComplexMP to (Rational, Rational) midpoints, preserving full precision.
 complexMPToRatPair :: ComplexMP -> (Rational, Rational)
 complexMPToRatPair (ComplexMP re im) =
-  let mid b = let (l, h) = endpoints b
-              in (toRational l + toRational h) / 2
-  in (mid re, mid im)
+  let mid b =
+        let (l, h) = endpoints b
+         in (toRational l + toRational h) / 2
+   in (mid re, mid im)
 
 -- | π as an MPBall at given precision.
 -- Computed via Newton refinement of sin(x)=0 starting from Double π.
@@ -289,8 +310,8 @@ complexMPToRatPair (ComplexMP re im) =
 piMP :: Precision -> MPBall
 piMP p =
   let x0 = mpBallP p (toRational (pi :: Double))
-      step x = x - sin x / cos x
-  in iterate step x0 !! 15
+      step x = x - tan x
+   in iterate step x0 !! 15
 
 -- | Complex power by repeated squaring (MPBall version).
 cpowMP :: Precision -> Int -> ComplexMP -> ComplexMP
@@ -299,8 +320,7 @@ cpowMP p n z = cpow p z n
 -- | Convert ComplexMP to Complex Double (midpoints).
 complexMPToDouble :: ComplexMP -> Complex Double
 complexMPToDouble (ComplexMP re im) =
-  let mid b = let (l, h) = endpoints b
-              in fromRational ((toRational l + toRational h) / 2) :: Double
-  in mid re :+ mid im
-
-
+  let mid b =
+        let (l, h) = endpoints b
+         in fromRational ((toRational l + toRational h) / 2) :: Double
+   in mid re :+ mid im

@@ -8,7 +8,7 @@ build-type:      Simple
 library
   hs-source-dirs:   src
   default-language: GHC2021
-  ghc-options:      -Wall -Wcompat
+  ghc-options:      -Wall -Wcompat -Wno-pattern-namespace-specifier
   exposed-modules:
     Surd.Types
     Surd.Polynomial.MinimalPoly
@@ -52,7 +52,7 @@ executable surd-trig-table
   hs-source-dirs:   demo
   main-is:          TrigTable.hs
   default-language: GHC2021
-  ghc-options:      -Wall -O2
+  ghc-options:      -Wall -Wno-pattern-namespace-specifier -O2
   build-depends:
     base >= 4.18 && < 5,
     surd
@@ -62,7 +62,7 @@ test-suite surd-test
   hs-source-dirs:   test
   main-is:          Main.hs
   default-language: GHC2021
-  ghc-options:      -Wall
+  ghc-options:      -Wall -Wno-pattern-namespace-specifier
   other-modules:
     Test.Polynomial
     Test.Denest

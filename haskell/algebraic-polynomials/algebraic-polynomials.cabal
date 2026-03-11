@@ -14,7 +14,7 @@ build-type:      Simple
 library
   hs-source-dirs:   src
   default-language: GHC2021
-  ghc-options:      -Wall -Wcompat
+  ghc-options:      -Wall -Wcompat -Wno-pattern-namespace-specifier
   exposed-modules:
     Math.Polynomial.Univariate
     Math.Polynomial.Multivariate

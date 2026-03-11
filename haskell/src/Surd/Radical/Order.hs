@@ -3,16 +3,17 @@
 -- Uses algebraic number comparison with Sturm-based interval
 -- refinement for rigorous results.
 module Surd.Radical.Order
-  ( radicalCompare
-  , radicalLt
-  , radicalGt
-  , radicalLeq
-  , radicalGeq
-  ) where
+  ( radicalCompare,
+    radicalLt,
+    radicalGt,
+    radicalLeq,
+    radicalGeq,
+  )
+where
 
-import Surd.Types
 import Surd.Algebraic.Convert (radExprToAlgNum)
 import Surd.Algebraic.Number (algCompare)
+import Surd.Types
 
 -- | Compare two radical expressions.
 --

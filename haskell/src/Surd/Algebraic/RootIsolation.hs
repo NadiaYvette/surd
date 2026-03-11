@@ -3,23 +3,27 @@
 -- Uses Sturm's theorem with bisection to separate and refine roots
 -- of square-free polynomials.
 module Surd.Algebraic.RootIsolation
-  ( IsolatingInterval(..)
-  , isolateRealRoots
-  , refineRoot
-  , rootInInterval
-  , sturmCount
-  ) where
+  ( IsolatingInterval (..),
+    isolateRealRoots,
+    refineRoot,
+    rootInInterval,
+    sturmCount,
+  )
+where
 
+import Math.Internal.Interval (Interval (..))
 import Math.Polynomial.Univariate
-import Math.Internal.Interval (Interval(..))
 
 -- | An isolating interval for a real root of a polynomial.
 -- The polynomial has exactly one root in the open interval (lo, hi),
 -- unless lo == hi in which case it's an exact rational root.
 data IsolatingInterval = IsolatingInterval
-  { iiPoly     :: !(Poly Rational)  -- ^ The (square-free) polynomial
-  , iiInterval :: !Interval         -- ^ Isolating interval
-  } deriving (Show)
+  { -- | The (square-free) polynomial
+    iiPoly :: !(Poly Rational),
+    -- | Isolating interval
+    iiInterval :: !Interval
+  }
+  deriving (Show)
 
 -- | Isolate all real roots of a polynomial.
 -- Returns isolating intervals ordered by increasing root value.
@@ -31,13 +35,13 @@ isolateRealRoots p
       case unPoly p of
         [a, b] ->
           let r = -a / b
-          in [IsolatingInterval (monicPoly p) (Interval r r)]
+           in [IsolatingInterval (monicPoly p) (Interval r r)]
         _ -> []
   | otherwise =
       let p' = monicPoly p
           bound = rootBound p'
           iv = Interval (-bound) bound
-      in map (IsolatingInterval p') $ isolateIn p' iv
+       in map (IsolatingInterval p') $ isolateIn p' iv
 
 -- | Refine an isolating interval until its width is less than epsilon.
 refineRoot :: Rational -> IsolatingInterval -> IsolatingInterval
@@ -58,7 +62,7 @@ rootBound (Poly []) = 0
 rootBound (Poly cs) =
   let lc = last cs
       ratios = map (\c -> abs (c / lc)) (init cs)
-  in 1 + maximum (0 : ratios)
+   in 1 + maximum (0 : ratios)
 
 -- | Isolate roots within a given interval using bisection.
 -- Precondition: p is square-free.
@@ -68,9 +72,9 @@ isolateIn p iv@(Interval l h)
   | sc == 1 = [iv]
   | otherwise =
       let m = (l + h) / 2
-      in if evalPoly p m == 0
-         then Interval m m : isolateIn p (Interval l m) ++ isolateIn p (Interval m h)
-         else isolateIn p (Interval l m) ++ isolateIn p (Interval m h)
+       in if evalPoly p m == 0
+            then Interval m m : isolateIn p (Interval l m) ++ isolateIn p (Interval m h)
+            else isolateIn p (Interval l m) ++ isolateIn p (Interval m h)
   where
     sc = sturmCount p l h
 
@@ -80,7 +84,7 @@ sturmCount p a b =
   let chain = sturmChain p
       va = signChangesAt chain a
       vb = signChangesAt chain b
-  in va - vb
+   in va - vb
 
 -- | Build the Sturm chain: p₀ = p, p₁ = p', pₖ₊₁ = -rem(pₖ₋₁, pₖ).
 sturmChain :: Poly Rational -> [Poly Rational]
@@ -91,14 +95,14 @@ sturmChain p = p : p' : go p p'
     go a b =
       let (_, r) = divModPoly a b
           nr = scalePoly (-1) r
-      in if degree nr < 0 then [] else nr : go b nr
+       in if degree nr < 0 then [] else nr : go b nr
 
 -- | Count sign changes in the Sturm chain evaluated at x.
 signChangesAt :: [Poly Rational] -> Rational -> Int
 signChangesAt chain x =
   let vals = filter (/= 0) $ map (`evalPoly` x) chain
       pairs = zip vals (drop 1 vals)
-  in length $ filter (\(a, b) -> signum a /= signum b) pairs
+   in length $ filter (\(a, b) -> signum a /= signum b) pairs
 
 -- | Refine an interval by bisection until width < eps.
 refineInterval :: Poly Rational -> Rational -> Interval -> Interval
@@ -108,9 +112,10 @@ refineInterval p eps iv@(Interval l h)
   | otherwise =
       let m = (l + h) / 2
           fm = evalPoly p m
-      in if fm == 0
-         then Interval m m
-         else let fl = evalPoly p l
-              in if signum fl /= signum fm
-                 then refineInterval p eps (Interval l m)
-                 else refineInterval p eps (Interval m h)
+       in if fm == 0
+            then Interval m m
+            else
+              let fl = evalPoly p l
+               in if signum fl /= signum fm
+                    then refineInterval p eps (Interval l m)
+                    else refineInterval p eps (Interval m h)

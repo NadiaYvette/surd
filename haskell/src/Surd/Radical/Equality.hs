@@ -4,13 +4,14 @@
 -- algebraic number: same minimal polynomial and same root
 -- (verified by isolating interval overlap).
 module Surd.Radical.Equality
-  ( radicalEq
-  , radicalNeq
-  ) where
+  ( radicalEq,
+    radicalNeq,
+  )
+where
 
-import Surd.Types
 import Surd.Algebraic.Convert (radExprToAlgNum)
 import Surd.Algebraic.Number (algEq)
+import Surd.Types
 
 -- | Test equality of two radical expressions over Q.
 --

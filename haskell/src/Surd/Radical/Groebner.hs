@@ -29,32 +29,60 @@
 -- 'reduceRadExprAll' runs all three and returns the shortest result.
 module Surd.Radical.Groebner
   ( -- * Context
-    GroebnerContext
-  , emptyContext
-  , contextFromAtoms
-  , extendContext
+    GroebnerContext,
+    emptyContext,
+    contextFromAtoms,
+    extendContext,
+
     -- * Reduction strategies
-  , Strategy(..)
-  , reduceNormExpr
-  , reduceRadExpr
-  , reduceRadExprWithCtx
-  , reduceRadExprAll
+    Strategy (..),
+    reduceNormExpr,
+    reduceRadExpr,
+    reduceRadExprWithCtx,
+    reduceRadExprAll,
+
     -- * Queries
-  , contextAtoms
-  , contextBasis
-  ) where
+    contextAtoms,
+    contextBasis,
+  )
+where
 
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
-import Math.Polynomial.Multivariate (Var(..), Mono(..), MPoly(..), varPoly, constPoly,
-                                      zeroPoly, isZero, mulPoly, addPoly, subPoly, scalePoly,
-                                      numTerms)
-import Math.Polynomial.Groebner (GroebnerBasis, MonoOrd, grevlex, groebnerBasis,
-                                  extendBasis, reduce, gbPolys, elimOrd)
-import Surd.Radical.NormalForm (Atom(..), Monomial(..), NormExpr(..), toNormExpr, fromNormExpr,
-                                 normLit)
-import Surd.Types (RadExpr(..))
+import Math.Polynomial.Groebner
+  ( GroebnerBasis,
+    MonoOrd,
+    elimOrd,
+    extendBasis,
+    gbPolys,
+    grevlex,
+    groebnerBasis,
+    reduce,
+  )
+import Math.Polynomial.Multivariate
+  ( MPoly (..),
+    Mono (..),
+    Var (..),
+    addPoly,
+    constPoly,
+    isZero,
+    mulPoly,
+    numTerms,
+    scalePoly,
+    subPoly,
+    varPoly,
+    zeroPoly,
+  )
+import Surd.Radical.NormalForm
+  ( Atom (..),
+    Monomial (..),
+    NormExpr (..),
+    fromNormExpr,
+    normLit,
+    toNormExpr,
+  )
+import Surd.Types (RadExpr (..))
 
 -- ---------------------------------------------------------------------------
 -- Strategies
@@ -63,16 +91,16 @@ import Surd.Types (RadExpr(..))
 -- | Reduction strategy for handling Laurent monomials (negative exponents)
 -- and monomial ordering.
 data Strategy
-  = ClearDenominators
-    -- ^ Multiply through by atom powers to clear negative exponents.
+  = -- | Multiply through by atom powers to clear negative exponents.
     -- Uses grevlex ordering.
-  | InverseVariables
-    -- ^ Introduce inverse variables @a_inv@ with @a · a_inv = 1@.
+    ClearDenominators
+  | -- | Introduce inverse variables @a_inv@ with @a · a_inv = 1@.
     -- Negative exponents become positive exponents on the inverse variable.
     -- Uses grevlex ordering.
-  | EliminateNested
-    -- ^ Use elimination ordering to push NestedRoot atoms out of the result.
+    InverseVariables
+  | -- | Use elimination ordering to push NestedRoot atoms out of the result.
     -- Introduces inverse variables for Laurent support.
+    EliminateNested
   deriving (Eq, Show)
 
 -- ---------------------------------------------------------------------------
@@ -82,30 +110,31 @@ data Strategy
 -- | A Gröbner context tracks the mapping between radical atoms and
 -- polynomial variables, plus the Gröbner basis of their defining relations.
 data GroebnerContext = GroebnerContext
-  { ctxAtomToVar :: Map Atom Var
-    -- ^ Bijection: atom → variable (may include inverse-variable atoms)
-  , ctxVarToAtom :: Map Var Atom
-    -- ^ Inverse: variable → atom
-  , ctxNextVar   :: !Int
-    -- ^ Next fresh variable index
-  , ctxBasis     :: GroebnerBasis Rational
-    -- ^ Gröbner basis of the ideal of defining relations
-  , ctxOrd       :: MonoOrd
-    -- ^ Monomial ordering used for the basis
-  , ctxInverseOf :: Map Atom Atom
-    -- ^ For InverseVariables strategy: maps atom → its inverse-atom
+  { -- | Bijection: atom → variable (may include inverse-variable atoms)
+    ctxAtomToVar :: Map Atom Var,
+    -- | Inverse: variable → atom
+    ctxVarToAtom :: Map Var Atom,
+    -- | Next fresh variable index
+    ctxNextVar :: !Int,
+    -- | Gröbner basis of the ideal of defining relations
+    ctxBasis :: GroebnerBasis Rational,
+    -- | Monomial ordering used for the basis
+    ctxOrd :: MonoOrd,
+    -- | For InverseVariables strategy: maps atom → its inverse-atom
+    ctxInverseOf :: Map Atom Atom
   }
 
 -- | Create an empty context with the default (grevlex) ordering.
 emptyContext :: GroebnerContext
-emptyContext = GroebnerContext
-  { ctxAtomToVar = Map.empty
-  , ctxVarToAtom = Map.empty
-  , ctxNextVar   = 0
-  , ctxBasis     = groebnerBasis grevlex []
-  , ctxOrd       = grevlex
-  , ctxInverseOf = Map.empty
-  }
+emptyContext =
+  GroebnerContext
+    { ctxAtomToVar = Map.empty,
+      ctxVarToAtom = Map.empty,
+      ctxNextVar = 0,
+      ctxBasis = groebnerBasis grevlex [],
+      ctxOrd = grevlex,
+      ctxInverseOf = Map.empty
+    }
 
 -- | Create a context from a list of atoms using the given strategy.
 contextFromAtoms :: Strategy -> [Atom] -> GroebnerContext
@@ -115,21 +144,23 @@ contextFromAtoms strat atoms =
       -- For InverseVariables / EliminateNested, add inverse variables
       ctx2 = case strat of
         ClearDenominators -> ctx1
-        _                 -> addInverseVars atoms ctx1
+        _ -> addInverseVars atoms ctx1
       -- Set the monomial ordering
       ctx3 = case strat of
         EliminateNested ->
-          let nestedVars = Set.fromList
-                [ v | (NestedRoot _ _, v) <- Map.toList (ctxAtomToVar ctx2) ]
+          let nestedVars =
+                Set.fromList
+                  [v | (NestedRoot _ _, v) <- Map.toList (ctxAtomToVar ctx2)]
               -- Also eliminate ImagUnit
-              iVars = Set.fromList
-                [ v | (ImagUnit, v) <- Map.toList (ctxAtomToVar ctx2) ]
+              iVars =
+                Set.fromList
+                  [v | (ImagUnit, v) <- Map.toList (ctxAtomToVar ctx2)]
               elimVars = Set.union nestedVars iVars
-          in ctx2 { ctxOrd = elimOrd elimVars }
+           in ctx2 {ctxOrd = elimOrd elimVars}
         _ -> ctx2
       rels = concatMap (atomRelations ctx3) (Map.keys (ctxAtomToVar ctx3))
       basis = groebnerBasis (ctxOrd ctx3) rels
-  in ctx3 { ctxBasis = basis }
+   in ctx3 {ctxBasis = basis}
 
 -- | Extend a context with new atoms and their relations.
 extendContext :: [Atom] -> GroebnerContext -> GroebnerContext
@@ -137,21 +168,22 @@ extendContext newAtoms ctx =
   let (ctx', _) = foldl addAtom (ctx, []) newAtoms
       newRels = concatMap (atomRelations ctx') newAtoms
       basis' = extendBasis newRels (ctxBasis ctx)
-  in ctx' { ctxBasis = basis' }
+   in ctx' {ctxBasis = basis'}
 
 -- | Add an atom to the context, assigning it a fresh variable.
 addAtom :: (GroebnerContext, [Var]) -> Atom -> (GroebnerContext, [Var])
 addAtom (ctx, vars) atom =
   case Map.lookup atom (ctxAtomToVar ctx) of
-    Just v  -> (ctx, vars ++ [v])
+    Just v -> (ctx, vars ++ [v])
     Nothing ->
       let v = Var (ctxNextVar ctx)
-          ctx' = ctx
-            { ctxAtomToVar = Map.insert atom v (ctxAtomToVar ctx)
-            , ctxVarToAtom = Map.insert v atom (ctxVarToAtom ctx)
-            , ctxNextVar   = ctxNextVar ctx + 1
-            }
-      in (ctx', vars ++ [v])
+          ctx' =
+            ctx
+              { ctxAtomToVar = Map.insert atom v (ctxAtomToVar ctx),
+                ctxVarToAtom = Map.insert v atom (ctxVarToAtom ctx),
+                ctxNextVar = ctxNextVar ctx + 1
+              }
+       in (ctx', vars ++ [v])
 
 -- | For each atom in the list, add an inverse-variable atom and record
 -- the @a · a_inv = 1@ relation (generated later by 'atomRelations').
@@ -160,42 +192,40 @@ addInverseVars atoms ctx = foldl addInv ctx atoms
   where
     addInv c atom =
       let invAtom = InverseAtom atom
-      in case Map.lookup invAtom (ctxAtomToVar c) of
-           Just _  -> c  -- already exists
-           Nothing ->
-             let v = Var (ctxNextVar c)
-             in c { ctxAtomToVar = Map.insert invAtom v (ctxAtomToVar c)
-                  , ctxVarToAtom = Map.insert v invAtom (ctxVarToAtom c)
-                  , ctxNextVar   = ctxNextVar c + 1
-                  , ctxInverseOf = Map.insert atom invAtom (ctxInverseOf c)
-                  }
+       in case Map.lookup invAtom (ctxAtomToVar c) of
+            Just _ -> c -- already exists
+            Nothing ->
+              let v = Var (ctxNextVar c)
+               in c
+                    { ctxAtomToVar = Map.insert invAtom v (ctxAtomToVar c),
+                      ctxVarToAtom = Map.insert v invAtom (ctxVarToAtom c),
+                      ctxNextVar = ctxNextVar c + 1,
+                      ctxInverseOf = Map.insert atom invAtom (ctxInverseOf c)
+                    }
 
 -- | Generate the defining polynomial relations for an atom.
 atomRelations :: GroebnerContext -> Atom -> [MPoly Rational]
 atomRelations ctx atom =
   case Map.lookup atom (ctxAtomToVar ctx) of
     Nothing -> []
-    Just v  ->
+    Just v ->
       let xv = varPoly v
-      in case atom of
-        -- InverseAtom must come before NestedRoot (it's encoded as NestedRoot 0)
-        InverseAtom origAtom ->
-          -- a · a_inv = 1
-          case Map.lookup origAtom (ctxAtomToVar ctx) of
-            Just origV ->
-              [mulPoly (varPoly origV) xv `subPoly` constPoly 1]
-            Nothing -> []
-
-        RatRoot n r ->
-          [powMPoly xv n `subPoly` constPoly (fromRational r)]
-
-        ImagUnit ->
-          [mulPoly xv xv `addPoly` constPoly 1]
-
-        NestedRoot n inner ->
-          let radicandNE = toNormExpr inner
-              radicandPoly = normExprToMPolyDirect ctx radicandNE
-          in [powMPoly xv n `subPoly` radicandPoly]
+       in case atom of
+            -- InverseAtom must come before NestedRoot (it's encoded as NestedRoot 0)
+            InverseAtom origAtom ->
+              -- a · a_inv = 1
+              case Map.lookup origAtom (ctxAtomToVar ctx) of
+                Just origV ->
+                  [mulPoly (varPoly origV) xv `subPoly` constPoly 1]
+                Nothing -> []
+            RatRoot n r ->
+              [powMPoly xv n `subPoly` constPoly (fromRational r)]
+            ImagUnit ->
+              [mulPoly xv xv `addPoly` constPoly 1]
+            NestedRoot n inner ->
+              let radicandNE = toNormExpr inner
+                  radicandPoly = normExprToMPolyDirect ctx radicandNE
+               in [powMPoly xv n `subPoly` radicandPoly]
 
 -- ---------------------------------------------------------------------------
 -- Conversion: NormExpr ↔ MPoly Rational
@@ -206,25 +236,33 @@ atomRelations ctx atom =
 normExprToMPolyCleared :: GroebnerContext -> NormExpr -> MPoly Rational
 normExprToMPolyCleared ctx (NormExpr terms) =
   let negExps = Map.foldlWithKey' collectNegs Map.empty terms
-  in if Map.null negExps
-     then normExprToMPolyDirect ctx (NormExpr terms)
-     else foldl addPoly zeroPoly
+   in if Map.null negExps
+        then normExprToMPolyDirect ctx (NormExpr terms)
+        else
+          foldl
+            addPoly
+            zeroPoly
             [ scalePoly coeff (monomialToMPolyShifted ctx negExps mono)
-            | (mono, coeff) <- Map.toList terms
+              | (mono, coeff) <- Map.toList terms
             ]
   where
     collectNegs acc (Monomial atoms) _ =
-      Map.foldlWithKey' (\a atom e ->
-        if e < 0 then Map.insertWith min atom e a else a
-        ) acc atoms
+      Map.foldlWithKey'
+        ( \a atom e ->
+            if e < 0 then Map.insertWith min atom e a else a
+        )
+        acc
+        atoms
 
 -- | Convert a NormExpr to MPoly using inverse variables for negative exponents.
 -- @a^{-k}@ becomes @(a_inv)^k@.
 normExprToMPolyInverse :: GroebnerContext -> NormExpr -> MPoly Rational
 normExprToMPolyInverse ctx (NormExpr terms) =
-  foldl addPoly zeroPoly
+  foldl
+    addPoly
+    zeroPoly
     [ scalePoly coeff (monomialToMPolyInverse ctx mono)
-    | (mono, coeff) <- Map.toList terms
+      | (mono, coeff) <- Map.toList terms
     ]
 
 -- | Direct conversion (assumes no negative exponents in relevant atoms).
@@ -232,50 +270,60 @@ normExprToMPolyInverse ctx (NormExpr terms) =
 -- non-negative-exponent after NF.
 normExprToMPolyDirect :: GroebnerContext -> NormExpr -> MPoly Rational
 normExprToMPolyDirect ctx (NormExpr terms) =
-  foldl addPoly zeroPoly
+  foldl
+    addPoly
+    zeroPoly
     [ scalePoly coeff (monomialToMPolyDirect' ctx mono)
-    | (mono, coeff) <- Map.toList terms
+      | (mono, coeff) <- Map.toList terms
     ]
 
 -- | Convert a single Monomial (non-negative exponents only).
 monomialToMPolyDirect' :: GroebnerContext -> Monomial -> MPoly Rational
 monomialToMPolyDirect' ctx (Monomial atoms) =
-  foldl mulPoly (constPoly 1)
+  foldl
+    mulPoly
+    (constPoly 1)
     [ case Map.lookup atom (ctxAtomToVar ctx) of
-        Just v  | e > 0    -> powMPoly (varPoly v) e
-                | otherwise -> constPoly 1
+        Just v
+          | e > 0 -> powMPoly (varPoly v) e
+          | otherwise -> constPoly 1
         Nothing -> constPoly 1
-    | (atom, e) <- Map.toList atoms
+      | (atom, e) <- Map.toList atoms
     ]
 
 -- | Convert a Monomial, shifting exponents by clearing amounts.
 monomialToMPolyShifted :: GroebnerContext -> Map Atom Int -> Monomial -> MPoly Rational
 monomialToMPolyShifted ctx negExps (Monomial atoms) =
   let allAtoms = Map.unionWith (+) atoms (fmap abs negExps)
-  in foldl mulPoly (constPoly 1)
-    [ case Map.lookup atom (ctxAtomToVar ctx) of
-        Just v  | e > 0    -> powMPoly (varPoly v) e
-                | otherwise -> constPoly 1
-        Nothing -> constPoly 1
-    | (atom, e) <- Map.toList allAtoms
-    ]
+   in foldl
+        mulPoly
+        (constPoly 1)
+        [ case Map.lookup atom (ctxAtomToVar ctx) of
+            Just v
+              | e > 0 -> powMPoly (varPoly v) e
+              | otherwise -> constPoly 1
+            Nothing -> constPoly 1
+          | (atom, e) <- Map.toList allAtoms
+        ]
 
 -- | Convert a Monomial using inverse variables for negative exponents.
 monomialToMPolyInverse :: GroebnerContext -> Monomial -> MPoly Rational
 monomialToMPolyInverse ctx (Monomial atoms) =
-  foldl mulPoly (constPoly 1)
+  foldl
+    mulPoly
+    (constPoly 1)
     [ if e > 0
-      then case Map.lookup atom (ctxAtomToVar ctx) of
-             Just v  -> powMPoly (varPoly v) e
-             Nothing -> constPoly 1
-      else -- Negative exponent: use inverse variable
-        case Map.lookup atom (ctxInverseOf ctx) of
-          Just invAtom ->
-            case Map.lookup invAtom (ctxAtomToVar ctx) of
-              Just iv -> powMPoly (varPoly iv) (abs e)
-              Nothing -> constPoly 1
-          Nothing -> constPoly 1  -- No inverse available, treat as 1
-    | (atom, e) <- Map.toList atoms
+        then case Map.lookup atom (ctxAtomToVar ctx) of
+          Just v -> powMPoly (varPoly v) e
+          Nothing -> constPoly 1
+        else -- Negative exponent: use inverse variable
+          case Map.lookup atom (ctxInverseOf ctx) of
+            Just invAtom ->
+              case Map.lookup invAtom (ctxAtomToVar ctx) of
+                Just iv -> powMPoly (varPoly iv) (abs e)
+                Nothing -> constPoly 1
+            Nothing -> constPoly 1 -- No inverse available, treat as 1
+      | (atom, e) <- Map.toList atoms
     ]
 
 -- | Convert an MPoly back to a NormExpr, using the context's variable mapping.
@@ -283,24 +331,30 @@ monomialToMPolyInverse ctx (Monomial atoms) =
 -- original atom.
 mpolyToNormExpr :: GroebnerContext -> MPoly Rational -> NormExpr
 mpolyToNormExpr ctx (MPoly terms) =
-  NormExpr $ Map.filter (/= 0) $ Map.fromListWith (+)
-    [ (monoToMonomial ctx mono, coeff)
-    | (mono, coeff) <- Map.toList terms
-    , coeff /= 0
-    ]
+  NormExpr $
+    Map.filter (/= 0) $
+      Map.fromListWith
+        (+)
+        [ (monoToMonomial ctx mono, coeff)
+          | (mono, coeff) <- Map.toList terms,
+            coeff /= 0
+        ]
 
 -- | Convert an MPoly Mono to a NormalForm Monomial.
 -- InverseAtom variables become negative exponents on the original atom.
 monoToMonomial :: GroebnerContext -> Mono -> Monomial
 monoToMonomial ctx (Mono vars) =
-  Monomial $ Map.filter (/= 0) $ Map.fromListWith (+)
-    [ case Map.lookup v (ctxVarToAtom ctx) of
-        Just (InverseAtom orig) -> (orig, negate e)
-        Just atom               -> (atom, e)
-        Nothing                 -> (RatRoot 1 1, 0)  -- shouldn't happen
-    | (v, e) <- Map.toList vars
-    , e /= 0
-    ]
+  Monomial $
+    Map.filter (/= 0) $
+      Map.fromListWith
+        (+)
+        [ case Map.lookup v (ctxVarToAtom ctx) of
+            Just (InverseAtom orig) -> (orig, negate e)
+            Just atom -> (atom, e)
+            Nothing -> (RatRoot 1 1, 0) -- shouldn't happen
+          | (v, e) <- Map.toList vars,
+            e /= 0
+        ]
 
 -- ---------------------------------------------------------------------------
 -- Reduction
@@ -311,12 +365,12 @@ reduceNormExpr :: Strategy -> GroebnerContext -> NormExpr -> NormExpr
 reduceNormExpr strat ctx ne =
   let poly = case strat of
         ClearDenominators -> normExprToMPolyCleared ctx ne
-        InverseVariables  -> normExprToMPolyInverse ctx ne
-        EliminateNested   -> normExprToMPolyInverse ctx ne
+        InverseVariables -> normExprToMPolyInverse ctx ne
+        EliminateNested -> normExprToMPolyInverse ctx ne
       reduced = reduce (ctxBasis ctx) poly
-  in if isZero reduced
-     then normLit 0
-     else mpolyToNormExpr ctx reduced
+   in if isZero reduced
+        then normLit 0
+        else mpolyToNormExpr ctx reduced
 
 -- | Reduce a RadExpr using the default strategy (InverseVariables).
 reduceRadExpr :: RadExpr Rational -> RadExpr Rational
@@ -330,7 +384,7 @@ reduceRadExprWithCtx expr =
       atomList = Set.toList atoms
       ctx = contextFromAtoms InverseVariables atomList
       reduced = reduceNormExpr InverseVariables ctx ne
-  in (ctx, fromNormExpr reduced)
+   in (ctx, fromNormExpr reduced)
 
 -- | Run all three strategies and return the results, sorted by term count
 -- (fewest terms first).  Each result includes the strategy name, term count,
@@ -339,33 +393,33 @@ reduceRadExprAll :: RadExpr Rational -> [(Strategy, Int, RadExpr Rational)]
 reduceRadExprAll expr =
   let ne = toNormExpr expr
       atoms = Set.toList (collectAtomsNE ne)
-      results = [ tryStrategy strat atoms ne | strat <- [ClearDenominators, InverseVariables, EliminateNested] ]
+      results = [tryStrategy strat atoms ne | strat <- [ClearDenominators, InverseVariables, EliminateNested]]
       sorted = sortByTerms results
-  in sorted
+   in sorted
   where
     tryStrategy strat atomList ne =
       let ctx = contextFromAtoms strat atomList
           reduced = reduceNormExpr strat ctx ne
           result = fromNormExpr reduced
           terms = numTerms (unNormExpr reduced)
-      in (strat, terms, result)
+       in (strat, terms, result)
 
     sortByTerms = sortOn (\(_, n, _) -> n)
 
     sortOn f xs = map snd $ sortPairs [(f x, x) | x <- xs]
     sortPairs [] = []
-    sortPairs (p:ps) =
+    sortPairs (p : ps) =
       let (lt, ge) = partition (\(k, _) -> k < fst p) ps
-      in sortPairs lt ++ [p] ++ sortPairs ge
+       in sortPairs lt ++ [p] ++ sortPairs ge
 
     partition _ [] = ([], [])
-    partition p (x:xs) =
+    partition p (x : xs) =
       let (ls, rs) = partition p xs
-      in if p x then (x:ls, rs) else (ls, x:rs)
+       in if p x then (x : ls, rs) else (ls, x : rs)
 
     unNormExpr (NormExpr m) = MPoly $ Map.mapKeys monoToFakeMono m
     monoToFakeMono (Monomial atoms) =
-      Mono $ Map.fromList [(Var i, e) | ((_, e), i) <- zip (Map.toList atoms) [0..]]
+      Mono $ Map.fromList [(Var i, e) | ((_, e), i) <- zip (Map.toList atoms) [0 ..]]
 
 -- | Collect all atoms from a NormExpr, including atoms nested
 -- inside NestedRoot radicands (recursively).
@@ -417,7 +471,8 @@ contextBasis = gbPolys . ctxBasis
 
 pattern InverseAtom :: Atom -> Atom
 pattern InverseAtom a <- NestedRoot 0 (inverseAtomDecode -> Just a)
-  where InverseAtom a = NestedRoot 0 (inverseAtomEncode a)
+  where
+    InverseAtom a = NestedRoot 0 (inverseAtomEncode a)
 
 inverseAtomEncode :: Atom -> RadExpr Rational
 inverseAtomEncode (RatRoot n r) = Root (fromIntegral n) (Lit r)
@@ -427,7 +482,7 @@ inverseAtomEncode (NestedRoot n e) = Root (fromIntegral n) e
 inverseAtomDecode :: RadExpr Rational -> Maybe Atom
 inverseAtomDecode (Root n (Lit r))
   | n == 2 && r == -1 = Just ImagUnit
-  | otherwise         = Just (RatRoot (fromIntegral n) r)
+  | otherwise = Just (RatRoot (fromIntegral n) r)
 inverseAtomDecode (Root n e) = Just (NestedRoot (fromIntegral n) e)
 inverseAtomDecode _ = Nothing
 
@@ -440,5 +495,5 @@ powMPoly :: (Eq k, Num k) => MPoly k -> Int -> MPoly k
 powMPoly _ 0 = constPoly 1
 powMPoly p 1 = p
 powMPoly p n
-  | even n    = let h = powMPoly p (n `div` 2) in mulPoly h h
+  | even n = let h = powMPoly p (n `div` 2) in mulPoly h h
   | otherwise = mulPoly p (powMPoly p (n - 1))

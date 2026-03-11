@@ -15,15 +15,17 @@
 -- number) introduces a new extension layer.
 module Surd.Field.Tower
   ( -- * Tower construction
-    adjoinRoot
-  , adjoinSqrt
-    -- * Evaluation in extension fields
-  , evalInField
-  ) where
+    adjoinRoot,
+    adjoinSqrt,
 
-import Surd.Types
-import Math.Polynomial.Univariate
+    -- * Evaluation in extension fields
+    evalInField,
+  )
+where
+
 import Math.Field.Extension
+import Math.Polynomial.Univariate
+import Surd.Types
 
 -- | Adjoin an nth root to a field: given an element r ∈ K and
 -- a degree n, construct the extension K(α) where α = ⁿ√r.
@@ -34,15 +36,18 @@ import Math.Field.Extension
 -- element just simplifies).
 --
 -- Returns the new field and the element α (the generator).
-adjoinRoot :: (Eq k, Fractional k)
-           => Int         -- ^ root degree n
-           -> k           -- ^ radicand r (element of current field)
-           -> (ExtField k, ExtElem k)
+adjoinRoot ::
+  (Eq k, Fractional k) =>
+  -- | root degree n
+  Int ->
+  -- | radicand r (element of current field)
+  k ->
+  (ExtField k, ExtElem k)
 adjoinRoot n r =
   let -- Minimal polynomial: x^n - r
       minPoly = mkPoly $ [-r] ++ replicate (n - 1) 0 ++ [1]
       field = mkExtField minPoly ("α" ++ show n)
-  in (field, generator field)
+   in (field, generator field)
 
 -- | Convenience: adjoin a square root.
 adjoinSqrt :: (Eq k, Fractional k) => k -> (ExtField k, ExtElem k)
@@ -57,20 +62,24 @@ adjoinSqrt = adjoinRoot 2
 --
 -- For a fixed tower (all radicals already adjoined), use this with
 -- a lookup that maps each radical to its corresponding generator.
-evalInField :: (Eq k, Fractional k)
-            => (Rational -> k)               -- ^ embed a rational
-            -> (Int -> k -> k)               -- ^ resolve Root n x (given evaluated radicand)
-            -> RadExpr Rational -> k
+evalInField ::
+  (Eq k, Fractional k) =>
+  -- | embed a rational
+  (Rational -> k) ->
+  -- | resolve Root n x (given evaluated radicand)
+  (Int -> k -> k) ->
+  RadExpr Rational ->
+  k
 evalInField embedR resolveRoot = go
   where
-    go (Lit r)    = embedR r
-    go (Neg a)    = negate (go a)
-    go (Add a b)  = go a + go b
-    go (Mul a b)  = go a * go b
-    go (Inv a)    = recip (go a)
+    go (Lit r) = embedR r
+    go (Neg a) = negate (go a)
+    go (Add a b) = go a + go b
+    go (Mul a b) = go a * go b
+    go (Inv a) = recip (go a)
     go (Root n a) = resolveRoot n (go a)
     go (Pow a n)
-      | n >= 0    = go a ^ n
+      | n >= 0 = go a ^ n
       | otherwise = recip (go a ^ negate n)
 
 -- | Evaluate a 'RadExpr' in a simple extension Q(α₁,...,αₖ),

@@ -4,28 +4,31 @@
 -- Use "Surd.Radical.Normalize" for simplification.
 module Surd.Radical.Expr
   ( -- * Construction helpers
-    lit
-  , neg
-  , add
-  , sub
-  , mul
-  , div'
-  , inv
-  , root
-  , sqrt'
-  , pow
-  , fromInteger'
-  , fromRational'
+    lit,
+    neg,
+    add,
+    sub,
+    mul,
+    div',
+    inv,
+    root,
+    sqrt',
+    pow,
+    fromInteger',
+    fromRational',
+
     -- * Structural queries
-  , depth
-  , size
-  , freeOf
-  , mapCoeffs
+    depth,
+    size,
+    freeOf,
+    mapCoeffs,
+
     -- * Radical collection and dependency ordering
-  , collectRadicals
-  , topoSortRadicals
-  , allRootsResolved
-  ) where
+    collectRadicals,
+    topoSortRadicals,
+    allRootsResolved,
+  )
+where
 
 import Data.List (nub)
 import Surd.Types
@@ -70,33 +73,33 @@ fromRational' = Lit
 
 -- | Nesting depth of the expression tree.
 depth :: RadExpr k -> Int
-depth (Lit _)    = 0
-depth (Neg a)    = depth a
-depth (Add a b)  = 1 + max (depth a) (depth b)
-depth (Mul a b)  = 1 + max (depth a) (depth b)
-depth (Inv a)    = 1 + depth a
+depth (Lit _) = 0
+depth (Neg a) = depth a
+depth (Add a b) = 1 + max (depth a) (depth b)
+depth (Mul a b) = 1 + max (depth a) (depth b)
+depth (Inv a) = 1 + depth a
 depth (Root _ a) = 1 + depth a
-depth (Pow a _)  = 1 + depth a
+depth (Pow a _) = 1 + depth a
 
 -- | Number of nodes in the expression tree.
 size :: RadExpr k -> Int
-size (Lit _)    = 1
-size (Neg a)    = 1 + size a
-size (Add a b)  = 1 + size a + size b
-size (Mul a b)  = 1 + size a + size b
-size (Inv a)    = 1 + size a
+size (Lit _) = 1
+size (Neg a) = 1 + size a
+size (Add a b) = 1 + size a + size b
+size (Mul a b) = 1 + size a + size b
+size (Inv a) = 1 + size a
 size (Root _ a) = 1 + size a
-size (Pow a _)  = 1 + size a
+size (Pow a _) = 1 + size a
 
 -- | Check if the expression contains no occurrences of 'Root'.
 freeOf :: (k -> Bool) -> RadExpr k -> Bool
-freeOf p (Lit k)    = p k
-freeOf p (Neg a)    = freeOf p a
-freeOf p (Add a b)  = freeOf p a && freeOf p b
-freeOf p (Mul a b)  = freeOf p a && freeOf p b
-freeOf p (Inv a)    = freeOf p a
+freeOf p (Lit k) = p k
+freeOf p (Neg a) = freeOf p a
+freeOf p (Add a b) = freeOf p a && freeOf p b
+freeOf p (Mul a b) = freeOf p a && freeOf p b
+freeOf p (Inv a) = freeOf p a
 freeOf p (Root _ a) = freeOf p a
-freeOf p (Pow a _)  = freeOf p a
+freeOf p (Pow a _) = freeOf p a
 
 -- | Map a function over the coefficients (same as 'fmap' but with
 -- a more descriptive name for the domain).
@@ -104,35 +107,35 @@ mapCoeffs :: (a -> b) -> RadExpr a -> RadExpr b
 mapCoeffs = fmap
 
 -- | Collect distinct @(rootIndex, radicand)@ pairs from an expression.
-collectRadicals :: Eq k => RadExpr k -> [(Int, RadExpr k)]
+collectRadicals :: (Eq k) => RadExpr k -> [(Int, RadExpr k)]
 collectRadicals = nub . go
   where
-    go (Lit _)    = []
-    go (Neg a)    = go a
-    go (Add a b)  = go a ++ go b
-    go (Mul a b)  = go a ++ go b
-    go (Inv a)    = go a
-    go (Pow a _)  = go a
+    go (Lit _) = []
+    go (Neg a) = go a
+    go (Add a b) = go a ++ go b
+    go (Mul a b) = go a ++ go b
+    go (Inv a) = go a
+    go (Pow a _) = go a
     go (Root n a) = go a ++ [(n, a)]
 
 -- | Topologically sort radicals so that radicals with rational radicands
 -- come first, followed by radicals whose radicands depend only on
 -- earlier radicals. Unresolvable radicals (cyclic dependencies) are
 -- appended at the end.
-topoSortRadicals :: Eq k => [(Int, RadExpr k)] -> [(Int, RadExpr k)]
-topoSortRadicals rads = go [] rads
+topoSortRadicals :: (Eq k) => [(Int, RadExpr k)] -> [(Int, RadExpr k)]
+topoSortRadicals = go []
   where
     go sorted [] = sorted
     go sorted remaining =
       let ready = [r | r <- remaining, allRootsResolved sorted (snd r)]
           remaining' = filter (`notElem` ready) remaining
-      in if null ready
-         then sorted ++ remaining  -- can't resolve more; append as-is
-         else go (sorted ++ ready) remaining'
+       in if null ready
+            then sorted ++ remaining -- can't resolve more; append as-is
+            else go (sorted ++ ready) remaining'
 
 -- | Check whether all 'Root' subexpressions in a radicand are present
 -- in the resolved set.
-allRootsResolved :: Eq k => [(Int, RadExpr k)] -> RadExpr k -> Bool
+allRootsResolved :: (Eq k) => [(Int, RadExpr k)] -> RadExpr k -> Bool
 allRootsResolved _ (Lit _) = True
 allRootsResolved resolved (Neg a) = allRootsResolved resolved a
 allRootsResolved resolved (Add a b) = allRootsResolved resolved a && allRootsResolved resolved b

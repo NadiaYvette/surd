@@ -14,26 +14,32 @@
 -- it computes resultants of degree-6+ polynomials at every Add/Mul node.
 -- The tower approach identifies 2-3 radicals and does 2-3 small resultants.
 module Surd.Polynomial.MinimalPolyTower
-  ( minimalPolyTower
-  , annihilatingPolyTower
-  , collectRadicals
-  ) where
+  ( minimalPolyTower,
+    annihilatingPolyTower,
+    collectRadicals,
+  )
+where
 
-import Surd.Types
-import Math.Polynomial.Univariate
+import Data.Complex (realPart)
+import Math.Field.Extension
+import Math.Internal.PSLQ (findMinPoly)
 import Math.Polynomial.Factoring (factorSquareFree)
 import Math.Polynomial.Resultant
-  ( polyResultant, lagrangeInterpolate, negateVar, reciprocalPoly
-  , substituteXN, composedSum, composedProduct )
+  ( composedProduct,
+    composedSum,
+    lagrangeInterpolate,
+    negateVar,
+    polyResultant,
+    reciprocalPoly,
+    substituteXN,
+  )
 import Math.Polynomial.RootBound (approxRoots)
-import Math.Field.Extension
-import Data.Complex (realPart)
+import Math.Polynomial.Univariate
 import Surd.Radical.Eval (evalComplex)
-import Math.Internal.PSLQ (findMinPoly)
+import Surd.Radical.Expr (allRootsResolved, topoSortRadicals)
+import Surd.Radical.Expr qualified as Expr
 import Surd.Radical.Normalize (normalize)
-import Surd.Radical.Expr (topoSortRadicals, allRootsResolved)
-import qualified Surd.Radical.Expr as Expr
-
+import Surd.Types
 
 -- | Compute the minimal polynomial of a radical expression over Q,
 -- using the extension tower approach.
@@ -42,9 +48,9 @@ minimalPolyTower expr =
   let ann = annihilatingPolyTower expr
       v = realPart (evalComplex expr)
       factors = factorSquareFree (monicPoly ann)
-  in case factors of
-       [] -> ann
-       _  -> monicPoly $ pickClosest v factors
+   in case factors of
+        [] -> ann
+        _ -> monicPoly $ pickClosest v factors
 
 -- | Compute an annihilating polynomial (not necessarily minimal) via
 -- the extension tower approach.
@@ -52,15 +58,15 @@ annihilatingPolyTower :: RadExpr Rational -> Poly Rational
 annihilatingPolyTower expr =
   let expr' = normalize expr
       radicals = collectRadicals expr'
-  in case radicals of
-       [] ->
-         -- Expression is purely rational
-         case evalRational expr' of
-           Just r  -> mkPoly [-r, 1]
-           Nothing -> error "annihilatingPolyTower: no radicals but not rational?"
-       _ ->
-         -- Build tower and compute
-         computeViaTower expr' radicals
+   in case radicals of
+        [] ->
+          -- Expression is purely rational
+          case evalRational expr' of
+            Just r -> mkPoly [-r, 1]
+            Nothing -> error "annihilatingPolyTower: no radicals but not rational?"
+        _ ->
+          -- Build tower and compute
+          computeViaTower expr' radicals
 
 -- | Collect all distinct radical subexpressions, ordered leaves-first.
 -- Each entry is (root degree, radicand expression).
@@ -71,12 +77,12 @@ collectRadicals = Expr.collectRadicals . normalize
 
 -- | Try to evaluate a RadExpr as a pure rational (no radicals).
 evalRational :: RadExpr Rational -> Maybe Rational
-evalRational (Lit r)    = Just r
-evalRational (Neg a)    = negate <$> evalRational a
-evalRational (Add a b)  = (+) <$> evalRational a <*> evalRational b
-evalRational (Mul a b)  = (*) <$> evalRational a <*> evalRational b
-evalRational (Inv a)    = recip <$> evalRational a
-evalRational (Pow a n)  = (^^ n) <$> evalRational a
+evalRational (Lit r) = Just r
+evalRational (Neg a) = negate <$> evalRational a
+evalRational (Add a b) = (+) <$> evalRational a <*> evalRational b
+evalRational (Mul a b) = (*) <$> evalRational a <*> evalRational b
+evalRational (Inv a) = recip <$> evalRational a
+evalRational (Pow a n) = (^^ n) <$> evalRational a
 evalRational (Root _ _) = Nothing
 
 -- | Build the tower, evaluate the expression, and compute the
@@ -85,12 +91,13 @@ computeViaTower :: RadExpr Rational -> [(Int, RadExpr Rational)] -> Poly Rationa
 computeViaTower expr radicals =
   case length radicals of
     0 -> error "computeViaTower: no radicals"
-    _ | length radicals > 3 ->
-        -- For many radicals, try numerical approach first (much faster)
-        let towerDeg = product (map fst radicals)
-        in case numericMinPoly expr towerDeg of
-             Just p  -> p
-             Nothing -> computeIterative expr radicals
+    _
+      | length radicals > 3 ->
+          -- For many radicals, try numerical approach first (much faster)
+          let towerDeg = product (map fst radicals)
+           in case numericMinPoly expr towerDeg of
+                Just p -> p
+                Nothing -> computeIterative expr radicals
       | otherwise -> computeIterative expr radicals
 
 -- | Iterative computation using a single level of ExtElem at a time.
@@ -106,17 +113,23 @@ computeIterative :: RadExpr Rational -> [(Int, RadExpr Rational)] -> Poly Ration
 computeIterative expr radicals =
   -- Build mapping from radical to its position
   let numRads = length radicals
-  in if numRads == 1
-     then case radicals of
-            (r1:_) -> computeDepth1 expr r1
-            _      -> error "impossible"
-     else if numRads == 2
-     then computeDepth2 expr (radicals !! 0) (radicals !! 1)
-     else if numRads == 3
-     then computeDepth3 expr (radicals !! 0) (radicals !! 1) (radicals !! 2)
-     else -- For deeper towers, fall back to pairwise resultant
-          -- (still better than per-node because we share radicals)
-          computeDeepFallback expr radicals
+   in if numRads == 1
+        then case radicals of
+          (r1 : _) -> computeDepth1 expr r1
+          _ -> error "impossible"
+        else
+          if numRads == 2
+            then case radicals of
+              (r1 : r2 : _) -> computeDepth2 expr r1 r2
+              _ -> error "impossible"
+            else
+              if numRads == 3
+                then case radicals of
+                  (r1 : r2 : r3 : _) -> computeDepth3 expr r1 r2 r3
+                  _ -> error "impossible"
+                else -- For deeper towers, fall back to pairwise resultant
+                -- (still better than per-node because we share radicals)
+                  computeDeepFallback expr radicals
 
 -- | Depth 1: one radical. Q(α) where α = ⁿ√r.
 computeDepth1 :: RadExpr Rational -> (Int, RadExpr Rational) -> Poly Rational
@@ -132,14 +145,15 @@ computeDepth1 expr (n, radicand) =
           elem' = evalInExt field alpha (n, radicand) expr
           -- f(x) = x - elem
           fPoly = mkPolyExt field [negate elem', embed field 1]
-          -- Norm: Res_t(minpoly(t), f(x, t))
-      in normDown1 field fPoly
+       in -- Norm: Res_t(minpoly(t), f(x, t))
+          normDown1 field fPoly
 
 -- | Depth 2: two radicals. Inner α₁ = ⁿ¹√r₁, outer α₂ = ⁿ²√r₂(α₁).
-computeDepth2 :: RadExpr Rational
-              -> (Int, RadExpr Rational)  -- inner radical
-              -> (Int, RadExpr Rational)  -- outer radical
-              -> Poly Rational
+computeDepth2 ::
+  RadExpr Rational ->
+  (Int, RadExpr Rational) -> -- inner radical
+  (Int, RadExpr Rational) -> -- outer radical
+  Poly Rational
 computeDepth2 expr rad1@(n1, radicand1) rad2@(n2, radicand2) =
   case evalRational radicand1 of
     Nothing -> error "computeDepth2: inner radicand not rational"
@@ -160,16 +174,17 @@ computeDepth2 expr rad1@(n1, radicand1) rad2@(n2, radicand2) =
           elem' = evalInExt2 field1 field2 alpha1Lifted alpha2 rad1 rad2 expr
           -- f(x) = x - elem in Q(α₁)(α₂)[x]
           fPoly2 = mkPoly [negate elem', embed field2 (embed field1 1)]
-          -- Norm down: level 2 gives Poly (ExtElem Rational),
+       in -- Norm down: level 2 gives Poly (ExtElem Rational),
           -- then level 1 gives Poly Rational.
-      in normDown1 field1 (normDown1 field2 fPoly2)
+          normDown1 field1 (normDown1 field2 fPoly2)
 
 -- | Depth 3: three radicals.
-computeDepth3 :: RadExpr Rational
-              -> (Int, RadExpr Rational)
-              -> (Int, RadExpr Rational)
-              -> (Int, RadExpr Rational)
-              -> Poly Rational
+computeDepth3 ::
+  RadExpr Rational ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  Poly Rational
 computeDepth3 expr rad1@(n1, radicand1) rad2@(n2, radicand2) rad3@(n3, radicand3) =
   case evalRational radicand1 of
     Nothing -> error "computeDepth3: innermost radicand not rational"
@@ -193,7 +208,7 @@ computeDepth3 expr rad1@(n1, radicand1) rad2@(n2, radicand2) rad3@(n3, radicand3
 
           elem' = evalInExt3 field1 field2 field3 alpha1InF3 alpha2InF3 alpha3 rad1 rad2 rad3 expr
           fPoly3 = mkPoly [negate elem', embed field3 (embed field2 (embed field1 1))]
-      in normDown1 field1 (normDown1 field2 (normDown1 field3 fPoly3))
+       in normDown1 field1 (normDown1 field2 (normDown1 field3 fPoly3))
 
 -- | Fallback for depth > 3: build a dependency chain of radicals.
 -- A radical R₂ "depends on" R₁ if R₁'s radicand contains R₁.
@@ -204,14 +219,14 @@ computeDeepFallback expr radicals =
   -- Build a dependency chain: start with leaf radicals (rational radicands),
   -- then add radicals whose radicands only involve previously-added radicals.
   case buildChain radicals of
-    []                       -> simpleAnnihilating expr
-    [r1]                     -> computeDepth1 expr r1
-    [r1, r2]                 -> computeDepth2 expr r1 r2
-    [r1, r2, r3]             -> computeDepth3 expr r1 r2 r3
-    [r1, r2, r3, r4]         -> computeDepth4 expr r1 r2 r3 r4
-    [r1, r2, r3, r4, r5]     -> computeDepth5 expr r1 r2 r3 r4 r5
+    [] -> simpleAnnihilating expr
+    [r1] -> computeDepth1 expr r1
+    [r1, r2] -> computeDepth2 expr r1 r2
+    [r1, r2, r3] -> computeDepth3 expr r1 r2 r3
+    [r1, r2, r3, r4] -> computeDepth4 expr r1 r2 r3 r4
+    [r1, r2, r3, r4, r5] -> computeDepth5 expr r1 r2 r3 r4 r5
     [r1, r2, r3, r4, r5, r6] -> computeDepth6 expr r1 r2 r3 r4 r5 r6
-    _                        -> simpleAnnihilating expr  -- truly deep tower, fallback
+    _ -> simpleAnnihilating expr -- truly deep tower, fallback
 
 -- | Build dependency chain: order radicals so that each radical's
 -- radicand only uses radicals earlier in the chain.
@@ -224,9 +239,9 @@ buildChain = dropUnresolved . topoSortRadicals
     -- drop them by keeping only the resolved prefix.
     dropUnresolved = go []
     go resolved [] = resolved
-    go resolved (r:rs)
+    go resolved (r : rs)
       | allRootsResolved resolved (snd r) = go (resolved ++ [r]) rs
-      | otherwise                         = resolved
+      | otherwise = resolved
 
 -- | Simple annihilating polynomial (non-tower, for fallback).
 -- Same as the original annihilatingPoly but defined here to avoid circular imports.
@@ -234,7 +249,7 @@ simpleAnnihilating :: RadExpr Rational -> Poly Rational
 simpleAnnihilating (Lit r) = mkPoly [-r, 1]
 simpleAnnihilating (Neg e) =
   let p = simpleAnnihilating e
-  in negateVar p
+   in negateVar p
 simpleAnnihilating (Add a b) =
   composedSum (simpleAnnihilating a) (simpleAnnihilating b)
 simpleAnnihilating (Mul a b) =
@@ -253,8 +268,11 @@ simpleAnnihilating (Pow e n)
 -- N(x) = Res_t(m(t), f_lifted(x, t)) ∈ K[x].
 --
 -- Uses evaluation+interpolation: evaluate at deg(f)*deg(m)+1 points.
-normDown1 :: (Eq k, Fractional k)
-          => ExtField k -> Poly (ExtElem k) -> Poly k
+normDown1 ::
+  (Eq k, Fractional k) =>
+  ExtField k ->
+  Poly (ExtElem k) ->
+  Poly k
 normDown1 field f =
   let df = degree f
       dm = extDegree field
@@ -264,9 +282,9 @@ normDown1 field f =
       -- at rational points. But x₀ must be in k, not necessarily Rational.
       -- For k = Rational, we use fromInteger.
       -- For k = ExtElem Rational, we use fromInteger (which embeds via sentinel).
-      points = [fromInteger i | i <- [0..fromIntegral resultDeg]]
+      points = [fromInteger i | i <- [0 .. fromIntegral resultDeg]]
       values = [polyResultant m (evalPolyExt f x0) | (x0 :: k) <- points]
-  in lagrangeInterpolate (zip points values)
+   in lagrangeInterpolate (zip points values)
 
 -- | Evaluate f(x₀) where f has ExtElem coefficients and x₀ is in the base field.
 -- Returns the result as a Poly k (the element's polynomial representation),
@@ -277,97 +295,113 @@ evalPolyExt (Poly cs) x0 =
   -- f(x₀) = c_0 + c_1*x₀ + c_2*x₀² + ...
   -- Each c_i is an ExtElem k = polynomial in α
   -- f(x₀) is also a polynomial in α
-  let result = foldl (\acc (i, ExtElem p _) ->
-                 addPoly acc (scalePoly (x0 ^ i) p))
-               zeroPoly
-               (zip [0 :: Int ..] cs)
-  in result
+  let result =
+        foldl
+          ( \acc (i, ExtElem p _) ->
+              addPoly acc (scalePoly (x0 ^ i) p)
+          )
+          zeroPoly
+          (zip [0 :: Int ..] cs)
+   in result
 
 -- | Evaluate a RadExpr in Q(α) given one radical.
-evalInExt :: ExtField Rational
-          -> ExtElem Rational   -- α (the generator)
-          -> (Int, RadExpr Rational)  -- the radical this α represents
-          -> RadExpr Rational   -- expression to evaluate
-          -> ExtElem Rational
+evalInExt ::
+  ExtField Rational ->
+  ExtElem Rational -> -- α (the generator)
+  (Int, RadExpr Rational) -> -- the radical this α represents
+  RadExpr Rational -> -- expression to evaluate
+  ExtElem Rational
 evalInExt field alpha rad = go
   where
-    go (Lit r)    = embed field r
-    go (Neg a)    = negate (go a)
-    go (Add a b)  = go a + go b
-    go (Mul a b)  = go a * go b
-    go (Inv a)    = recip (go a)
-    go (Root n a) = if (n, a) == rad then alpha
-                    else error $ "evalInExt: unexpected radical Root " ++ show n
+    go (Lit r) = embed field r
+    go (Neg a) = negate (go a)
+    go (Add a b) = go a + go b
+    go (Mul a b) = go a * go b
+    go (Inv a) = recip (go a)
+    go (Root n a) =
+      if (n, a) == rad
+        then alpha
+        else error $ "evalInExt: unexpected radical Root " ++ show n
     go (Pow a n)
-      | n >= 0    = go a ^ n
+      | n >= 0 = go a ^ n
       | otherwise = recip (go a ^ negate n)
 
 -- | Evaluate a RadExpr in Q(α₁)(α₂) given two radicals.
-evalInExt2 :: ExtField Rational
-           -> ExtField (ExtElem Rational)
-           -> ExtElem (ExtElem Rational)  -- α₁ lifted
-           -> ExtElem (ExtElem Rational)  -- α₂
-           -> (Int, RadExpr Rational)     -- radical 1
-           -> (Int, RadExpr Rational)     -- radical 2
-           -> RadExpr Rational
-           -> ExtElem (ExtElem Rational)
+evalInExt2 ::
+  ExtField Rational ->
+  ExtField (ExtElem Rational) ->
+  ExtElem (ExtElem Rational) -> -- α₁ lifted
+  ExtElem (ExtElem Rational) -> -- α₂
+  (Int, RadExpr Rational) -> -- radical 1
+  (Int, RadExpr Rational) -> -- radical 2
+  RadExpr Rational ->
+  ExtElem (ExtElem Rational)
 evalInExt2 field1 field2 alpha1 alpha2 rad1 rad2 = go
   where
-    go (Lit r)    = embed field2 (embed field1 r)
-    go (Neg a)    = negate (go a)
-    go (Add a b)  = go a + go b
-    go (Mul a b)  = go a * go b
-    go (Inv a)    = recip (go a)
+    go (Lit r) = embed field2 (embed field1 r)
+    go (Neg a) = negate (go a)
+    go (Add a b) = go a + go b
+    go (Mul a b) = go a * go b
+    go (Inv a) = recip (go a)
     go (Root n a)
       | (n, a) == rad1 = alpha1
       | (n, a) == rad2 = alpha2
-      | otherwise = error $ "evalInExt2: unexpected radical"
+      | otherwise = error "evalInExt2: unexpected radical"
     go (Pow a n)
-      | n >= 0    = go a ^ n
+      | n >= 0 = go a ^ n
       | otherwise = recip (go a ^ negate n)
 
 -- | Evaluate a RadExpr in Q(α₁)(α₂)(α₃) given three radicals.
-evalInExt3 :: ExtField Rational
-           -> ExtField (ExtElem Rational)
-           -> ExtField (ExtElem (ExtElem Rational))
-           -> ExtElem (ExtElem (ExtElem Rational))  -- α₁
-           -> ExtElem (ExtElem (ExtElem Rational))  -- α₂
-           -> ExtElem (ExtElem (ExtElem Rational))  -- α₃
-           -> (Int, RadExpr Rational)
-           -> (Int, RadExpr Rational)
-           -> (Int, RadExpr Rational)
-           -> RadExpr Rational
-           -> ExtElem (ExtElem (ExtElem Rational))
+evalInExt3 ::
+  ExtField Rational ->
+  ExtField (ExtElem Rational) ->
+  ExtField (ExtElem (ExtElem Rational)) ->
+  ExtElem (ExtElem (ExtElem Rational)) -> -- α₁
+  ExtElem (ExtElem (ExtElem Rational)) -> -- α₂
+  ExtElem (ExtElem (ExtElem Rational)) -> -- α₃
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  RadExpr Rational ->
+  ExtElem (ExtElem (ExtElem Rational))
 evalInExt3 field1 _field2 _field3 alpha1 alpha2 alpha3 rad1 rad2 rad3 = go
   where
     one = embed _field3 (embed _field2 (embed field1 1))
-    go (Lit r)    = fromRational r * one
-    go (Neg a)    = negate (go a)
-    go (Add a b)  = go a + go b
-    go (Mul a b)  = go a * go b
-    go (Inv a)    = recip (go a)
+    go (Lit r) = fromRational r * one
+    go (Neg a) = negate (go a)
+    go (Add a b) = go a + go b
+    go (Mul a b) = go a * go b
+    go (Inv a) = recip (go a)
     go (Root n a)
       | (n, a) == rad1 = alpha1
       | (n, a) == rad2 = alpha2
       | (n, a) == rad3 = alpha3
       | otherwise = error "evalInExt3: unexpected radical"
     go (Pow a n)
-      | n >= 0    = go a ^ n
+      | n >= 0 = go a ^ n
       | otherwise = recip (go a ^ negate n)
 
 -- Type aliases for readability
 type E1 = ExtElem Rational
+
 type E2 = ExtElem E1
+
 type E3 = ExtElem E2
+
 type E4 = ExtElem E3
+
 type E5 = ExtElem E4
+
 type E6 = ExtElem E5
 
 -- | Depth 4: four radicals.
-computeDepth4 :: RadExpr Rational
-              -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-              -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-              -> Poly Rational
+computeDepth4 ::
+  RadExpr Rational ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  Poly Rational
 computeDepth4 expr rad1@(n1, radicand1) rad2@(n2, radicand2) rad3@(n3, radicand3) rad4@(n4, radicand4) =
   case evalRational radicand1 of
     Nothing -> error "computeDepth4: innermost radicand not rational"
@@ -397,44 +431,79 @@ computeDepth4 expr rad1@(n1, radicand1) rad2@(n2, radicand2) rad3@(n3, radicand3
           alpha2InF4 = embed field4 (embed field3 alpha2)
           alpha3InF4 = embed field4 alpha3
 
-          elem' = evalInExt4 field1 field2 field3 field4
-                    alpha1InF4 alpha2InF4 alpha3InF4 alpha4
-                    rad1 rad2 rad3 rad4 expr
+          elem' =
+            evalInExt4
+              field1
+              field2
+              field3
+              field4
+              alpha1InF4
+              alpha2InF4
+              alpha3InF4
+              alpha4
+              rad1
+              rad2
+              rad3
+              rad4
+              expr
           fPoly4 = mkPoly [negate elem', embed field4 (embed field3 (embed field2 (embed field1 1)))]
-      in normDown1 field1 (normDown1 field2 (normDown1 field3 (normDown1 field4 fPoly4)))
+       in normDown1 field1 (normDown1 field2 (normDown1 field3 (normDown1 field4 fPoly4)))
 
 -- | Evaluate a RadExpr in Q(α₁)(α₂)(α₃)(α₄) given four radicals.
-evalInExt4 :: ExtField Rational -> ExtField E1 -> ExtField E2 -> ExtField E3
-           -> E4 -> E4 -> E4 -> E4
-           -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-           -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-           -> RadExpr Rational -> E4
-evalInExt4 field1 field2 field3 field4
-           alpha1 alpha2 alpha3 alpha4
-           rad1 rad2 rad3 rad4 = go
-  where
-    one = embed field4 (embed field3 (embed field2 (embed field1 1)))
-    go (Lit r)    = fromRational r * one
-    go (Neg a)    = negate (go a)
-    go (Add a b)  = go a + go b
-    go (Mul a b)  = go a * go b
-    go (Inv a)    = recip (go a)
-    go (Root n a)
-      | (n, a) == rad1 = alpha1
-      | (n, a) == rad2 = alpha2
-      | (n, a) == rad3 = alpha3
-      | (n, a) == rad4 = alpha4
-      | otherwise = error "evalInExt4: unexpected radical"
-    go (Pow a n)
-      | n >= 0    = go a ^ n
-      | otherwise = recip (go a ^ negate n)
+evalInExt4 ::
+  ExtField Rational ->
+  ExtField E1 ->
+  ExtField E2 ->
+  ExtField E3 ->
+  E4 ->
+  E4 ->
+  E4 ->
+  E4 ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  RadExpr Rational ->
+  E4
+evalInExt4
+  field1
+  field2
+  field3
+  field4
+  alpha1
+  alpha2
+  alpha3
+  alpha4
+  rad1
+  rad2
+  rad3
+  rad4 = go
+    where
+      one = embed field4 (embed field3 (embed field2 (embed field1 1)))
+      go (Lit r) = fromRational r * one
+      go (Neg a) = negate (go a)
+      go (Add a b) = go a + go b
+      go (Mul a b) = go a * go b
+      go (Inv a) = recip (go a)
+      go (Root n a)
+        | (n, a) == rad1 = alpha1
+        | (n, a) == rad2 = alpha2
+        | (n, a) == rad3 = alpha3
+        | (n, a) == rad4 = alpha4
+        | otherwise = error "evalInExt4: unexpected radical"
+      go (Pow a n)
+        | n >= 0 = go a ^ n
+        | otherwise = recip (go a ^ negate n)
 
 -- | Depth 5: five radicals.
-computeDepth5 :: RadExpr Rational
-              -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-              -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-              -> (Int, RadExpr Rational)
-              -> Poly Rational
+computeDepth5 ::
+  RadExpr Rational ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  Poly Rational
 computeDepth5 expr rad1@(n1, radicand1) rad2@(n2, radicand2) rad3@(n3, radicand3) rad4@(n4, radicand4) rad5@(n5, radicand5) =
   case evalRational radicand1 of
     Nothing -> error "computeDepth5: innermost radicand not rational"
@@ -464,9 +533,21 @@ computeDepth5 expr rad1@(n1, radicand1) rad2@(n2, radicand2) rad3@(n3, radicand3
           alpha2InF4 = embed field4 (embed field3 alpha2)
           alpha3InF4 = embed field4 alpha3
 
-          r5InF4 = evalInExt4 field1 field2 field3 field4
-                     alpha1InF4 alpha2InF4 alpha3InF4 alpha4
-                     rad1 rad2 rad3 rad4 radicand5
+          r5InF4 =
+            evalInExt4
+              field1
+              field2
+              field3
+              field4
+              alpha1InF4
+              alpha2InF4
+              alpha3InF4
+              alpha4
+              rad1
+              rad2
+              rad3
+              rad4
+              radicand5
           mp5 = mkPoly $ [negate r5InF4] ++ replicate (n5 - 1) 0 ++ [embed field4 (embed field3 (embed field2 (embed field1 1)))]
           field5 = mkExtField mp5 "α₅"
           alpha5 = generator field5
@@ -475,46 +556,90 @@ computeDepth5 expr rad1@(n1, radicand1) rad2@(n2, radicand2) rad3@(n3, radicand3
           alpha3InF5 = embed field5 (embed field4 alpha3)
           alpha4InF5 = embed field5 alpha4
 
-          elem' = evalInExt5 field1 field2 field3 field4 field5
-                    alpha1InF5 alpha2InF5 alpha3InF5 alpha4InF5 alpha5
-                    rad1 rad2 rad3 rad4 rad5 expr
+          elem' =
+            evalInExt5
+              field1
+              field2
+              field3
+              field4
+              field5
+              alpha1InF5
+              alpha2InF5
+              alpha3InF5
+              alpha4InF5
+              alpha5
+              rad1
+              rad2
+              rad3
+              rad4
+              rad5
+              expr
           fPoly5 = mkPoly [negate elem', embed field5 (embed field4 (embed field3 (embed field2 (embed field1 1))))]
-      in normDown1 field1 (normDown1 field2 (normDown1 field3 (normDown1 field4 (normDown1 field5 fPoly5))))
+       in normDown1 field1 (normDown1 field2 (normDown1 field3 (normDown1 field4 (normDown1 field5 fPoly5))))
 
 -- | Evaluate a RadExpr in Q(α₁)(α₂)(α₃)(α₄)(α₅) given five radicals.
-evalInExt5 :: ExtField Rational -> ExtField E1 -> ExtField E2 -> ExtField E3 -> ExtField E4
-           -> E5 -> E5 -> E5 -> E5 -> E5
-           -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-           -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-           -> (Int, RadExpr Rational)
-           -> RadExpr Rational -> E5
-evalInExt5 field1 field2 field3 field4 field5
-           alpha1 alpha2 alpha3 alpha4 alpha5
-           rad1 rad2 rad3 rad4 rad5 = go
-  where
-    one = embed field5 (embed field4 (embed field3 (embed field2 (embed field1 1))))
-    go (Lit r)    = fromRational r * one
-    go (Neg a)    = negate (go a)
-    go (Add a b)  = go a + go b
-    go (Mul a b)  = go a * go b
-    go (Inv a)    = recip (go a)
-    go (Root n a)
-      | (n, a) == rad1 = alpha1
-      | (n, a) == rad2 = alpha2
-      | (n, a) == rad3 = alpha3
-      | (n, a) == rad4 = alpha4
-      | (n, a) == rad5 = alpha5
-      | otherwise = error "evalInExt5: unexpected radical"
-    go (Pow a n)
-      | n >= 0    = go a ^ n
-      | otherwise = recip (go a ^ negate n)
+evalInExt5 ::
+  ExtField Rational ->
+  ExtField E1 ->
+  ExtField E2 ->
+  ExtField E3 ->
+  ExtField E4 ->
+  E5 ->
+  E5 ->
+  E5 ->
+  E5 ->
+  E5 ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  RadExpr Rational ->
+  E5
+evalInExt5
+  field1
+  field2
+  field3
+  field4
+  field5
+  alpha1
+  alpha2
+  alpha3
+  alpha4
+  alpha5
+  rad1
+  rad2
+  rad3
+  rad4
+  rad5 = go
+    where
+      one = embed field5 (embed field4 (embed field3 (embed field2 (embed field1 1))))
+      go (Lit r) = fromRational r * one
+      go (Neg a) = negate (go a)
+      go (Add a b) = go a + go b
+      go (Mul a b) = go a * go b
+      go (Inv a) = recip (go a)
+      go (Root n a)
+        | (n, a) == rad1 = alpha1
+        | (n, a) == rad2 = alpha2
+        | (n, a) == rad3 = alpha3
+        | (n, a) == rad4 = alpha4
+        | (n, a) == rad5 = alpha5
+        | otherwise = error "evalInExt5: unexpected radical"
+      go (Pow a n)
+        | n >= 0 = go a ^ n
+        | otherwise = recip (go a ^ negate n)
 
 -- | Depth 6: six radicals.
-computeDepth6 :: RadExpr Rational
-              -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-              -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-              -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-              -> Poly Rational
+computeDepth6 ::
+  RadExpr Rational ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  Poly Rational
 computeDepth6 expr rad1@(n1, radicand1) rad2@(n2, radicand2) rad3@(n3, radicand3) rad4@(n4, radicand4) rad5@(n5, radicand5) rad6@(n6, radicand6) =
   case evalRational radicand1 of
     Nothing -> error "computeDepth6: innermost radicand not rational"
@@ -544,9 +669,21 @@ computeDepth6 expr rad1@(n1, radicand1) rad2@(n2, radicand2) rad3@(n3, radicand3
           alpha2InF4 = embed field4 (embed field3 alpha2)
           alpha3InF4 = embed field4 alpha3
 
-          r5InF4 = evalInExt4 field1 field2 field3 field4
-                     alpha1InF4 alpha2InF4 alpha3InF4 alpha4
-                     rad1 rad2 rad3 rad4 radicand5
+          r5InF4 =
+            evalInExt4
+              field1
+              field2
+              field3
+              field4
+              alpha1InF4
+              alpha2InF4
+              alpha3InF4
+              alpha4
+              rad1
+              rad2
+              rad3
+              rad4
+              radicand5
           mp5 = mkPoly $ [negate r5InF4] ++ replicate (n5 - 1) 0 ++ [embed field4 (embed field3 (embed field2 (embed field1 1)))]
           field5 = mkExtField mp5 "α₅"
           alpha5 = generator field5
@@ -555,9 +692,24 @@ computeDepth6 expr rad1@(n1, radicand1) rad2@(n2, radicand2) rad3@(n3, radicand3
           alpha3InF5 = embed field5 (embed field4 alpha3)
           alpha4InF5 = embed field5 alpha4
 
-          r6InF5 = evalInExt5 field1 field2 field3 field4 field5
-                     alpha1InF5 alpha2InF5 alpha3InF5 alpha4InF5 alpha5
-                     rad1 rad2 rad3 rad4 rad5 radicand6
+          r6InF5 =
+            evalInExt5
+              field1
+              field2
+              field3
+              field4
+              field5
+              alpha1InF5
+              alpha2InF5
+              alpha3InF5
+              alpha4InF5
+              alpha5
+              rad1
+              rad2
+              rad3
+              rad4
+              rad5
+              radicand6
           mp6 = mkPoly $ [negate r6InF5] ++ replicate (n6 - 1) 0 ++ [embed field5 (embed field4 (embed field3 (embed field2 (embed field1 1))))]
           field6 = mkExtField mp6 "α₆"
           alpha6 = generator field6
@@ -567,40 +719,89 @@ computeDepth6 expr rad1@(n1, radicand1) rad2@(n2, radicand2) rad3@(n3, radicand3
           alpha4InF6 = embed field6 (embed field5 alpha4)
           alpha5InF6 = embed field6 alpha5
 
-          elem' = evalInExt6 field1 field2 field3 field4 field5 field6
-                    alpha1InF6 alpha2InF6 alpha3InF6 alpha4InF6 alpha5InF6 alpha6
-                    rad1 rad2 rad3 rad4 rad5 rad6 expr
+          elem' =
+            evalInExt6
+              field1
+              field2
+              field3
+              field4
+              field5
+              field6
+              alpha1InF6
+              alpha2InF6
+              alpha3InF6
+              alpha4InF6
+              alpha5InF6
+              alpha6
+              rad1
+              rad2
+              rad3
+              rad4
+              rad5
+              rad6
+              expr
           fPoly6 = mkPoly [negate elem', embed field6 (embed field5 (embed field4 (embed field3 (embed field2 (embed field1 1)))))]
-      in normDown1 field1 (normDown1 field2 (normDown1 field3 (normDown1 field4 (normDown1 field5 (normDown1 field6 fPoly6)))))
+       in normDown1 field1 (normDown1 field2 (normDown1 field3 (normDown1 field4 (normDown1 field5 (normDown1 field6 fPoly6)))))
 
 -- | Evaluate a RadExpr in Q(α₁)(α₂)(α₃)(α₄)(α₅)(α₆) given six radicals.
-evalInExt6 :: ExtField Rational -> ExtField E1 -> ExtField E2 -> ExtField E3 -> ExtField E4 -> ExtField E5
-           -> E6 -> E6 -> E6 -> E6 -> E6 -> E6
-           -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-           -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-           -> (Int, RadExpr Rational) -> (Int, RadExpr Rational)
-           -> RadExpr Rational -> E6
-evalInExt6 field1 field2 field3 field4 field5 field6
-           alpha1 alpha2 alpha3 alpha4 alpha5 alpha6
-           rad1 rad2 rad3 rad4 rad5 rad6 = go
-  where
-    one = embed field6 (embed field5 (embed field4 (embed field3 (embed field2 (embed field1 1)))))
-    go (Lit r)    = fromRational r * one
-    go (Neg a)    = negate (go a)
-    go (Add a b)  = go a + go b
-    go (Mul a b)  = go a * go b
-    go (Inv a)    = recip (go a)
-    go (Root n a)
-      | (n, a) == rad1 = alpha1
-      | (n, a) == rad2 = alpha2
-      | (n, a) == rad3 = alpha3
-      | (n, a) == rad4 = alpha4
-      | (n, a) == rad5 = alpha5
-      | (n, a) == rad6 = alpha6
-      | otherwise = error "evalInExt6: unexpected radical"
-    go (Pow a n)
-      | n >= 0    = go a ^ n
-      | otherwise = recip (go a ^ negate n)
+evalInExt6 ::
+  ExtField Rational ->
+  ExtField E1 ->
+  ExtField E2 ->
+  ExtField E3 ->
+  ExtField E4 ->
+  ExtField E5 ->
+  E6 ->
+  E6 ->
+  E6 ->
+  E6 ->
+  E6 ->
+  E6 ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  (Int, RadExpr Rational) ->
+  RadExpr Rational ->
+  E6
+evalInExt6
+  field1
+  field2
+  field3
+  field4
+  field5
+  field6
+  alpha1
+  alpha2
+  alpha3
+  alpha4
+  alpha5
+  alpha6
+  rad1
+  rad2
+  rad3
+  rad4
+  rad5
+  rad6 = go
+    where
+      one = embed field6 (embed field5 (embed field4 (embed field3 (embed field2 (embed field1 1)))))
+      go (Lit r) = fromRational r * one
+      go (Neg a) = negate (go a)
+      go (Add a b) = go a + go b
+      go (Mul a b) = go a * go b
+      go (Inv a) = recip (go a)
+      go (Root n a)
+        | (n, a) == rad1 = alpha1
+        | (n, a) == rad2 = alpha2
+        | (n, a) == rad3 = alpha3
+        | (n, a) == rad4 = alpha4
+        | (n, a) == rad5 = alpha5
+        | (n, a) == rad6 = alpha6
+        | otherwise = error "evalInExt6: unexpected radical"
+      go (Pow a n)
+        | n >= 0 = go a ^ n
+        | otherwise = recip (go a ^ negate n)
 
 -- | Find the minimal polynomial of a radical expression numerically
 -- using the PSLQ algorithm for integer relation finding.
@@ -612,20 +813,20 @@ numericMinPoly :: RadExpr Rational -> Int -> Maybe (Poly Rational)
 numericMinPoly expr maxDeg =
   let -- Use exact real evaluation, then convert to Double for PSLQ
       alpha = realPart (evalComplex expr)
-  in case findMinPoly alpha (min maxDeg 20) of
-       Just coeffs -> Just (mkPoly (map fromIntegral coeffs))
-       Nothing -> Nothing
+   in case findMinPoly alpha (min maxDeg 20) of
+        Just coeffs -> Just (mkPoly (map fromIntegral coeffs))
+        Nothing -> Nothing
 
 -- | Helper: make a polynomial in Q(α)[x] from coefficient list.
 mkPolyExt :: (Eq k, Fractional k) => ExtField k -> [ExtElem k] -> Poly (ExtElem k)
-mkPolyExt _ cs = mkPoly cs
+mkPolyExt _ = mkPoly
 
 -- | Pick the factor whose root is closest to the target value.
 pickClosest :: Double -> [Poly Rational] -> Poly Rational
 pickClosest _ [f] = f
 pickClosest target factors =
   let scored = [(f, minimum $ map (\r -> abs (fromRational r - target)) (approxRoots f)) | f <- factors]
-  in fst $ foldl1 (\(f1, d1) (f2, d2) -> if d1 <= d2 then (f1, d1) else (f2, d2)) scored
+   in fst $ foldl1 (\(f1, d1) (f2, d2) -> if d1 <= d2 then (f1, d1) else (f2, d2)) scored
 
 -- | Annihilating polynomial for e^n.
 annihPow :: Poly Rational -> Int -> Poly Rational
@@ -634,11 +835,11 @@ annihPow p n'
   | n' == 1 = p
   | otherwise =
       let dp = degree p
-          points = [fromIntegral i | i <- [0..dp]]
+          points = [fromIntegral i | i <- [0 .. dp]]
           values = [powResAt p n' x | x <- points]
-      in lagrangeInterpolate (zip points values)
+       in lagrangeInterpolate (zip points values)
 
 powResAt :: Poly Rational -> Int -> Rational -> Rational
 powResAt p n' x0 =
   let ynMinusX0 = mkPoly $ [-x0] ++ replicate (n' - 1) 0 ++ [1]
-  in polyResultant p ynMinusX0
+   in polyResultant p ynMinusX0

@@ -16,16 +16,17 @@
 --
 -- More general Galois-theoretic denesting is planned for a future phase.
 module Surd.Radical.Denest.NthRoot
-  ( denestNthRoot
-  , tryCubeRootDenest
-  ) where
+  ( denestNthRoot,
+    tryCubeRootDenest,
+  )
+where
 
-import Data.Ratio (numerator, denominator)
-import Math.NumberTheory.Roots (exactSquareRoot, exactCubeRoot)
-import Surd.Types
+import Data.Ratio (denominator, numerator)
 import Math.Internal.Positive (Positive)
 import Math.Internal.PrimeFactors (factorise)
+import Math.NumberTheory.Roots (exactCubeRoot, exactSquareRoot)
 import Surd.Radical.Eval (evalExact)
+import Surd.Types
 
 -- | Attempt to denest an nth root expression.
 denestNthRoot :: RadExpr Rational -> RadExpr Rational
@@ -33,14 +34,12 @@ denestNthRoot expr = case expr of
   Root n (Root m a) ->
     -- ᵐ√(ⁿ√a) = ᵐⁿ√a
     denestNthRoot (Root (m * n) (denestNthRoot (Root 1 a)))
-
   Root n (Lit r)
     | r == 0 -> Lit 0
     | r == 1 -> Lit 1
-    | r > 0  -> simplifyRootOfRational n r
-    | odd n  -> Neg (denestNthRoot (Root n (Lit (negate r))))
+    | r > 0 -> simplifyRootOfRational n r
+    | odd n -> Neg (denestNthRoot (Root n (Lit (negate r))))
     | otherwise -> Root n (Lit r)
-
   Root 3 inner ->
     -- Try cube root denesting: ³√(a + b√c) = p + q√c
     -- where p³ + 3pq²c = a and 3p²q + q³c = b
@@ -48,20 +47,19 @@ denestNthRoot expr = case expr of
       Just (a, b, c) ->
         case tryCubeRootDenest a b c of
           Just result -> result
-          Nothing     -> Root 3 (denestNthRoot' inner)
+          Nothing -> Root 3 (denestNthRoot' inner)
       Nothing -> Root 3 (denestNthRoot' inner)
-
   Root n a -> Root n (denestNthRoot' a)
-  other    -> other
+  other -> other
   where
     denestNthRoot' e = case e of
       Root m a -> denestNthRoot (Root m a)
-      Neg a    -> Neg (denestNthRoot' a)
-      Add a b  -> Add (denestNthRoot' a) (denestNthRoot' b)
-      Mul a b  -> Mul (denestNthRoot' a) (denestNthRoot' b)
-      Inv a    -> Inv (denestNthRoot' a)
-      Pow a n  -> Pow (denestNthRoot' a) n
-      other    -> other
+      Neg a -> Neg (denestNthRoot' a)
+      Add a b -> Add (denestNthRoot' a) (denestNthRoot' b)
+      Mul a b -> Mul (denestNthRoot' a) (denestNthRoot' b)
+      Inv a -> Inv (denestNthRoot' a)
+      Pow a n -> Pow (denestNthRoot' a) n
+      other -> other
 
 -- | Simplify ⁿ√r for rational r by extracting perfect nth powers.
 simplifyRootOfRational :: Int -> Rational -> RadExpr Rational
@@ -70,10 +68,12 @@ simplifyRootOfRational n r =
       den = denominator r
       (numOut, numRem) = extractPower n num
       (denOut, denRem) = extractPower n den
-  in if numOut == 1 && denOut == 1
-     then Root n (Lit r)
-     else Mul (Lit (fromInteger numOut / fromInteger denOut))
-              (Root n (Lit (fromInteger numRem / fromInteger denRem)))
+   in if numOut == 1 && denOut == 1
+        then Root n (Lit r)
+        else
+          Mul
+            (Lit (fromInteger numOut / fromInteger denOut))
+            (Root n (Lit (fromInteger numRem / fromInteger denRem)))
 
 -- | Extract the largest perfect nth power factor.
 -- Returns (extracted, remainder) such that m = extracted^n * remainder.
@@ -83,16 +83,16 @@ extractPower n m =
       extracted = product [p ^ (e `div` n) | (p, e) <- fs]
       remainder = product [p ^ (e `mod` n) | (p, e) <- fs]
       sign = if m < 0 then -1 else 1
-  in (extracted, sign * remainder)
+   in (extracted, sign * remainder)
 
 -- | Match the pattern a + b√c in an expression (for cube root denesting).
 matchSqrtNested3 :: RadExpr Rational -> Maybe (Rational, Rational, Rational)
 matchSqrtNested3 (Add (Lit a) (Mul (Lit b) (Root 2 (Lit c)))) = Just (a, b, c)
 matchSqrtNested3 (Add (Mul (Lit b) (Root 2 (Lit c))) (Lit a)) = Just (a, b, c)
-matchSqrtNested3 (Add (Lit a) (Root 2 (Lit c)))               = Just (a, 1, c)
-matchSqrtNested3 (Add (Root 2 (Lit c)) (Lit a))               = Just (a, 1, c)
+matchSqrtNested3 (Add (Lit a) (Root 2 (Lit c))) = Just (a, 1, c)
+matchSqrtNested3 (Add (Root 2 (Lit c)) (Lit a)) = Just (a, 1, c)
 matchSqrtNested3 (Add (Lit a) (Neg (Mul (Lit b) (Root 2 (Lit c))))) = Just (a, negate b, c)
-matchSqrtNested3 (Add (Lit a) (Neg (Root 2 (Lit c))))         = Just (a, -1, c)
+matchSqrtNested3 (Add (Lit a) (Neg (Root 2 (Lit c)))) = Just (a, -1, c)
 matchSqrtNested3 _ = Nothing
 
 -- | Try to denest ³√(a + b√c) into the form p + q√c
@@ -116,41 +116,43 @@ matchSqrtNested3 _ = Nothing
 tryCubeRootDenest :: Rational -> Rational -> Rational -> Maybe (RadExpr Rational)
 tryCubeRootDenest a b c =
   let norm = a * a - b * b * c
-  in case isRationalCubeRoot norm of
-    Nothing -> Nothing
-    Just cbrtNorm ->
-      -- p² - q²c = cbrtNorm
-      -- p³ + 3pq²c = a
-      -- From p² - q²c = cbrtNorm: q² = (p² - cbrtNorm) / c
-      -- Substitute into p³ + 3pq²c = a:
-      --   p³ + 3p(p² - cbrtNorm)/c * c = a
-      --   p³ + 3p(p² - cbrtNorm) = a
-      --   p³ + 3p³ - 3p*cbrtNorm = a
-      --   4p³ - 3p*cbrtNorm = a
-      -- So p is a rational root of 4x³ - 3*cbrtNorm*x - a = 0.
-      let candidates = rationalCubeEqRoots 4 (-3 * cbrtNorm) (-a)
-      in case candidates of
-        [] -> Nothing
-        (p:_) ->
-          let q2 = (p * p - cbrtNorm) / c
-          in case isRationalSqrt q2 of
-            Nothing -> Nothing
-            Just q ->
-              -- Verify: pick the sign of q based on the sign of b
-              let q' = if (3 * p * p * q + q * q * q * c) * signum b >= 0
-                       then q else negate q
-                  result = Add (Lit p) (Mul (Lit q') (Root 2 (Lit c)))
-                  -- Sanity check via exact real evaluation
-                  expected = evalExact (Root 3 (Add (Lit a) (Mul (Lit b) (Root 2 (Lit c)))))
-                  got = evalExact result
-              in if abs (expected - got) < 1e-40
-                 then Just result
-                 else Nothing
+   in case isRationalCubeRoot norm of
+        Nothing -> Nothing
+        Just cbrtNorm ->
+          -- p² - q²c = cbrtNorm
+          -- p³ + 3pq²c = a
+          -- From p² - q²c = cbrtNorm: q² = (p² - cbrtNorm) / c
+          -- Substitute into p³ + 3pq²c = a:
+          --   p³ + 3p(p² - cbrtNorm)/c * c = a
+          --   p³ + 3p(p² - cbrtNorm) = a
+          --   p³ + 3p³ - 3p*cbrtNorm = a
+          --   4p³ - 3p*cbrtNorm = a
+          -- So p is a rational root of 4x³ - 3*cbrtNorm*x - a = 0.
+          let candidates = rationalCubeEqRoots 4 (-3 * cbrtNorm) (-a)
+           in case candidates of
+                [] -> Nothing
+                (p : _) ->
+                  let q2 = (p * p - cbrtNorm) / c
+                   in case isRationalSqrt q2 of
+                        Nothing -> Nothing
+                        Just q ->
+                          -- Verify: pick the sign of q based on the sign of b
+                          let q' =
+                                if (3 * p * p * q + q * q * q * c) * signum b >= 0
+                                  then q
+                                  else negate q
+                              result = Add (Lit p) (Mul (Lit q') (Root 2 (Lit c)))
+                              -- Sanity check via exact real evaluation
+                              expected = evalExact (Root 3 (Add (Lit a) (Mul (Lit b) (Root 2 (Lit c)))))
+                              got = evalExact result
+                           in if abs (expected - got) < 1e-40
+                                then Just result
+                                else Nothing
 
 -- | Check if a rational is a perfect cube.
 isRationalCubeRoot :: Rational -> Maybe Rational
 isRationalCubeRoot q
-  | q == 0    = Just 0
+  | q == 0 = Just 0
   | otherwise = do
       sn <- exactCubeRoot (abs (numerator q))
       sd <- exactCubeRoot (denominator q)
@@ -159,8 +161,8 @@ isRationalCubeRoot q
 -- | Check if a rational is a perfect square.
 isRationalSqrt :: Rational -> Maybe Rational
 isRationalSqrt q
-  | q < 0     = Nothing
-  | q == 0    = Just 0
+  | q < 0 = Nothing
+  | q == 0 = Just 0
   | otherwise = do
       sn <- exactSquareRoot (numerator q)
       sd <- exactSquareRoot (denominator q)
@@ -179,14 +181,15 @@ rationalCubeEqRoots a b c =
       denA = denominator a
       -- Candidates: ±(divisors of c * denA) / (divisors of a * denC)
       -- Simplified: we try small rationals
-      candidates = [fromInteger p / fromInteger q
-                   | p <- concatMap (\d -> [d, -d]) (intDivisors (numC * denA))
-                   , q <- intDivisors (numA * denC)
-                   , q /= 0
-                   ]
-  in filter (\x -> f x == 0) candidates
+      candidates =
+        [ fromInteger p / fromInteger q
+          | p <- concatMap (\d -> [d, -d]) (intDivisors (numC * denA)),
+            q <- intDivisors (numA * denC),
+            q /= 0
+        ]
+   in filter (\x -> f x == 0) candidates
 
 -- | Divisors of a non-negative integer.
 intDivisors :: Integer -> [Integer]
 intDivisors 0 = [1]
-intDivisors n = [d | d <- [1..abs n], abs n `mod` d == 0]
+intDivisors n = [d | d <- [1 .. abs n], abs n `mod` d == 0]

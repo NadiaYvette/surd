@@ -1,27 +1,30 @@
 module Main where
 
+import Test.Algebraic qualified
+import Test.Denest qualified
+import Test.DynTower qualified
+import Test.Groebner qualified
+import Test.Interval qualified
+import Test.Multivariate qualified
+import Test.NormalForm qualified
+import Test.Polynomial qualified
 import Test.Tasty
-import qualified Test.Polynomial
-import qualified Test.Denest
-import qualified Test.NormalForm
-import qualified Test.Trig
-import qualified Test.Algebraic
-import qualified Test.Interval
-import qualified Test.Multivariate
-import qualified Test.TragerFactoring
-import qualified Test.Groebner
-import qualified Test.DynTower
+import Test.TragerFactoring qualified
+import Test.Trig qualified
 
 main :: IO ()
-main = defaultMain $ testGroup "surd"
-  [ Test.Polynomial.tests
-  , Test.Denest.tests
-  , Test.NormalForm.tests
-  , Test.Trig.tests
-  , Test.Algebraic.tests
-  , Test.Interval.tests
-  , Test.Multivariate.tests
-  , Test.TragerFactoring.tests
-  , Test.Groebner.tests
-  , Test.DynTower.tests
-  ]
+main =
+  defaultMain $
+    testGroup
+      "surd"
+      [ Test.Polynomial.tests,
+        Test.Denest.tests,
+        Test.NormalForm.tests,
+        Test.Trig.tests,
+        Test.Algebraic.tests,
+        Test.Interval.tests,
+        Test.Multivariate.tests,
+        Test.TragerFactoring.tests,
+        Test.Groebner.tests,
+        Test.DynTower.tests
+      ]

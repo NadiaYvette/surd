@@ -1,27 +1,30 @@
 {-# LANGUAGE DataKinds #-}
+
 -- | Numerical evaluation of radical expressions to arbitrary precision.
 --
 -- Used for testing, equality verification, and ordering.
 module Surd.Radical.Eval
-  ( eval
-  , evalComplex
-  , evalExact
-  , evalComplexExact
-  , evalInterval
-  , evalComplexInterval
-  , ExactReal
-  , ExactComplex
-  ) where
+  ( eval,
+    evalComplex,
+    evalExact,
+    evalComplexExact,
+    evalInterval,
+    evalComplexInterval,
+    ExactReal,
+    ExactComplex,
+  )
+where
 
-import Data.Complex (Complex(..), magnitude, mkPolar)
 import Data.CReal (CReal)
+import Data.Complex (Complex (..), magnitude, mkPolar)
 import Data.IORef (newIORef, readIORef, writeIORef)
-import qualified Data.IntMap.Strict as IntMap
-import System.IO.Unsafe (unsafePerformIO)
-import System.Mem.StableName (StableName, makeStableName, hashStableName, eqStableName)
+import Data.IntMap.Strict qualified as IntMap
+import Data.Maybe (fromMaybe)
+import Math.Internal.Interval (ComplexInterval (..), Interval (..))
+import Math.Internal.Interval qualified as I
 import Surd.Types
-import Math.Internal.Interval (Interval(..), ComplexInterval(..))
-import qualified Math.Internal.Interval as I
+import System.IO.Unsafe (unsafePerformIO)
+import System.Mem.StableName (StableName, eqStableName, hashStableName, makeStableName)
 
 -- | Exact real type with ~60 decimal digits of precision.
 -- Uses lazy Cauchy sequences internally; comparisons are reliable
@@ -39,39 +42,39 @@ type ExactComplex = Complex ExactReal
 -- will produce NaN. Use 'evalComplex' for expressions that pass through
 -- complex intermediates.
 eval :: RadExpr Rational -> Double
-eval (Lit r)    = fromRational r
-eval (Neg a)    = negate (eval a)
-eval (Add a b)  = eval a + eval b
-eval (Mul a b)  = eval a * eval b
-eval (Inv a)    = 1 / eval a
+eval (Lit r) = fromRational r
+eval (Neg a) = negate (eval a)
+eval (Add a b) = eval a + eval b
+eval (Mul a b) = eval a * eval b
+eval (Inv a) = 1 / eval a
 eval (Root n a) = eval a ** (1 / fromIntegral n)
-eval (Pow a n)  = eval a ^^ n
+eval (Pow a n) = eval a ^^ n
 
 -- | Evaluate a radical expression to an 'ExactReal' (~60 decimal digits).
 -- Unlike 'eval', handles even roots of negative numbers via the Floating
 -- instance (which uses complex intermediates internally).
 evalExact :: RadExpr Rational -> ExactReal
-evalExact (Lit r)    = fromRational r
-evalExact (Neg a)    = negate (evalExact a)
-evalExact (Add a b)  = evalExact a + evalExact b
-evalExact (Mul a b)  = evalExact a * evalExact b
-evalExact (Inv a)    = 1 / evalExact a
+evalExact (Lit r) = fromRational r
+evalExact (Neg a) = negate (evalExact a)
+evalExact (Add a b) = evalExact a + evalExact b
+evalExact (Mul a b) = evalExact a * evalExact b
+evalExact (Inv a) = 1 / evalExact a
 evalExact (Root n a) = evalExact a ** (1 / fromIntegral n)
 evalExact (Pow a n)
-  | n >= 0    = evalExact a ^ n
+  | n >= 0 = evalExact a ^ n
   | otherwise = 1 / (evalExact a ^ negate n)
 
 -- | Evaluate a radical expression to an 'ExactComplex' (~60 decimal digits).
 -- Handles expressions that pass through complex intermediates.
 evalComplexExact :: RadExpr Rational -> ExactComplex
-evalComplexExact (Lit r)    = fromRational r :+ 0
-evalComplexExact (Neg a)    = negate (evalComplexExact a)
-evalComplexExact (Add a b)  = evalComplexExact a + evalComplexExact b
-evalComplexExact (Mul a b)  = evalComplexExact a * evalComplexExact b
-evalComplexExact (Inv a)    = cinv (evalComplexExact a)
+evalComplexExact (Lit r) = fromRational r :+ 0
+evalComplexExact (Neg a) = negate (evalComplexExact a)
+evalComplexExact (Add a b) = evalComplexExact a + evalComplexExact b
+evalComplexExact (Mul a b) = evalComplexExact a * evalComplexExact b
+evalComplexExact (Inv a) = cinv (evalComplexExact a)
 evalComplexExact (Root n a) = complexNthRootExact n (evalComplexExact a)
 evalComplexExact (Pow a n)
-  | n >= 0    = evalComplexExact a ^ n
+  | n >= 0 = evalComplexExact a ^ n
   | otherwise = 1 / (evalComplexExact a ^ negate n)
 
 -- | Complex inversion without RealFloat.
@@ -79,17 +82,17 @@ evalComplexExact (Pow a n)
 cinv :: ExactComplex -> ExactComplex
 cinv (re :+ im) =
   let d = re * re + im * im
-  in (re / d) :+ (negate im / d)
+   in (re / d) :+ (negate im / d)
 
 -- | Principal nth root of an exact complex number.
 -- Uses manual magnitude to avoid CReal's unsupported RealFloat operations.
 complexNthRootExact :: Int -> ExactComplex -> ExactComplex
 complexNthRootExact n (re :+ im) =
-  let r     = sqrt (re * re + im * im)
+  let r = sqrt (re * re + im * im)
       theta = atan2 im re
-      rn    = r ** (1 / fromIntegral n)
-      an    = theta / fromIntegral n
-  in (rn * cos an) :+ (rn * sin an)
+      rn = r ** (1 / fromIntegral n)
+      an = theta / fromIntegral n
+   in (rn * cos an) :+ (rn * sin an)
 
 -- | Evaluate a radical expression to a 'Complex Double'.
 --
@@ -110,38 +113,38 @@ evalComplex expr = unsafePerformIO $ do
         sn <- makeStableName e
         let h = hashStableName sn
         cache <- readIORef cacheRef
-        let bucket = maybe [] id (IntMap.lookup h cache)
+        let bucket = fromMaybe [] (IntMap.lookup h cache)
         case lookup' sn bucket of
-          Just v  -> return v
+          Just v -> return v
           Nothing -> do
             v <- case e of
-              Lit r    -> return $ fromRational r :+ 0
-              Neg a    -> negate <$> go a
-              Add a b  -> (+) <$> go a <*> go b
-              Mul a b  -> (*) <$> go a <*> go b
-              Inv a    -> (1 /) <$> go a
+              Lit r -> return $ fromRational r :+ 0
+              Neg a -> negate <$> go a
+              Add a b -> (+) <$> go a <*> go b
+              Mul a b -> (*) <$> go a <*> go b
+              Inv a -> (1 /) <$> go a
               Root n a -> complexNthRoot n <$> go a
               Pow a n
-                | n >= 0    -> (^ n) <$> go a
+                | n >= 0 -> (^ n) <$> go a
                 | otherwise -> (\x -> 1 / (x ^ negate n)) <$> go a
             -- Re-read cache after recursive calls to get latest state
             cache' <- readIORef cacheRef
-            let bucket' = maybe [] id (IntMap.lookup h cache')
+            let bucket' = fromMaybe [] (IntMap.lookup h cache')
             writeIORef cacheRef (IntMap.insert h ((sn, v) : bucket') cache')
             return v
       lookup' _ [] = Nothing
       lookup' sn ((sn', v) : rest)
         | eqStableName sn sn' = Just v
-        | otherwise           = lookup' sn rest
+        | otherwise = lookup' sn rest
   go expr
 
 -- | Principal nth root of a complex number.
 -- Uses polar form: z = r·e^(iθ) → z^(1/n) = r^(1/n)·e^(iθ/n)
 complexNthRoot :: Int -> Complex Double -> Complex Double
 complexNthRoot n z =
-  let r     = magnitude z
+  let r = magnitude z
       theta = atan2 (imagPart z) (realPart z)
-  in mkPolar (r ** (1 / fromIntegral n)) (theta / fromIntegral n)
+   in mkPolar (r ** (1 / fromIntegral n)) (theta / fromIntegral n)
   where
     realPart (x :+ _) = x
     imagPart (_ :+ y) = y
@@ -149,44 +152,49 @@ complexNthRoot n z =
 -- | Evaluate a radical expression to an interval enclosure.
 -- Repeatedly refining gives arbitrary precision.
 evalInterval :: RadExpr Rational -> Interval
-evalInterval (Lit r)    = I.fromRational' r
-evalInterval (Neg a)    =
+evalInterval (Lit r) = I.fromRational' r
+evalInterval (Neg a) =
   let Interval lo hi = evalInterval a
-  in Interval (negate hi) (negate lo)
-evalInterval (Add a b)  = I.iadd (evalInterval a) (evalInterval b)
-evalInterval (Mul a b)  = I.imul (evalInterval a) (evalInterval b)
-evalInterval (Inv a)    = I.iinv (evalInterval a)
+   in Interval (negate hi) (negate lo)
+evalInterval (Add a b) = I.iadd (evalInterval a) (evalInterval b)
+evalInterval (Mul a b) = I.imul (evalInterval a) (evalInterval b)
+evalInterval (Inv a) = I.iinv (evalInterval a)
 evalInterval (Root n a) = I.inth n (evalInterval a)
-evalInterval (Pow a n)  = I.ipow (evalInterval a) n
+evalInterval (Pow a n) = I.ipow (evalInterval a) n
 
 -- | Evaluate a radical expression to a complex interval enclosure.
 -- Handles expressions with complex intermediates (e.g., √(-3)).
 -- For even roots of negative intervals, introduces the imaginary unit.
 evalComplexInterval :: RadExpr Rational -> ComplexInterval
-evalComplexInterval (Lit r)    = I.ciFromRational r
-evalComplexInterval (Neg a)    = I.cineg (evalComplexInterval a)
-evalComplexInterval (Add a b)  = I.ciadd (evalComplexInterval a) (evalComplexInterval b)
-evalComplexInterval (Mul a b)  = I.cimul (evalComplexInterval a) (evalComplexInterval b)
-evalComplexInterval (Inv a)    = I.ciinv (evalComplexInterval a)
-evalComplexInterval (Pow a n)  = I.cipow (evalComplexInterval a) n
+evalComplexInterval (Lit r) = I.ciFromRational r
+evalComplexInterval (Neg a) = I.cineg (evalComplexInterval a)
+evalComplexInterval (Add a b) = I.ciadd (evalComplexInterval a) (evalComplexInterval b)
+evalComplexInterval (Mul a b) = I.cimul (evalComplexInterval a) (evalComplexInterval b)
+evalComplexInterval (Inv a) = I.ciinv (evalComplexInterval a)
+evalComplexInterval (Pow a n) = I.cipow (evalComplexInterval a) n
 evalComplexInterval (Root n a) =
   let ci = evalComplexInterval a
       rePart = I.ciReal ci
       imPart = I.ciImag ci
-  in if I.lo imPart >= 0 && I.hi imPart <= 0  -- imaginary part is [0,0] (or very close)
-        && I.lo rePart >= 0  -- non-negative real
-     then I.ciFromReal (I.inth n rePart)
-     else if I.lo imPart >= 0 && I.hi imPart <= 0
-             && I.hi rePart <= 0  -- negative real
-             && odd n
-     then -- Odd root of negative real
-          let pos = I.inth n (Interval (negate (I.hi rePart)) (negate (I.lo rePart)))
-          in ComplexInterval (Interval (negate (I.hi pos)) (negate (I.lo pos))) (I.fromRational' 0)
-     else if I.lo imPart >= 0 && I.hi imPart <= 0
-             && I.hi rePart <= 0
-             && n == 2
-     then -- √(negative) = i·√(|x|)
-          let pos = I.isqrt (Interval (negate (I.hi rePart)) (negate (I.lo rePart)))
-          in ComplexInterval (I.fromRational' 0) pos
-     else -- General complex root: use rigorous interval nth root
-          I.cinthroot n ci
+   in if I.lo imPart >= 0
+        && I.hi imPart <= 0 -- imaginary part is [0,0] (or very close)
+        && I.lo rePart >= 0 -- non-negative real
+        then I.ciFromReal (I.inth n rePart)
+        else
+          if I.lo imPart >= 0
+            && I.hi imPart <= 0
+            && I.hi rePart <= 0 -- negative real
+            && odd n
+            then -- Odd root of negative real
+              let pos = I.inth n (Interval (negate (I.hi rePart)) (negate (I.lo rePart)))
+               in ComplexInterval (Interval (negate (I.hi pos)) (negate (I.lo pos))) (I.fromRational' 0)
+            else
+              if I.lo imPart >= 0
+                && I.hi imPart <= 0
+                && I.hi rePart <= 0
+                && n == 2
+                then -- √(negative) = i·√(|x|)
+                  let pos = I.isqrt (Interval (negate (I.hi rePart)) (negate (I.lo rePart)))
+                   in ComplexInterval (I.fromRational' 0) pos
+                else -- General complex root: use rigorous interval nth root
+                  I.cinthroot n ci
