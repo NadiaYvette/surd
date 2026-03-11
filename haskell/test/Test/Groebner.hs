@@ -8,7 +8,6 @@ import Math.Polynomial.Groebner
 import Surd.Types (RadExpr(..))
 import Surd.Radical.NormalForm (toNormExpr, fromNormExpr, normIsZero)
 import Surd.Radical.Groebner qualified as RG
-import Data.Ratio ((%), Ratio)
 
 tests :: TestTree
 tests = testGroup "Groebner"
