@@ -27,7 +27,7 @@ module Main (main) where
 
 import Data.Char (isDigit)
 import Data.List (intercalate, isPrefixOf)
-import Surd.Radical.LaTeX (latex, latexDAG)
+import Surd.Radical.LaTeX (latexDAG)
 import Surd.Radical.Normalize (normalize)
 import Surd.Radical.Pretty (pretty)
 import Surd.Trig (TrigResult (..), cosExact, simplifyTrigResult, sinExact)
@@ -168,7 +168,6 @@ data RenderedResult = RenderedResult
 
 renderResult :: Config -> TrigResult -> RenderedResult
 renderResult cfg (Radical e)
-  | cfgFormat cfg == LaTeX && cfgForceRadical cfg = RenderedResult [] (latex e)
   | cfgFormat cfg == LaTeX =
       let (defs, expr) = latexDAG e
        in RenderedResult defs expr
