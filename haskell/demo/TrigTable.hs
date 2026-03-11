@@ -27,10 +27,12 @@ module Main (main) where
 
 import Data.Char (isDigit)
 import Data.List (intercalate, isPrefixOf)
+import Surd.Field.DynTower.Display (extractTower, latexTower, prettyTower)
 import Surd.Radical.LaTeX (latex, latexDAG)
 import Surd.Radical.Normalize (normalize)
 import Surd.Radical.Pretty (pretty)
 import Surd.Trig (TrigResult (..), cosExact, simplifyTrigResult, sinExact)
+import Surd.Trig.TowerDescent (TowerResult (..), allPeriodsViaTower)
 import Surd.Types (RadExpr (..))
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
@@ -40,7 +42,7 @@ import System.IO (hPutStrLn, stderr)
 -- Configuration
 -- --------------------------------------------------------------------------
 
-data Format = LaTeX | Text deriving (Eq)
+data Format = LaTeX | Text | Tower deriving (Eq)
 
 data Cols = CosAndSin | CosOnly | SinOnly deriving (Eq)
 
@@ -93,6 +95,7 @@ parseArgs args =
 applyOpt :: String -> Config -> Either String Config
 applyOpt "--format=latex" c = Right c {cfgFormat = LaTeX}
 applyOpt "--format=text" c = Right c {cfgFormat = Text}
+applyOpt "--format=tower" c = Right c {cfgFormat = Tower}
 applyOpt "--standalone" c = Right c {cfgStandalone = True}
 applyOpt "--no-standalone" c = Right c {cfgStandalone = False}
 applyOpt "--cos-only" c = Right c {cfgCols = CosOnly}
@@ -443,6 +446,59 @@ breakTexLines maxLen = go 0
     safe _ = False
 
 -- --------------------------------------------------------------------------
+-- Tower output
+-- --------------------------------------------------------------------------
+
+-- | Render each angle as a field extension tower display.
+-- Uses the tower-based Gauss period descent to preserve algebraic structure.
+towerOutput :: Config -> [Angle] -> String
+towerOutput cfg angles =
+  let preamble =
+        if cfgStandalone cfg
+          then latexPreamble
+          else ""
+      postamble =
+        if cfgStandalone cfg
+          then "\\end{document}\n"
+          else ""
+      body = unlines (map (towerAngle cfg) angles)
+   in preamble ++ body ++ postamble
+
+towerAngle :: Config -> Angle -> String
+towerAngle cfg (p, q) =
+  let -- cos(pπ/q) = cos(2πp/(2q)), so n = 2q/gcd(p,2q), k = p/gcd(p,2q)
+      g = gcd (abs p) (2 * q)
+      n = fromIntegral (2 * q `div` g) :: Int
+      label = case cfgFormat cfg of
+        LaTeX -> "\\cos " ++ latexFrac p q
+        _ -> "cos " ++ textFrac p q
+      cosLabel = label
+      sinLabel = case cfgFormat cfg of
+        LaTeX -> "\\sin " ++ latexFrac p q
+        _ -> "sin " ++ textFrac p q
+   in case allPeriodsViaTower n of
+        Just tr ->
+          let cosDisp = extractTower cosLabel (trCos tr)
+              sinDisp = extractTower sinLabel (trSin tr)
+              cosOut = case cfgFormat cfg of
+                LaTeX -> latexTower cosDisp
+                _ -> prettyTower cosDisp
+              sinOut = case cfgFormat cfg of
+                LaTeX -> latexTower sinDisp
+                _ -> prettyTower sinDisp
+              sections
+                | cfgCols cfg == CosOnly = [cosOut]
+                | cfgCols cfg == SinOnly = [sinOut]
+                | otherwise = [cosOut, "", sinOut]
+           in unlines sections
+        Nothing ->
+          -- Fall back to radical display
+          let result = simplifyTrigResult (cosExact p q)
+           in case result of
+                Radical e -> label ++ " = " ++ pretty e ++ "\n"
+                MinPoly poly -> label ++ ": minpoly " ++ show poly ++ "\n"
+
+-- --------------------------------------------------------------------------
 -- Main
 -- --------------------------------------------------------------------------
 
@@ -459,6 +515,7 @@ usage =
       "Options:",
       "  --format=latex     LaTeX longtable (default)",
       "  --format=text      plain text (Unicode)",
+      "  --format=tower     field extension tower display",
       "  --standalone       complete LaTeX document (default)",
       "  --no-standalone    table fragment only",
       "  --cos-only         omit sine column",
@@ -478,8 +535,11 @@ main = do
       exitFailure
     Right (cfg, specs) -> do
       let angles = concatMap specAngles specs
-          rows = map (computeRow cfg) angles
-          output = case cfgFormat cfg of
-            LaTeX -> latexTable cfg rows
-            Text -> textTable cfg rows
-      putStr output
+      case cfgFormat cfg of
+        Tower -> putStr (towerOutput cfg angles)
+        _ -> do
+          let rows = map (computeRow cfg) angles
+              output = case cfgFormat cfg of
+                LaTeX -> latexTable cfg rows
+                _ -> textTable cfg rows
+          putStr output

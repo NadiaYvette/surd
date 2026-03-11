@@ -15,6 +15,7 @@ library
     Surd.Polynomial.MinimalPolyTower
     Surd.Field.Tower
     Surd.Field.DynTower
+    Surd.Field.DynTower.Display
     Surd.Algebraic.RootIsolation
     Surd.Algebraic.Number
     Surd.Algebraic.Convert
