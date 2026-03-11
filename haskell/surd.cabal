@@ -14,6 +14,7 @@ library
     Surd.Polynomial.MinimalPoly
     Surd.Polynomial.MinimalPolyTower
     Surd.Field.Tower
+    Surd.Field.DynTower
     Surd.Algebraic.RootIsolation
     Surd.Algebraic.Number
     Surd.Algebraic.Convert
@@ -35,6 +36,7 @@ library
     Surd.Trig
     Surd.Trig.RootOfUnity
     Surd.Trig.Galois
+    Surd.Trig.TowerDescent
   build-depends:
     base >= 4.18 && < 5,
     aern2-mp >= 0.2.15,
@@ -71,6 +73,7 @@ test-suite surd-test
     Test.Multivariate
     Test.TragerFactoring
     Test.Groebner
+    Test.DynTower
   build-depends:
     base >= 4.18 && < 5,
     algebraic-polynomials,

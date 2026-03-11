@@ -1,0 +1,325 @@
+-- | Dynamically-nested algebraic extension tower.
+--
+-- Unlike 'ExtElem' which uses Haskell's type system for tower nesting
+-- (requiring static depth), 'TowerElem' uses a recursive data type
+-- that supports towers of arbitrary runtime-determined depth.
+--
+-- This enables the Gauss period descent to build field towers
+-- incrementally, one extension at a time, without knowing the
+-- final depth at compile time.
+--
+-- Elements support full field arithmetic (Num, Fractional) and
+-- can be converted to radical expressions for display.
+module Surd.Field.DynTower
+  ( TowerElem(..)
+  , TowerLevel(..)
+  , adjoinTowerRoot
+  , towerToRadExpr
+  , tIsZero
+  , tLevel
+  , promoteTo
+  , levelId
+  ) where
+
+import Surd.Types (RadExpr(..))
+
+-- | Element of a dynamically-nested field tower.
+--
+-- @TRat r@ is an element of Q.
+-- @TExt [a₀, a₁, ..., a_{d-1}] level@ represents a₀ + a₁·α + ... + a_{d-1}·α^{d-1}
+-- where α is the generator of the extension described by @level@.
+-- Coefficients are themselves 'TowerElem' values at the previous level.
+data TowerElem
+  = TRat !Rational
+  | TExt ![TowerElem] !TowerLevel
+  deriving (Show)
+
+-- | One level of the field tower.
+data TowerLevel = TowerLevel
+  { tlId       :: !Int          -- ^ Unique level identifier
+  , tlDegree   :: !Int          -- ^ Extension degree
+  , tlRootDeg  :: !Int          -- ^ n: generator satisfies α^n = radicand
+  , tlRadicand :: !TowerElem    -- ^ r: generator = ⁿ√r
+  } deriving (Show)
+
+instance Eq TowerLevel where
+  a == b = tlId a == tlId b
+
+-- ---------------------------------------------------------------------------
+-- Zero checking and level inspection
+-- ---------------------------------------------------------------------------
+
+tIsZero :: TowerElem -> Bool
+tIsZero (TRat r) = r == 0
+tIsZero (TExt cs _) = all tIsZero cs
+
+tLevel :: TowerElem -> Maybe TowerLevel
+tLevel (TRat _) = Nothing
+tLevel (TExt _ l) = Just l
+
+-- ---------------------------------------------------------------------------
+-- Eq instance
+-- ---------------------------------------------------------------------------
+
+instance Eq TowerElem where
+  TRat a == TRat b = a == b
+  TExt cs1 l1 == TExt cs2 l2
+    | l1 == l2  = eqCoeffs cs1 cs2
+    | otherwise = False
+  TRat a == TExt cs _ = eqCoeffs [TRat a] cs
+  TExt cs _ == TRat a = eqCoeffs cs [TRat a]
+
+-- | Compare coefficient lists, treating missing trailing entries as zero.
+eqCoeffs :: [TowerElem] -> [TowerElem] -> Bool
+eqCoeffs [] [] = True
+eqCoeffs [] bs = all tIsZero bs
+eqCoeffs as [] = all tIsZero as
+eqCoeffs (a:as) (b:bs) = a == b && eqCoeffs as bs
+
+-- ---------------------------------------------------------------------------
+-- Trimming
+-- ---------------------------------------------------------------------------
+
+-- | Remove trailing zero coefficients.
+trimTE :: [TowerElem] -> [TowerElem]
+trimTE = reverse . dropWhile tIsZero . reverse
+
+-- ---------------------------------------------------------------------------
+-- Num instance
+-- ---------------------------------------------------------------------------
+
+-- | Promote a tower element to a given level by embedding as constant.
+-- Only works when the element is at a strictly lower level than the target.
+promoteTo :: TowerLevel -> TowerElem -> TowerElem
+promoteTo lvl e@(TRat _) = TExt (e : replicate (tlDegree lvl - 1) (TRat 0)) lvl
+promoteTo lvl e@(TExt _ l)
+  | l == lvl  = e
+  | tlId l < tlId lvl = TExt (e : replicate (tlDegree lvl - 1) (TRat 0)) lvl
+  | otherwise = error $ "promoteTo: cannot demote level " ++ show (tlId l) ++ " to " ++ show (tlId lvl)
+
+-- | Get the outermost level ID, or -1 for TRat.
+levelId :: TowerElem -> Int
+levelId (TRat _) = -1
+levelId (TExt _ l) = tlId l
+
+instance Num TowerElem where
+  -- Addition
+  TRat a + TRat b = TRat (a + b)
+  TRat a + TExt bs l = TExt (addCoeffs [TRat a] bs) l
+  TExt as l + TRat b = TExt (addCoeffs as [TRat b]) l
+  TExt as l1 + TExt bs l2
+    | l1 == l2    = mkTExt (addCoeffs as bs) l1
+    | tlId l1 < tlId l2 = promoteTo l2 (TExt as l1) + TExt bs l2
+    | otherwise         = TExt as l1 + promoteTo l1 (TExt bs l2)
+
+  -- Multiplication
+  TRat a * TRat b = TRat (a * b)
+  TRat a * TExt bs l = mkTExt (map (TRat a *) bs) l
+  TExt as l * TRat b = mkTExt (map (* TRat b) as) l
+  TExt as l1 * TExt bs l2
+    | l1 == l2    = mkTExt (reduceCoeffs l1 (polyMulTE as bs)) l1
+    | tlId l1 < tlId l2 = promoteTo l2 (TExt as l1) * TExt bs l2
+    | otherwise         = TExt as l1 * promoteTo l1 (TExt bs l2)
+
+  negate (TRat a) = TRat (negate a)
+  negate (TExt cs l) = TExt (map negate cs) l
+
+  abs = error "TowerElem: abs not meaningful"
+  signum = error "TowerElem: signum not meaningful"
+  fromInteger n = TRat (fromInteger n)
+
+-- ---------------------------------------------------------------------------
+-- Fractional instance
+-- ---------------------------------------------------------------------------
+
+instance Fractional TowerElem where
+  recip (TRat a) = TRat (recip a)
+  recip (TExt cs l) = tInv cs l
+
+  fromRational = TRat
+
+-- | Smart constructor: if all coefficients are zero, produce TRat 0.
+mkTExt :: [TowerElem] -> TowerLevel -> TowerElem
+mkTExt cs l =
+  let cs' = trimTE cs
+  in case cs' of
+       []  -> TRat 0
+       [c] | isBaseLevel c -> c
+       _   -> TExt (padTo (tlDegree l) cs') l
+  where
+    isBaseLevel (TRat _) = True
+    isBaseLevel _        = False
+
+-- | Pad a coefficient list to exactly n elements with zeros.
+padTo :: Int -> [TowerElem] -> [TowerElem]
+padTo n cs
+  | length cs >= n = take n cs
+  | otherwise      = cs ++ replicate (n - length cs) (TRat 0)
+
+-- ---------------------------------------------------------------------------
+-- Coefficient-list arithmetic
+-- ---------------------------------------------------------------------------
+
+addCoeffs :: [TowerElem] -> [TowerElem] -> [TowerElem]
+addCoeffs [] bs = bs
+addCoeffs as [] = as
+addCoeffs (a:as) (b:bs) = (a + b) : addCoeffs as bs
+
+-- | Schoolbook polynomial multiplication on coefficient lists.
+polyMulTE :: [TowerElem] -> [TowerElem] -> [TowerElem]
+polyMulTE [] _ = []
+polyMulTE _ [] = []
+polyMulTE as bs =
+  let rlen = length as + length bs - 1
+      zeros = replicate rlen (TRat 0)
+      terms = [ (i + j, a * b)
+              | (i, a) <- zip [0 :: Int ..] as
+              , (j, b) <- zip [0 :: Int ..] bs
+              ]
+  in foldl (\acc (idx, c) -> addAt idx c acc) zeros terms
+  where
+    addAt _ _ [] = []
+    addAt 0 c (x:xs) = (x + c) : xs
+    addAt i c (x:xs) = x : addAt (i - 1) c xs
+
+-- | Reduce a coefficient list modulo α^n = r.
+-- For a binomial minimal polynomial x^n - r, reduction is simple:
+-- replace α^n with r, α^{n+1} with r·α, etc.
+reduceCoeffs :: TowerLevel -> [TowerElem] -> [TowerElem]
+reduceCoeffs l cs
+  | length cs <= n = cs
+  | otherwise =
+      let (lo, hi) = splitAt n cs
+          -- α^{n+k} = r · α^k
+          shifted = map (* tlRadicand l) hi
+          combined = addCoeffs lo shifted
+      in reduceCoeffs l combined
+  where
+    n = tlDegree l
+
+-- ---------------------------------------------------------------------------
+-- Inversion via extended GCD
+-- ---------------------------------------------------------------------------
+
+-- | Invert an element in an extension field.
+-- Uses extended GCD: find s such that s·elem ≡ 1 (mod minpoly).
+tInv :: [TowerElem] -> TowerLevel -> TowerElem
+tInv cs l
+  | all tIsZero cs = error "TowerElem: division by zero"
+  | otherwise =
+      let minP = minPolyCoeffs l
+          -- extGcd gives (g, s, t) with g = s·cs + t·minP
+          (_g, s, _t) = polyExtGcd (trimTE cs) minP
+          -- s is the inverse, reduce mod minpoly
+          reduced = reduceCoeffs l s
+          -- Make monic: divide by leading coefficient of g
+      in mkTExt reduced l
+
+-- | Build the minimal polynomial coefficient list for a tower level.
+-- For α^n = r, the minimal polynomial is x^n - r = [-r, 0, ..., 0, 1].
+minPolyCoeffs :: TowerLevel -> [TowerElem]
+minPolyCoeffs l =
+  negate (tlRadicand l) : replicate (tlDegree l - 1) (TRat 0) ++ [TRat 1]
+
+-- | Extended GCD for coefficient lists (polynomials over TowerElem).
+-- Returns (g, s, t) such that g = s·a + t·b.
+polyExtGcd :: [TowerElem] -> [TowerElem] -> ([TowerElem], [TowerElem], [TowerElem])
+polyExtGcd a b = go a b [TRat 1] [] [] [TRat 1]
+  where
+    go r0 r1 s0 s1 t0 t1
+      | all tIsZero r1 =
+          -- Make monic
+          let lc = lastNonZero r0
+              r0' = map (/ lc) r0
+              s0' = map (/ lc) s0
+              t0' = map (/ lc) t0
+          in (trimTE r0', trimTE s0', trimTE t0')
+      | otherwise =
+          let (q, r) = polyDivMod r0 r1
+              s2 = polySub s0 (polyMulTE q s1)
+              t2 = polySub t0 (polyMulTE q t1)
+          in go r1 r s1 s2 t1 t2
+
+    lastNonZero xs = case trimTE xs of
+      [] -> TRat 1
+      ts -> last ts
+
+-- | Polynomial division with remainder on coefficient lists.
+polyDivMod :: [TowerElem] -> [TowerElem] -> ([TowerElem], [TowerElem])
+polyDivMod _ [] = error "polyDivMod: division by zero"
+polyDivMod f g
+  | degF < degG = ([], f)
+  | otherwise = go [] f
+  where
+    f' = trimTE f
+    g' = trimTE g
+    degF = length f' - 1
+    degG = length g' - 1
+    lcG = last g'
+
+    go q r =
+      let r' = trimTE r
+          degR = length r' - 1
+      in if degR < degG || all tIsZero r'
+         then (trimTE q, r')
+         else
+           let lcR = last r'
+               c = lcR / lcG
+               d = degR - degG
+               -- c * x^d
+               term = replicate d (TRat 0) ++ [c]
+               r'' = polySub r' (polyMulTE term g')
+           in go (addCoeffs q term) r''
+
+-- | Polynomial subtraction on coefficient lists.
+polySub :: [TowerElem] -> [TowerElem] -> [TowerElem]
+polySub [] bs = map negate bs
+polySub as [] = as
+polySub (a:as) (b:bs) = (a - b) : polySub as bs
+
+-- ---------------------------------------------------------------------------
+-- Tower construction
+-- ---------------------------------------------------------------------------
+
+-- | Adjoin an nth root to the tower: create a new level where α^n = r.
+-- Returns the new level and the generator α.
+--
+-- The level ID should be globally unique (caller provides it).
+adjoinTowerRoot :: Int           -- ^ Level ID (unique)
+                -> Int           -- ^ Root degree n
+                -> TowerElem     -- ^ Radicand r (element of current field)
+                -> (TowerLevel, TowerElem)
+adjoinTowerRoot lvlId n r =
+  let level = TowerLevel
+        { tlId       = lvlId
+        , tlDegree   = n
+        , tlRootDeg  = n
+        , tlRadicand = r
+        }
+      -- The generator α, represented as [0, 1, 0, ..., 0]
+      gen = TExt (TRat 0 : TRat 1 : replicate (n - 2) (TRat 0)) level
+  in (level, gen)
+
+-- ---------------------------------------------------------------------------
+-- Conversion to RadExpr
+-- ---------------------------------------------------------------------------
+
+-- | Convert a tower element to a radical expression.
+--
+-- Each tower level's generator α at level l is converted to
+-- Root (tlRootDeg l) (towerToRadExpr (tlRadicand l)).
+towerToRadExpr :: TowerElem -> RadExpr Rational
+towerToRadExpr (TRat r) = Lit r
+towerToRadExpr (TExt cs level) =
+  let gen = Root (tlRootDeg level) (towerToRadExpr (tlRadicand level))
+      terms = [ case i of
+                  0 -> towerToRadExpr c
+                  1 -> Mul (towerToRadExpr c) gen
+                  _ -> Mul (towerToRadExpr c) (Pow gen i)
+              | (c, i) <- zip cs [0 :: Int ..]
+              , not (tIsZero c)
+              ]
+  in case terms of
+       []  -> Lit 0
+       [t] -> t
+       _   -> foldl1 Add terms

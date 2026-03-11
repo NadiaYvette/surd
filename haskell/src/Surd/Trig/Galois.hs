@@ -19,6 +19,7 @@ module Surd.Trig.Galois
   , primitiveRoot
   , subgroupChain
   , modExp
+  , solveLinearIntegerC
   ) where
 
 import Data.Complex (Complex(..), magnitude, realPart, imagPart, mkPolar, phase)
