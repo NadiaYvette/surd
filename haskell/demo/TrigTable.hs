@@ -27,7 +27,7 @@ module Main (main) where
 
 import Data.Char (isDigit)
 import Data.List (intercalate, isPrefixOf)
-import Surd.Radical.LaTeX (latexDAG)
+import Surd.Radical.LaTeX (latex, latexDAG)
 import Surd.Radical.Normalize (normalize)
 import Surd.Radical.Pretty (pretty)
 import Surd.Trig (TrigResult (..), cosExact, simplifyTrigResult, sinExact)
@@ -168,6 +168,8 @@ data RenderedResult = RenderedResult
 
 renderResult :: Config -> TrigResult -> RenderedResult
 renderResult cfg (Radical e)
+  | cfgFormat cfg == LaTeX && cfgForceRadical cfg =
+      RenderedResult [] (breakTexLines 500 (latex e))
   | cfgFormat cfg == LaTeX =
       let (defs, expr) = latexDAG e
        in RenderedResult defs expr
@@ -424,6 +426,21 @@ wrapExpr s
     stripPlus _ = Nothing
     stripMinus ('-' : ' ' : rest) = Just rest
     stripMinus _ = Nothing
+
+-- | Insert @%\\n@ (TeX comment + newline) to keep source lines under
+-- TeX's @buf_size@ limit.  Breaks only after @}@, @)@, or spaces to
+-- avoid splitting TeX commands.  Has no effect on rendered output.
+breakTexLines :: Int -> String -> String
+breakTexLines maxLen = go 0
+  where
+    go _ [] = []
+    go col (c : cs)
+      | col >= maxLen, safe c = c : "%\n" ++ go 0 cs
+      | otherwise = c : go (col + 1) cs
+    safe '}' = True
+    safe ')' = True
+    safe ' ' = True
+    safe _ = False
 
 -- --------------------------------------------------------------------------
 -- Main
