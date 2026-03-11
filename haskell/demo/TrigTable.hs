@@ -27,7 +27,7 @@ module Main (main) where
 
 import Data.Char (isDigit)
 import Data.List (intercalate, isPrefixOf)
-import Surd.Radical.LaTeX (latexDAG)
+import Surd.Radical.LaTeX (latex, latexDAG)
 import Surd.Radical.Normalize (normalize)
 import Surd.Radical.Pretty (pretty)
 import Surd.Trig (TrigResult (..), cosExact, simplifyTrigResult, sinExact)
@@ -166,13 +166,16 @@ data RenderedResult = RenderedResult
     rrExpr :: String
   }
 
-renderResult :: Format -> TrigResult -> RenderedResult
-renderResult LaTeX (Radical e) =
-  let (defs, expr) = latexDAG e
-   in RenderedResult defs expr
-renderResult LaTeX (MinPoly p) = RenderedResult [] ("\\text{minpoly: }" ++ show p)
-renderResult Text (Radical e) = RenderedResult [] (pretty e)
-renderResult Text (MinPoly p) = RenderedResult [] ("minpoly: " ++ show p)
+renderResult :: Config -> TrigResult -> RenderedResult
+renderResult cfg (Radical e)
+  | cfgFormat cfg == LaTeX && cfgForceRadical cfg = RenderedResult [] (latex e)
+  | cfgFormat cfg == LaTeX =
+      let (defs, expr) = latexDAG e
+       in RenderedResult defs expr
+  | otherwise = RenderedResult [] (pretty e)
+renderResult cfg (MinPoly p)
+  | cfgFormat cfg == LaTeX = RenderedResult [] ("\\text{minpoly: }" ++ show p)
+  | otherwise = RenderedResult [] ("minpoly: " ++ show p)
 
 -- --------------------------------------------------------------------------
 -- Table generation
@@ -198,11 +201,11 @@ computeRow cfg (p, q) =
         { rowAngle = renderAngle (cfgFormat cfg) (p, q),
           rowCos =
             if cfgCols cfg /= SinOnly
-              then Just (renderResult (cfgFormat cfg) simpCos)
+              then Just (renderResult cfg simpCos)
               else Nothing,
           rowSin =
             if cfgCols cfg /= CosOnly
-              then Just (renderResult (cfgFormat cfg) simpSin)
+              then Just (renderResult cfg simpSin)
               else Nothing,
           rowTan =
             if cfgTan cfg
@@ -215,8 +218,8 @@ computeTan cfg simpCos simpSin =
   case (simpSin, simpCos) of
     (Radical s, Radical c)
       | isZero c -> undefinedStr (cfgFormat cfg)
-      | isZero s -> renderResult (cfgFormat cfg) (Radical (Lit 0))
-      | otherwise -> renderResult (cfgFormat cfg) (simplifyTrigResult (Radical (normalize (Mul s (Inv c)))))
+      | isZero s -> renderResult cfg (Radical (Lit 0))
+      | otherwise -> renderResult cfg (simplifyTrigResult (Radical (normalize (Mul s (Inv c)))))
     _ -> undefinedStr (cfgFormat cfg)
   where
     isZero (Lit 0) = True
