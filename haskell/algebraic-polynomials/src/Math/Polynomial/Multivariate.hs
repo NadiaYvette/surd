@@ -30,6 +30,20 @@ module Math.Polynomial.Multivariate
   -- * Conversion
   , toUnivariate
   , fromUnivariate
+  -- * Monomial operations
+  , monoOne
+  , monoVar
+  , monoMul
+  , monoDegree
+  , monoGcd
+  , monoLcm
+  , monoDivides
+  , monoDiv
+  -- * Monomial comparison
+  , compareGrevlex
+  -- * Leading term operations
+  , leadTermGrlex
+  , leadTermGrevlex
   -- * GCD
   , gcdMPoly
   , contentMPoly
@@ -69,6 +83,78 @@ monoMul (Mono a) (Mono b) = Mono (Map.filter (/= 0) (Map.unionWith (+) a b))
 -- | Total degree of a monomial.
 monoDegree :: Mono -> Int
 monoDegree (Mono m) = sum (Map.elems m)
+
+-- | GCD of two monomials (componentwise minimum of exponents).
+monoGcd :: Mono -> Mono -> Mono
+monoGcd (Mono a) (Mono b) =
+  Mono (Map.filter (/= 0) (Map.intersectionWith min a b))
+
+-- | LCM of two monomials (componentwise maximum of exponents).
+monoLcm :: Mono -> Mono -> Mono
+monoLcm (Mono a) (Mono b) =
+  Mono (Map.unionWith max a b)
+
+-- | Does the first monomial divide the second?
+monoDivides :: Mono -> Mono -> Bool
+monoDivides (Mono a) (Mono b) =
+  Map.isSubmapOfBy (<=) a b
+
+-- | Divide monomials: @monoDiv a b@ = @a / b@.
+-- Precondition: @b@ divides @a@.
+monoDiv :: Mono -> Mono -> Mono
+monoDiv (Mono a) (Mono b) =
+  Mono (Map.filter (/= 0) (Map.unionWith (-) a (Map.intersection b a)))
+
+-- | Leading term under graded lex order (total degree first, then lex).
+-- Returns @Nothing@ for the zero polynomial.
+leadTermGrlex :: MPoly k -> Maybe (Mono, k)
+leadTermGrlex (MPoly m)
+  | Map.null m = Nothing
+  | otherwise  = Just $ foldl1 pick (Map.toList m)
+  where
+    pick best@(bm, _) cur@(cm, _) =
+      let bd = monoDegree bm
+          cd = monoDegree cm
+      in if cd > bd || (cd == bd && cm > bm) then cur else best
+
+-- | Leading term under graded reverse lex order (grevlex).
+-- Total degree first; among same degree, reverse lex on variables
+-- (last variable is cheapest).
+-- Returns @Nothing@ for the zero polynomial.
+leadTermGrevlex :: MPoly k -> Maybe (Mono, k)
+leadTermGrevlex (MPoly m)
+  | Map.null m = Nothing
+  | otherwise  = Just $ foldl1 pick (Map.toList m)
+  where
+    pick best@(bm, _) cur@(cm, _) =
+      case compareGrevlex cm bm of
+        GT -> cur
+        _  -> best
+
+-- | Compare two monomials in grevlex order.
+compareGrevlex :: Mono -> Mono -> Ordering
+compareGrevlex a b =
+  case compare (monoDegree a) (monoDegree b) of
+    LT -> LT
+    GT -> GT
+    EQ -> compareRevlex a b
+
+-- | Reverse lex comparison: compare variables from highest to lowest;
+-- the monomial with a SMALLER exponent on the highest differing variable wins.
+compareRevlex :: Mono -> Mono -> Ordering
+compareRevlex (Mono a) (Mono b) =
+  let allVars = Map.keys (Map.union a b)
+      -- Walk from highest variable down
+      go [] = EQ
+      go (v:vs) =
+        let ea = Map.findWithDefault 0 v a
+            eb = Map.findWithDefault 0 v b
+        in case compare ea eb of
+             EQ -> go vs
+             -- In revlex, SMALLER exponent on highest variable is GREATER
+             LT -> GT
+             GT -> LT
+  in go (reverse allVars)
 
 -- | Sparse multivariate polynomial over coefficient ring @k@.
 -- Invariant: no zero coefficients.

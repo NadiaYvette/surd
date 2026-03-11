@@ -24,6 +24,7 @@ library
     Surd.Radical.LaTeX
     Surd.Radical.Normalize
     Surd.Radical.NormalForm
+    Surd.Radical.Groebner
     Surd.Radical.Pretty
     Surd.Radical.Denest
     Surd.Radical.Denest.Sqrt
@@ -69,6 +70,7 @@ test-suite surd-test
     Test.Interval
     Test.Multivariate
     Test.TragerFactoring
+    Test.Groebner
   build-depends:
     base >= 4.18 && < 5,
     algebraic-polynomials,

@@ -18,6 +18,7 @@ library
   exposed-modules:
     Math.Polynomial.Univariate
     Math.Polynomial.Multivariate
+    Math.Polynomial.Groebner
     Math.Polynomial.Factoring
     Math.Polynomial.Cyclotomic
     Math.Polynomial.Resultant

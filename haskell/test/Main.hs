@@ -9,6 +9,7 @@ import qualified Test.Algebraic
 import qualified Test.Interval
 import qualified Test.Multivariate
 import qualified Test.TragerFactoring
+import qualified Test.Groebner
 
 main :: IO ()
 main = defaultMain $ testGroup "surd"
@@ -20,4 +21,5 @@ main = defaultMain $ testGroup "surd"
   , Test.Interval.tests
   , Test.Multivariate.tests
   , Test.TragerFactoring.tests
+  , Test.Groebner.tests
   ]
