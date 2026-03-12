@@ -52,6 +52,11 @@
 :- import_module denest.
 :- import_module normal_form.
 :- import_module root_isolation.
+:- import_module alg_num.
+:- import_module minimal_poly.
+:- import_module rad_alg_convert.
+:- import_module rad_equality.
+:- import_module rad_order.
 
 %---------------------------------------------------------------------------%
 
@@ -124,6 +129,15 @@ main(!IO) :-
 
     io.write_string("\n=== Denest dispatcher tests ===\n", !IO),
     test_denest(!IO),
+
+    io.write_string("\n=== Minimal polynomial tests ===\n", !IO),
+    test_minimal_poly(!IO),
+
+    io.write_string("\n=== Algebraic number tests ===\n", !IO),
+    test_alg_num(!IO),
+
+    io.write_string("\n=== Radical equality/order tests ===\n", !IO),
+    test_rad_eq_order(!IO),
 
     io.write_string("\nAll tests passed.\n", !IO).
 
@@ -1184,6 +1198,151 @@ test_denest(!IO) :-
     D3 = denest.denest(E3),
     S3 = pretty.pretty(D3),
     io.format("denest(³√8) = %s\n", [s(S3)], !IO).
+
+%---------------------------------------------------------------------------%
+% Minimal polynomial tests
+%---------------------------------------------------------------------------%
+
+:- pred test_minimal_poly(io::di, io::uo) is det.
+
+test_minimal_poly(!IO) :-
+    R = ( func(N, D) = rational(N, D) ),
+
+    % minpoly(3) = x - 3
+    MP1 = minimal_poly(re_lit(R(3, 1))),
+    io.format("minpoly(3) degree = %d (expected 1)\n",
+        [i(degree(MP1))], !IO),
+
+    % minpoly(√2) = x² - 2
+    MP2 = minimal_poly(re_root(2, re_lit(R(2, 1)))),
+    io.format("minpoly(√2) degree = %d (expected 2)\n",
+        [i(degree(MP2))], !IO),
+
+    % minpoly(√2 + √3) should have degree 4
+    MP3 = minimal_poly(re_add(
+        re_root(2, re_lit(R(2, 1))),
+        re_root(2, re_lit(R(3, 1))))),
+    io.format("minpoly(√2+√3) degree = %d (expected 4)\n",
+        [i(degree(MP3))], !IO),
+
+    % annihilating_poly(√2) should have x² - 2 as a factor
+    Ann = annihilating_poly(re_root(2, re_lit(R(2, 1)))),
+    io.format("annihilating(√2) degree = %d (expected 2)\n",
+        [i(degree(Ann))], !IO).
+
+%---------------------------------------------------------------------------%
+% Algebraic number tests
+%---------------------------------------------------------------------------%
+
+:- pred test_alg_num(io::di, io::uo) is det.
+
+test_alg_num(!IO) :-
+    R = ( func(N, D) = rational(N, D) ),
+
+    % alg_from_rational(3) has minpoly x - 3
+    A3 = alg_from_rational(R(3, 1)),
+    io.format("alg_from_rational(3) degree = %d (expected 1)\n",
+        [i(degree(alg_min_poly(A3)))], !IO),
+
+    % alg_approx(3) ≈ 3
+    Approx3 = alg_approx(R(1, 100), A3),
+    ( if Approx3 = R(3, 1) then
+        io.write_string("alg_approx(3) = 3: yes\n", !IO)
+    else
+        io.write_string("alg_approx(3) = 3: WRONG\n", !IO)
+    ),
+
+    % alg_add(2, 3) should equal 5
+    A2 = alg_from_rational(R(2, 1)),
+    A5 = alg_add(A2, A3),
+    ( if alg_eq(A5, alg_from_rational(R(5, 1))) then
+        io.write_string("alg 2+3 = 5: yes\n", !IO)
+    else
+        io.write_string("alg 2+3 = 5: WRONG\n", !IO)
+    ),
+
+    % alg_mul(2, 3) should equal 6
+    A6 = alg_mul(A2, A3),
+    ( if alg_eq(A6, alg_from_rational(R(6, 1))) then
+        io.write_string("alg 2*3 = 6: yes\n", !IO)
+    else
+        io.write_string("alg 2*3 = 6: WRONG\n", !IO)
+    ),
+
+    % alg_neg(3) = -3
+    AN3 = alg_neg(A3),
+    ( if alg_eq(AN3, alg_from_rational(R(-3, 1))) then
+        io.write_string("alg neg(3) = -3: yes\n", !IO)
+    else
+        io.write_string("alg neg(3) = -3: WRONG\n", !IO)
+    ),
+
+    % alg_compare(2, 3) = (<)
+    Cmp = alg_compare(A2, A3),
+    ( if Cmp = (<) then
+        io.write_string("alg compare(2,3) = LT: yes\n", !IO)
+    else
+        io.write_string("alg compare(2,3) = LT: WRONG\n", !IO)
+    ),
+
+    % alg_root(2, 4) should equal 2
+    A4 = alg_from_rational(R(4, 1)),
+    ASqrt4 = alg_root(2, A4),
+    ( if alg_eq(ASqrt4, A2) then
+        io.write_string("alg √4 = 2: yes\n", !IO)
+    else
+        io.write_string("alg √4 = 2: WRONG\n", !IO)
+    ).
+
+%---------------------------------------------------------------------------%
+% Radical equality/order tests
+%---------------------------------------------------------------------------%
+
+:- pred test_rad_eq_order(io::di, io::uo) is det.
+
+test_rad_eq_order(!IO) :-
+    R = ( func(N, D) = rational(N, D) ),
+
+    % √4 = 2
+    ( if radical_eq(re_root(2, re_lit(R(4, 1))), re_lit(R(2, 1))) then
+        io.write_string("√4 = 2: yes\n", !IO)
+    else
+        io.write_string("√4 = 2: WRONG\n", !IO)
+    ),
+
+    % √2 ≠ √3
+    ( if radical_neq(
+            re_root(2, re_lit(R(2, 1))),
+            re_root(2, re_lit(R(3, 1)))) then
+        io.write_string("√2 ≠ √3: yes\n", !IO)
+    else
+        io.write_string("√2 ≠ √3: WRONG\n", !IO)
+    ),
+
+    % √2 < √3
+    ( if radical_lt(
+            re_root(2, re_lit(R(2, 1))),
+            re_root(2, re_lit(R(3, 1)))) then
+        io.write_string("√2 < √3: yes\n", !IO)
+    else
+        io.write_string("√2 < √3: WRONG\n", !IO)
+    ),
+
+    % Compare: √2+√3 vs √10 (√2+√3 ≈ 3.146, √10 ≈ 3.162)
+    Cmp = radical_compare(
+        re_add(re_root(2, re_lit(R(2, 1))),
+               re_root(2, re_lit(R(3, 1)))),
+        re_root(2, re_lit(R(10, 1)))),
+    ( if Cmp = (<) then
+        io.write_string("√2+√3 < √10: yes\n", !IO)
+    else
+        io.write_string("√2+√3 < √10: WRONG\n", !IO)
+    ),
+
+    % simplify_via_canonical(√4) should give 2
+    Simplified = simplify_via_canonical(re_root(2, re_lit(R(4, 1)))),
+    S = pretty.pretty(Simplified),
+    io.format("simplify_via_canonical(√4) = %s\n", [s(S)], !IO).
 
 %---------------------------------------------------------------------------%
 % Display helpers
