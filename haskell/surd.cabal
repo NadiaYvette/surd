@@ -2,6 +2,32 @@ cabal-version:   3.0
 name:            surd
 version:         0.1.0.0
 synopsis:        Symbolic radical denesting, complex root simplification, and exact trigonometry
+description:
+  Surd is a symbolic mathematics library for radical expressions over
+  the rationals (Q). It provides exact, closed-form representations of
+  algebraic numbers as nested radicals with rational coefficients.
+  .
+  Core capabilities include radical denesting (Borodin, Landau, and
+  general nth-root algorithms), expression simplification, equality
+  testing, and canonical ordering of radical expressions.
+  .
+  Exact trigonometric values at rational multiples of \(\pi\) are computed
+  via Gauss period descent with Lagrange resolvents, supporting all
+  denominators including primes, prime powers, and composites via CRT
+  decomposition.
+  .
+  Galois group computation over Q identifies transitive subgroups of
+  S_n via resolvent polynomials, enabling radical solving of
+  polynomials with solvable Galois groups up to degree 5.
+  .
+  Expressions are canonicalized to a normal form based on radical
+  monomials with automatic like-term collection and exponent reduction.
+  A DAG-based intermediate representation eliminates exponential
+  tree traversal, and arbitrary-precision ball arithmetic (via aern2-mp)
+  provides rigorous numerical evaluation at any desired precision.
+category:        Algebra, Math, Symbolic Computation
+homepage:        https://github.com/NadiaYvette/surd
+bug-reports:     https://github.com/NadiaYvette/surd/issues
 license:         BSD-3-Clause
 build-type:      Simple
 

@@ -1,22 +1,128 @@
 {- | Radical tower construction for solvable polynomials.
 
-Given an irreducible polynomial f(x) ∈ Q[x] of degree n with solvable
-Galois group G, construct radical expressions for its roots via
-Lagrange resolvents descending through the composition series of G.
+Given an irreducible polynomial \(f(x) \in \mathbb{Q}[x]\) of degree \(n\) with
+solvable Galois group \(G\), construct radical expressions for its roots via
+Lagrange resolvents descending through the composition series of \(G\).
 
-The algorithm generalises the Gauss period descent from Surd.Trig.Galois
-to arbitrary solvable polynomials:
+The algorithm generalises the Gauss period descent from "Surd.Trig.Galois"
+to arbitrary solvable polynomials. Currently supports degree 5 with Galois
+groups \(C_5\), \(D_5\), or \(F_{20}\) (the Frobenius group of order 20).
 
-  1. Find a cyclic ordering of the roots compatible with G
-  2. Compute Lagrange resolvents R_j = Σ ω^{jk} · α_k
-  3. Compute R_j^n via DFT: d_s = (1/n) Σ_j ω^{\-js} R_j^n
-  4. Match d_s to the current coefficient field (Q, Q(√Δ), Q(ω₅))
-  5. Build radical expressions via inverse DFT + n-th roots
+=== Lagrange resolvent theory
 
-The Galois action on d_s determines the coefficient field:
-  C₅:  all d_s ∈ Q
-  D₅:  d_0 ∈ Q, {d_1,d_4} and {d_2,d_3} are conjugate pairs over Q
-  F₂₀: d_0 ∈ Q, {d_1,d_2,d_3,d_4} form a single orbit over Q
+For a cyclic extension of degree \(n\) with roots
+\(\alpha_0, \alpha_1, \ldots, \alpha_{n-1}\) ordered so that the Galois generator
+acts as the cyclic shift \(\sigma(\alpha_k) = \alpha_{k+1 \bmod n}\), the
+__Lagrange resolvents__ are:
+
+\[
+  R_j = \sum_{k=0}^{n-1} \omega^{jk} \alpha_k
+\]
+
+where \(\omega = e^{2\pi i/n}\) is a primitive \(n\)-th root of unity.
+The key property is that \(R_j^n\) is fixed by \(\sigma\) (since
+\(\sigma(R_j) = \omega^{\-j} R_j\)), so \(R_j^n\) lies in the coefficient field.
+
+=== DFT relationship
+
+The values \(R_j^n\) are recovered via their DFT coefficients:
+
+\[
+  R_j^n = \sum_{s=0}^{n-1} d_s \, \omega^{js}
+\]
+
+where the \(d_s\) are given by the inverse DFT:
+
+\[
+  d_s = \frac{1}{n} \sum_{j=0}^{n-1} \omega^{\-js} R_j^n
+\]
+
+=== Inverse DFT for root recovery
+
+Once the \(R_j\) are known (as radical expressions), the roots are recovered by
+the inverse DFT:
+
+\[
+  \alpha_k = \frac{1}{n} \sum_{j=0}^{n-1} \omega^{\-jk} R_j
+\]
+
+=== Branch selection
+
+Computing \(R_j\) from \(R_j^n\) requires choosing the correct \(n\)-th root branch.
+The principal \(n\)-th root \(\sqrt[n]{R_j^n}\) may differ from the true \(R_j\) by
+a power of \(\omega\):
+
+\[
+  R_j = \omega^{b_j} \cdot \sqrt[n]{R_j^n}
+\]
+
+The branch index \(b_j\) is determined by numerical comparison against the
+known numerical value of \(R_j\).
+
+=== Algorithm pipeline
+
+@
+ f(x) in Q[x], degree 5, solvable Galois group G
+    |
+    v
+ [1] Depress: shift to eliminate x^4 term
+    |
+    v
+ [2] findCyclicOrdering: permute numerical roots so
+     sigma acts as (0 1 2 3 4)
+    |
+    v
+ [3] Compute R_j^5 numerically via Lagrange resolvents
+    |
+    v
+ [4] DFT: compute d_s from R_j^5
+    |
+    v
+ [5] matchDs: recognise d_s in the coefficient field
+     C5:  d_s in Q
+     D5:  d_s in Q(sqrt(disc))
+     F20: d_s in Q(omega_5)
+    |
+    v
+ [6] Reconstruct R_j^5 as RadExpr, take 5th root,
+     select branch via selectBranch5
+    |
+    v
+ [7] Inverse DFT: alpha_k = (1\/5) sum omega^{\-jk} R_j
+    |
+    v
+ [8] Un-depress and match to original root ordering
+@
+
+=== Galois orbit structure
+
+The Galois group acts on the DFT coefficients \(d_s\) via
+\(\tau(d_s) = d_{\tau^*(s)}\) where \(\tau^*\) is the induced action on indices.
+This determines which field the \(d_s\) live in:
+
+* __\(C_5\)__ (cyclic group of order 5): The generator \(\sigma\) fixes all
+  \(d_s\) individually, so every \(d_s \in \mathbb{Q}\).
+
+* __\(D_5\)__ (dihedral group of order 10): The extra involution
+  \(\tau: \alpha_k \mapsto \alpha_{\-k}\) sends \(d_s \mapsto d_{\-s \bmod 5}\).
+  Orbits: \(\{d_0\}\), \(\{d_1, d_4\}\), \(\{d_2, d_3\}\). Each conjugate pair
+  satisfies a quadratic over \(\mathbb{Q}\).
+
+* __\(F_{20}\)__ (Frobenius group of order 20): The generator
+  \(\tau: \alpha_k \mapsto \alpha_{2k \bmod 5}\) sends
+  \(d_s \mapsto d_{2s \bmod 5}\). Orbits: \(\{d_0\}\),
+  \(\{d_1, d_2, d_4, d_3\}\). The four non-trivial \(d_s\) lie in
+  \(\mathbb{Q}(\omega_5)\) and form a single Galois orbit.
+
+=== References
+
+* Lagrange, J. L. (1770–1771). \"Réflexions sur la résolution algébrique
+  des équations.\" /Nouveaux Mémoires de l'Académie Royale/, Berlin.
+* Dummit, D. S. (1991). \"Solving solvable quintics.\"
+  /Math. Comp./ 57(195), 387–401.
+  DOI: 10.1090\/S0025-5718-1991-1079014-X
+* Cox, D. A. (2012). /Galois Theory/, 2nd ed. Wiley.
+  DOI: 10.1002\/9781118218457
 -}
 module Surd.Galois.RadicalTower (
     solveViaTower,
@@ -40,10 +146,20 @@ import Surd.Types
 
 {- | Solve a solvable polynomial via Lagrange resolvent descent.
 
-Returns radical expressions for all n roots (including complex ones,
-in the order matching the numerical roots from 'GaloisResult').
+Given a 'GaloisResult' (containing the identified transitive group and
+numerical roots) and the original polynomial \(f \in \mathbb{Q}[x]\),
+returns radical expressions for all \(n\) roots in the order matching the
+numerical roots from 'GaloisResult'.
 
-Returns Nothing if the group is not solvable or degree unsupported.
+__Preconditions:__
+
+* The Galois group must be solvable ('tgSolvable').
+* The polynomial must have degree 5 (other degrees are not yet supported).
+
+Returns 'Nothing' if either precondition fails.
+
+The returned list contains exactly 5 'RadExpr' values, one per root,
+including complex conjugate pairs where applicable.
 -}
 solveViaTower :: GaloisResult -> Poly Rational -> Maybe [RadExpr Rational]
 solveViaTower gr f
@@ -55,6 +171,26 @@ solveViaTower gr f
 -- Solvable quintic solver (unified for C₅, D₅, F₂₀)
 ------------------------------------------------------------------------
 
+{- | Core algorithm for solvable quintics. Implements the full pipeline:
+
+1. __Depress__: make monic and shift \(x \to x - a_4/5\) to eliminate the
+   \(x^4\) term, yielding depressed roots.
+2. __Cyclic ordering__: call 'findCyclicOrdering' to find a permutation of
+   the 5 depressed roots such that the Galois generator acts as
+   \((0\;1\;2\;3\;4)\).
+3. __Lagrange resolvents__: compute \(R_j = \sum_{k=0}^{4} \omega_5^{jk} \alpha_k\)
+   numerically, then \(R_j^5\).
+4. __DFT coefficients__: compute \(d_s = \frac{1}{5} \sum_j \omega_5^{\-js} R_j^5\).
+5. __Coefficient matching__: dispatch to 'matchDsToQ' (\(C_5\)),
+   'matchDsD5' (\(D_5\)), or 'matchDsF20' (\(F_{20}\)) to express \(d_s\) as
+   radical expressions over the appropriate coefficient field.
+6. __Reconstruct \(R_j^5\)__: build \(R_j^5 = \sum_s d_s \omega_5^{js}\) as
+   'RadExpr'.
+7. __Branch selection__: compute \(R_j = \omega_5^{b_j} \sqrt[5]{R_j^5}\) via
+   'selectBranch5'.
+8. __Inverse DFT__: recover \(\alpha_k = \frac{1}{5} \sum_j \omega_5^{\-jk} R_j\).
+9. __Un-depress__: shift back by \(a_4/5\) and match to original root ordering.
+-}
 solveSolvableQuintic :: TransitiveGroup -> Poly Rational -> [Complex Double] -> Maybe [RadExpr Rational]
 solveSolvableQuintic tg f numRoots = do
     -- Make monic and depress
@@ -128,11 +264,18 @@ solveSolvableQuintic tg f numRoots = do
 ------------------------------------------------------------------------
 
 {- | Find a cyclic ordering of the 5 numerical roots such that the
-Galois generator acts as the shift (0 1 2 3 4).
+Galois generator \(\sigma\) acts as the cyclic shift \((0\;1\;2\;3\;4)\).
 
-Fixes root 0 in position 0 and tries all 24 orderings of the remaining
-4 roots. The correct ordering gives d_s values whose orbit symmetric
-functions are closest to rationals.
+The algorithm fixes root 0 in position 0 and tries all \(4! = 24\)
+permutations of the remaining 4 roots. Each candidate ordering is scored
+by 'scoreOrdering', which measures how close the resulting DFT
+coefficients' orbit symmetric functions are to rationals. The ordering
+with the lowest score wins, subject to quality thresholds (absolute
+score \(< 5\) and separation from the second-best candidate).
+
+Returns 'Nothing' if no ordering passes the quality checks, which
+indicates the roots may not have been computed with sufficient precision
+or the group identification is incorrect.
 -}
 findCyclicOrdering ::
     [Complex Double] -> Int -> String -> Maybe [Int]
@@ -151,13 +294,23 @@ findCyclicOrdering _ _ _ = Nothing
 -- Scoring (orbit-based)
 ------------------------------------------------------------------------
 
-{- | Score a candidate ordering. Lower = better.
+{- | Score a candidate ordering by measuring how close the DFT coefficients'
+Galois-orbit symmetric functions are to rationals. Lower score = better fit.
 
-For C₅:  check all d_s are individually rational.
-For D₅:  check d_0 ∈ Q and symmetric functions of conjugate pairs
-         {d_1,d_4}, {d_2,d_3} are rational.
-For F₂₀: check d_0 ∈ Q and elementary symmetric functions of
-         {d_1,d_2,d_3,d_4} are rational.
+The scoring strategy depends on the Galois group:
+
+* __\(C_5\)__: All \(d_s\) should be individually rational. Score is
+  \(\sum_s \operatorname{scoreRational}(d_s)\).
+
+* __\(D_5\)__: The involution \(\tau = (1\;4)(2\;3)\) gives orbits
+  \(\{d_0\}\), \(\{d_1, d_4\}\), \(\{d_2, d_3\}\). Score checks that
+  \(d_0 \in \mathbb{Q}\) and that the symmetric functions
+  \(d_1 + d_4\), \(d_1 d_4\), \(d_2 + d_3\), \(d_2 d_3\) are rational.
+
+* __\(F_{20}\)__: The generator \(\tau = (1\;2\;4\;3)\) gives orbits
+  \(\{d_0\}\), \(\{d_1, d_2, d_3, d_4\}\). Score checks that \(d_0 \in \mathbb{Q}\)
+  and that the elementary symmetric polynomials \(e_1, e_2, e_3, e_4\) of
+  \(\{d_1, d_2, d_3, d_4\}\) are rational.
 -}
 scoreOrdering :: [Complex Double] -> [Int] -> String -> Double
 scoreOrdering roots ordering groupName =
@@ -205,14 +358,22 @@ fracPart x = abs (x - fromIntegral (round x :: Integer))
 -- DFT coefficient matching
 ------------------------------------------------------------------------
 
--- | Match d_s values to radical expressions, dispatching on group.
+{- | Match DFT coefficients \(d_s\) to radical expressions, dispatching on the
+Galois group. Routes to 'matchDsToQ' for \(C_5\), 'matchDsD5' for \(D_5\),
+or 'matchDsF20' for \(F_{20}\). Returns 'Nothing' for unsupported groups.
+-}
 matchDs :: String -> [Complex Double] -> Maybe [RadExpr Rational]
 matchDs "C5" dVals = matchDsToQ dVals
 matchDs "D5" dVals = matchDsD5 dVals
 matchDs "F20" dVals = matchDsF20 dVals
 matchDs _ _ = Nothing
 
--- | Match d_s values to Q (for C₅).
+{- | Match DFT coefficients to \(\mathbb{Q}\) (for \(C_5\) Galois group).
+
+Every \(d_s\) must be (approximately) real and close to a rational number.
+Each is matched via 'approxRat'. Returns 'Nothing' if any \(d_s\) has
+imaginary part exceeding 0.01.
+-}
 matchDsToQ :: [Complex Double] -> Maybe [RadExpr Rational]
 matchDsToQ = mapM matchRat
   where
@@ -220,10 +381,19 @@ matchDsToQ = mapM matchRat
         | abs im > 0.01 = Nothing
         | otherwise = Just (Lit (approxRat re))
 
-{- | Match d_s values for D₅.
+{- | Match DFT coefficients for \(D_5\) (dihedral group of order 10).
 
-d_0 ∈ Q, {d_1, d_4} are roots of t² - s₁t + p₁ = 0,
-{d_2, d_3} are roots of t² - s₂t + p₂ = 0, with rational s, p.
+The conjugate pair structure gives:
+
+* \(d_0 \in \mathbb{Q}\)
+* \(\{d_1, d_4\}\) are roots of \(t^2 - s_1 t + p_1 = 0\) with
+  \(s_1 = d_1 + d_4 \in \mathbb{Q}\), \(p_1 = d_1 d_4 \in \mathbb{Q}\)
+* \(\{d_2, d_3\}\) are roots of \(t^2 - s_2 t + p_2 = 0\) with
+  \(s_2 = d_2 + d_3 \in \mathbb{Q}\), \(p_2 = d_2 d_3 \in \mathbb{Q}\)
+
+Each pair is expressed via the quadratic formula:
+\(d = \frac{s \pm \sqrt{s^2 - 4p}}{2}\), with the sign chosen by numerical
+comparison against the known \(d_s\) values.
 -}
 matchDsD5 :: [Complex Double] -> Maybe [RadExpr Rational]
 matchDsD5 dVals = do
@@ -284,10 +454,12 @@ matchDsD5 dVals = do
 
     Just [d0Expr, d1Expr, d2Expr, d3Expr, d4Expr]
 
-{- | Match d_s values for F₂₀.
+{- | Match DFT coefficients for \(F_{20}\) (Frobenius group of order 20).
 
-d_0 ∈ Q, {d_1,d_2,d_3,d_4} form a Galois orbit in Q(ω₅).
-Express each d_s as a Q-linear combination of ω₅ powers.
+Here \(d_0 \in \mathbb{Q}\) and \(\{d_1, d_2, d_3, d_4\}\) form a single
+Galois orbit in \(\mathbb{Q}(\omega_5)\). Each non-trivial \(d_s\) is
+expressed as a \(\mathbb{Q}\)-linear combination of powers of \(\omega_5\)
+via 'matchQOmega5'.
 -}
 matchDsF20 :: [Complex Double] -> Maybe [RadExpr Rational]
 matchDsF20 dVals = do
@@ -299,18 +471,29 @@ matchDsF20 dVals = do
     d4Expr <- matchQOmega5 v4
     Just [d0Expr, d1Expr, d2Expr, d3Expr, d4Expr]
 
--- | Match a complex number to a rational, checking both re and im.
+{- | Match a complex number to a rational, returning 'Nothing' if the
+imaginary part exceeds 0.1 in magnitude.
+-}
 matchRatC :: Complex Double -> Maybe (RadExpr Rational)
 matchRatC (re :+ im)
     | abs im > 0.1 = Nothing
     | otherwise = Just (Lit (approxRat re))
 
-{- | Match a complex number to an element of Q(ω₅).
+{- | Match a complex number to an element of \(\mathbb{Q}(\omega_5)\).
 
-Tries progressively general forms:
-  1. r · ω₅^k  (single term)
-  2. a + b · ω₅^k  (two terms)
-  3. General: a₀ + a₁ω₅ + a₂ω₅² + a₃ω₅³  (via conjugate pair decomposition)
+Uses the integral basis \(\{1, \omega_5, \omega_5^2, \omega_5^3\}\)
+(note: \(\omega_5^4 = -1 - \omega_5 - \omega_5^2 - \omega_5^3\) by the
+minimal polynomial \(\Phi_5\)).
+
+Tries progressively more general decompositions:
+
+1. __Single term__: \(d = r \cdot \omega_5^k\) for rational \(r\) and
+   \(0 \le k \le 4\) (via 'matchSingleOmega5').
+2. __Two terms__: \(d = a + b \cdot \omega_5^k\) for rational \(a, b\)
+   (via 'matchTwoTermOmega5').
+3. __General__: \(d = a_0 + a_1 \omega_5 + a_2 \omega_5^2 + a_3 \omega_5^3\)
+   via conjugate pair decomposition of real and imaginary parts
+   (via 'matchGeneralQOmega5').
 -}
 matchQOmega5 :: Complex Double -> Maybe (RadExpr Rational)
 matchQOmega5 d =
@@ -325,7 +508,10 @@ matchQOmega5 d =
                     -- General Q(ω₅) decomposition via conjugate pairs
                     matchGeneralQOmega5 d
 
--- | Try d = r · ω₅^k for rational r, integer k.
+{- | Try \(d = r \cdot \omega_5^k\) for rational \(r\) and \(0 \le k \le 4\).
+Divides \(d\) by each \(\omega_5^k\) and checks if the result is close to
+a real rational (via 'scoreRational').
+-}
 matchSingleOmega5 :: Complex Double -> Maybe (RadExpr Rational)
 matchSingleOmega5 d =
     let candidates =
@@ -343,7 +529,10 @@ matchSingleOmega5 d =
                             else Mul (Lit r) (omegaPow5 bestK)
             else Nothing
 
--- | Try d = a + b · ω₅^k for rational a, b and each k.
+{- | Try \(d = a + b \cdot \omega_5^k\) for rational \(a, b\) and each
+\(k \in \{1,2,3,4\}\). For each \(k\), estimates \(b \approx \operatorname{Re}(d \cdot \omega_5^{\-k})\),
+rounds to a nearby rational, subtracts, and checks if the remainder is rational.
+-}
 matchTwoTermOmega5 :: Complex Double -> Maybe (RadExpr Rational)
 matchTwoTermOmega5 d =
     let
@@ -375,12 +564,21 @@ matchTwoTermOmega5 d =
             -- Try a few nearby rationals
             [approxRat bApprox]
 
-{- | General Q(ω₅) decomposition: d = a₀ + a₁ω₅ + a₂ω₅² + a₃ω₅³.
+{- | General \(\mathbb{Q}(\omega_5)\) decomposition:
+\(d = a_0 + a_1 \omega_5 + a_2 \omega_5^2 + a_3 \omega_5^3\).
 
-Uses the conjugate pair structure:
-  re(d) = a₀ + a₁·cos(2π/5) + (a₂+a₃)·cos(4π/5)
-  im(d) = a₁·sin(2π/5) + (a₂-a₃)·sin(4π/5)
-Solve for a₁ and (a₂-a₃) from the imaginary part, then recover a₀, a₂, a₃.
+Uses the conjugate pair structure of \(\omega_5\) and \(\omega_5^4 = \bar{\omega}_5\):
+
+\[
+  \operatorname{Re}(d) = a_0 + a_1 \cos(2\pi/5) + (a_2 + a_3) \cos(4\pi/5)
+\]
+\[
+  \operatorname{Im}(d) = a_1 \sin(2\pi/5) + (a_2 - a_3) \sin(4\pi/5)
+\]
+
+Searches over small-denominator rational candidates for \(a_1\) and
+\(v = a_2 - a_3\), then solves for \(u = a_2 + a_3\) and \(a_0\) from the
+real part equation. Selects the candidate with smallest reconstruction error.
 -}
 matchGeneralQOmega5 :: Complex Double -> Maybe (RadExpr Rational)
 matchGeneralQOmega5 (re :+ im) =
@@ -432,7 +630,9 @@ matchGeneralQOmega5 (re :+ im) =
         let r = approxRat x
          in [r | abs (fromRational r - x) < 0.01]
 
--- | Build expression a₀ + a₁ω₅ + a₂ω₅² + a₃ω₅³.
+{- | Build the radical expression \(a_0 + a_1 \omega_5 + a_2 \omega_5^2 + a_3 \omega_5^3\),
+omitting terms with zero coefficient.
+-}
 buildQOmega5Expr :: Rational -> Rational -> Rational -> Rational -> RadExpr Rational
 buildQOmega5Expr a0 a1 a2 a3 =
     let terms = [(a0, 0), (a1, 1), (a2, 2), (a3, 3)]
@@ -448,8 +648,16 @@ buildQOmega5Expr a0 a1 a2 a3 =
 -- ω₅ expressions
 ------------------------------------------------------------------------
 
-{- | ω₅ = e^{2πi/5} as a radical expression.
-cos(2π/5) = (√5 - 1)/4, sin(2π/5) = √(10 + 2√5)/4
+{- | \(\omega_5 = e^{2\pi i/5}\) as a radical expression over \(\mathbb{Q}\).
+
+Uses the explicit real and imaginary parts:
+
+\[
+  \cos(2\pi/5) = \frac{\sqrt{5} - 1}{4}, \qquad
+  \sin(2\pi/5) = \frac{\sqrt{10 + 2\sqrt{5}}}{4}
+\]
+
+so \(\omega_5 = \cos(2\pi/5) + i \sin(2\pi/5)\) where \(i = \sqrt{\-1}\).
 -}
 omega5Expr :: RadExpr Rational
 omega5Expr =
@@ -458,13 +666,13 @@ omega5Expr =
         i = Root 2 (Lit (-1))
      in Add cos5 (Mul i sin5)
 
--- | ω₅^k as a radical expression.
+-- | \(\omega_5^k\) as a radical expression, reduced modulo 5.
 omegaPow5 :: Int -> RadExpr Rational
 omegaPow5 0 = Lit 1
 omegaPow5 1 = omega5Expr
 omegaPow5 k = Pow omega5Expr (k `mod` 5)
 
--- | ω₅^k as Complex Double.
+-- | \(\omega_5^k = e^{2\pi i k/5}\) as 'Complex' 'Double', for numerical evaluation.
 omega5C :: Int -> Complex Double
 omega5C k = mkPolar 1 (2 * pi * fromIntegral k / 5)
 
@@ -472,7 +680,16 @@ omega5C k = mkPolar 1 (2 * pi * fromIntegral k / 5)
 -- Branch selection for ⁵√
 ------------------------------------------------------------------------
 
--- | Select the correct branch of the 5th root.
+{- | Select the correct branch of the 5th root of \(R_j^5\).
+
+The principal 5th root \(\sqrt[5]{R_j^5}\) may differ from the true resolvent
+\(R_j\) by a power of \(\omega_5\). This function evaluates all 5 candidates
+\(\omega_5^k \cdot \sqrt[5]{R_j^5}\) for \(k \in \{0,\ldots,4\}\) numerically
+and selects the one closest to the known numerical value @targetVal@.
+
+Returns @Root 5 rj5Expr@ if \(k=0\), or @Mul (omegaPow5 k) (Root 5 rj5Expr)@
+otherwise.
+-}
 selectBranch5 :: RadExpr Rational -> Complex Double -> RadExpr Rational
 selectBranch5 rj5Expr targetVal =
     let
@@ -499,9 +716,11 @@ selectBranch5 rj5Expr targetVal =
 -- Helpers
 ------------------------------------------------------------------------
 
+-- | Evaluate a 'RadExpr' to 'Complex' 'Double' via the DAG evaluator.
 dagEvalC :: RadExpr Rational -> Complex Double
 dagEvalC = dagEvalComplex . toDAG
 
+-- | Fold constants in a 'RadExpr' via the DAG constant-folding pass.
 dagFold :: RadExpr Rational -> RadExpr Rational
 dagFold = fromDAG . dagFoldConstants . toDAG
 
@@ -513,7 +732,10 @@ matchToOriginal exprs numRoots =
         | t <- numRoots
         ]
 
--- | Approximate a Double as a small-denominator rational.
+{- | Approximate a 'Double' as a small-denominator rational (denominators up to 10000).
+Searches for the fraction \(n/d\) minimising \(|n/d - x|\) subject to
+error \(< 10^{\-6}\). Falls back to @round x@ if no fraction is found.
+-}
 approxRat :: Double -> Rational
 approxRat x =
     let candidates =
@@ -527,7 +749,9 @@ approxRat x =
             [] -> toRational (round x :: Integer)
             _ -> snd (minimum candidates)
 
--- | Extract exactly 5 elements from a list into a tuple.
+{- | Extract exactly 5 elements from a list into a 5-tuple.
+Calls 'error' if the list has fewer than 5 elements.
+-}
 toQuint :: [a] -> (a, a, a, a, a)
 toQuint (a : b : c : d : e : _) = (a, b, c, d, e)
 toQuint _ = error "toQuint: expected at least 5 elements"

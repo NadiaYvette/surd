@@ -1,6 +1,46 @@
-{- | Galois group identification for irreducible polynomials over Q.
+{- | Galois group identification for irreducible polynomials over \(\mathbb{Q}\).
 
-For degree 5, the decision tree:
+= Strategy
+
+We use the /Stauduhar descent/ approach: start by assuming the Galois group
+is the full symmetric group \(S_5\), then apply resolvent polynomials to
+test membership in successively smaller subgroups, descending through the
+transitive subgroup lattice of \(S_5\).
+
+The degree-5 lattice has five transitive groups (Butler–McKay numbering):
+
+\[
+  S_5 \;\supset\; A_5, \quad
+  S_5 \;\supset\; F_{20} \;\supset\; D_5 \;\supset\; C_5, \quad
+  A_5 \;\supset\; D_5 \;\supset\; C_5
+\]
+
+= Resolvents
+
+Two resolvent tests suffice to navigate the lattice:
+
+1. __Discriminant resolvent.__  The discriminant \(\Delta(f) = \prod_{i<j}
+   (\alpha_i - \alpha_j)^2\) is a perfect square in \(\mathbb{Q}\) if and
+   only if \(\mathrm{Gal}(f) \le A_5\).
+
+2. __Sextic resolvent.__  The \(F_{20}\)-invariant
+
+   \[
+     \theta(x_0, \ldots, x_4)
+       = \sum_{i=0}^{4} x_i^2 \bigl(x_{i+1}\,x_{i+4} + x_{i+2}\,x_{i+3}\bigr)
+   \]
+
+   (indices mod 5) has stabiliser \(F_{20}\) in \(S_5\).  Since
+   \(|S_5|/|F_{20}| = 120/20 = 6\), the orbit of \(\theta\) under \(S_5\)
+   has exactly 6 elements, and the resolvent \(R_\theta(x)\) is a degree-6
+   polynomial over \(\mathbb{Q}\).  The group satisfies
+   \(\mathrm{Gal}(f) \le F_{20}\) if and only if \(R_\theta\) has a
+   rational root.
+
+When both tests place the group inside \(A_5 \cap F_{20} = D_5\), a
+Frobenius\/Chebotarev test distinguishes \(C_5\) from \(D_5\).
+
+= Decision tree
 
 @
   disc square?  sextic root?   result
@@ -8,8 +48,31 @@ For degree 5, the decision tree:
   no            no             S₅
   yes           no             A₅
   no            yes            F₂₀
-  yes           yes            D₅ or C₅ (Frobenius test)
+  yes           yes            D₅ or C₅  (Frobenius test)
 @
+
+= Frobenius\/Chebotarev test
+
+For a cyclic group \(C_5\), the Frobenius element at an unramified prime
+\(p\) is a power of the generator, so the factorisation pattern of \(f\)
+mod \(p\) is either \(\{5\}\) (inert) or \(\{1,1,1,1,1\}\) (split).
+The dihedral group \(D_5\) additionally admits the pattern \(\{1,2,2\}\)
+(one fixed point, two 2-cycles).  Testing 20 good primes is sufficient
+in practice to distinguish the two cases.
+
+== References
+
+* Stauduhar, R. P. (1973). \"The determination of Galois groups.\"
+  /Math. Comp./ 27(124), 981–996.
+  DOI: 10.1090\/S0025-5718-1973-0327712-4
+
+* Dummit, D. S. (1991). \"Solving solvable quintics.\"
+  /Math. Comp./ 57(195), 387–401.
+  DOI: 10.1090\/S0025-5718-1991-1079014-X
+
+* Soicher, L. H. & McKay, J. (1985). \"Computing Galois groups over
+  the rationals.\"  /J. Number Theory/ 20(3), 273–281.
+  DOI: 10.1016\/0022-314X(85)90022-8
 -}
 module Surd.Galois.Identify (
     identifyGaloisGroup5,
@@ -25,12 +88,36 @@ import Math.Polynomial.Univariate
 import Surd.Galois.Resolvent
 import Surd.Galois.TransitiveGroup
 
+-- | Result of Galois group identification.
 data GaloisResult = GaloisResult
     { grGroup :: !TransitiveGroup
+    -- ^ The identified transitive group (see "Surd.Galois.TransitiveGroup").
     , grRoots :: ![Complex Double]
+    {- ^ Approximate complex roots of the polynomial, in the order used
+    internally for resolvent evaluation.  These are computed via
+    'complexRootsOf' and are not sorted in any canonical way.
+    -}
     }
     deriving (Show)
 
+{- | Identify the Galois group of a degree-5 polynomial over \(\mathbb{Q}\).
+
+Returns 'Nothing' if the polynomial does not have degree 5 or if the
+sextic resolvent cannot be constructed (e.g., numerical clustering fails).
+
+__Precondition:__ the input polynomial should be irreducible over
+\(\mathbb{Q}\).  Irreducibility is /not/ checked; passing a reducible
+polynomial will produce meaningless results.
+
+The decision procedure is:
+
+1. Compute the discriminant \(\Delta(f)\) and test whether it is a
+   perfect square in \(\mathbb{Q}\).
+2. Compute the sextic resolvent \(R_\theta(x)\) from approximate roots
+   and test for a rational root.
+3. If both tests are positive (\(\mathrm{Gal}(f) \le D_5\)), apply
+   'isCyclicByFrobenius' to distinguish \(C_5\) from \(D_5\).
+-}
 identifyGaloisGroup5 :: Poly Rational -> Maybe GaloisResult
 identifyGaloisGroup5 f
     | degree f /= 5 = Nothing
@@ -55,8 +142,23 @@ identifyGaloisGroup5 f
 -- Sextic resolvent
 ------------------------------------------------------------------------
 
-{- | The F₂₀-invariant θ(x₀,...,x₄) = Σᵢ xᵢ²(x_{i+1}x_{i+4}+x_{i+2}x_{i+3}).
-Its stabiliser in S₅ is F₂₀ (order 20), yielding 6 orbit values.
+{- | Construct the sextic resolvent polynomial from approximate complex roots.
+
+Evaluates the \(F_{20}\)-invariant
+
+\[
+  \theta(x_0, \ldots, x_4)
+    = \sum_{i=0}^{4} x_i^2
+      \bigl(x_{i+1}\,x_{i+4} + x_{i+2}\,x_{i+3}\bigr)
+\]
+
+at all \(120\) permutations of the five roots, clusters the resulting
+values into 6 orbits (since \(|\mathrm{Stab}_{S_5}(\theta)| = |F_{20}| = 20\)),
+and builds \(R_\theta(x) = \prod_{j=1}^{6}(x - v_j)\) where \(v_j\) are
+the orbit centres.  The coefficients are rounded to rationals.
+
+Returns 'Nothing' if clustering does not produce exactly 6 groups, which
+indicates numerical instability (e.g., nearly-degenerate roots).
 -}
 sexticResolvent5 :: [Complex Double] -> Maybe (Poly Rational)
 sexticResolvent5 roots = do
@@ -81,8 +183,9 @@ sexticResolvent5 roots = do
 clusterCenter :: [Complex Double] -> Complex Double
 clusterCenter cs = sum cs / fromIntegral (length cs)
 
-{- | Cluster complex values by proximity. Two values in the same cluster
-are within tol of at least one other member.
+{- | Cluster complex values by proximity.  Two values end up in the same
+cluster if they are within @tol@ of at least one existing cluster member.
+This is a greedy single-linkage clustering.
 -}
 clusterByDistance :: [Complex Double] -> Double -> [[Complex Double]]
 clusterByDistance [] _ = []
@@ -134,9 +237,22 @@ approxRat x =
 -- Frobenius test for C₅ vs D₅
 ------------------------------------------------------------------------
 
-{- | Factor f mod p for small primes. C₅ gives only patterns {5} and
-{1,1,1,1,1}. D₅ also admits {1,2,2}. If any prime yields a non-C₅
-pattern, the group is D₅.
+{- | Frobenius\/Chebotarev test to distinguish \(C_5\) from \(D_5\).
+
+For each unramified prime \(p\) (i.e., \(p\) does not divide the leading
+coefficient or the discriminant), we compute the factorisation pattern of
+\(f \bmod p\).  By the Chebotarev density theorem:
+
+* \(C_5\): the Frobenius at \(p\) generates a cyclic subgroup, so the
+  only possible patterns are \(\{5\}\) (order-5 element) and
+  \(\{1,1,1,1,1\}\) (identity).
+
+* \(D_5\): additionally admits the pattern \(\{1,2,2\}\), corresponding
+  to a reflection (order-2 element with one fixed point).
+
+If any of the first 20 good primes yields a pattern other than
+\(\{5\}\) or \(\{1,1,1,1,1\}\), the group is \(D_5\); otherwise we
+conclude \(C_5\).
 -}
 isCyclicByFrobenius :: Poly Rational -> Bool
 isCyclicByFrobenius f =
@@ -160,8 +276,13 @@ hasNonCyclicPattern intCs p =
         pat = factorPattern cs pI
      in pat /= [5] && pat /= [1, 1, 1, 1, 1]
 
-{- | Factorization degree pattern of a polynomial mod p via distinct-degree
-factorization: compute gcd(x^{p^k} - x, f) for k = 1, 2, ...
+{- | Distinct-degree factorisation pattern of a polynomial over \(\mathbb{F}_p\).
+
+For \(k = 1, 2, \ldots\), computes
+\(\gcd\!\bigl(x^{p^k} - x,\; f(x)\bigr)\) in \(\mathbb{F}_p[x]\).
+Each non-trivial GCD factor has degree divisible by \(k\) and contributes
+\(\deg(g)/k\) irreducible factors of degree \(k\) to the pattern.
+The result is the sorted list of factor degrees.
 -}
 factorPattern :: [Integer] -> Integer -> [Int]
 factorPattern fcs p = go [] 1 (fpTrim fcs) [0, 1]
@@ -184,6 +305,14 @@ factorPattern fcs p = go [] 1 (fpTrim fcs) [0, 1]
 ------------------------------------------------------------------------
 -- F_p polynomial arithmetic (ascending coefficient lists)
 ------------------------------------------------------------------------
+
+{- $fp_arith
+Polynomials over \(\mathbb{F}_p\) are represented as ascending
+coefficient lists @[a_0, a_1, \ldots, a_d]@ with entries in
+\(\{0, \ldots, p-1\}\).  Trailing zeros are trimmed by 'fpTrim'.
+These are internal helpers used by 'factorPattern' for the
+distinct-degree factorisation.
+-}
 
 fpTrim :: [Integer] -> [Integer]
 fpTrim = reverse . dropWhile (== 0) . reverse
