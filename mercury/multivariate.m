@@ -74,6 +74,7 @@
 :- func mp_mul(mpoly(K), mpoly(K)) = mpoly(K) <= ring(K).
 :- func mp_neg(mpoly(K)) = mpoly(K) <= ring(K).
 :- func mp_scale(K, mpoly(K)) = mpoly(K) <= ring(K).
+:- func mul_by_mono(mono, mpoly(K)) = mpoly(K).
 
 %---------------------------------------------------------------------------%
 % Queries
@@ -266,6 +267,11 @@ mp_scale(C, P) = Result :-
         Scaled = map.map_values_only(( func(V) = ring_mul(C, V) ), M),
         Result = mp_clean(Scaled)
     ).
+
+mul_by_mono(M, mpoly(P)) =
+    mpoly(map.foldl(( func(MK, V, Acc) =
+        map.det_insert(Acc, mono_mul(M, MK), V)
+    ), P, map.init)).
 
 %---------------------------------------------------------------------------%
 % Queries

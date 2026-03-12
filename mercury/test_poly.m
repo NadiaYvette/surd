@@ -22,6 +22,7 @@
 :- import_module cyclotomic.
 :- import_module extension.
 :- import_module factoring.
+:- import_module groebner.
 :- import_module integer.
 :- import_module int.
 :- import_module interval.
@@ -36,6 +37,8 @@
 :- import_module root_bound.
 :- import_module set.
 :- import_module string.
+:- import_module trager_factoring.
+:- import_module transcendental.
 
 %---------------------------------------------------------------------------%
 
@@ -69,6 +72,15 @@ main(!IO) :-
 
     io.write_string("\n=== Multivariate tests ===\n", !IO),
     test_multivariate(!IO),
+
+    io.write_string("\n=== Transcendental tests ===\n", !IO),
+    test_transcendental(!IO),
+
+    io.write_string("\n=== Groebner tests ===\n", !IO),
+    test_groebner(!IO),
+
+    io.write_string("\n=== Trager factoring tests ===\n", !IO),
+    test_trager(!IO),
 
     io.write_string("\nAll tests passed.\n", !IO).
 
@@ -478,6 +490,144 @@ test_multivariate(!IO) :-
     Vars = mp_variables(Sq),
     io.format("variables((x+y)²) has %d vars\n",
         [i(set.count(Vars))], !IO).
+
+%---------------------------------------------------------------------------%
+% Transcendental tests
+%---------------------------------------------------------------------------%
+
+:- pred test_transcendental(io::di, io::uo) is det.
+
+test_transcendental(!IO) :-
+    % x/1 + y/1 as rational functions
+    X = var_rf(var(0)) : rat_func(rational),
+    Y = var_rf(var(1)) : rat_func(rational),
+
+    % x + y
+    Sum = ring_add(X, Y),
+    io.format("rf_num terms(x+y) = %d\n",
+        [i(num_terms(rf_num(Sum)))], !IO),
+
+    % x * y
+    Prod = ring_mul(X, Y),
+    io.format("rf_num terms(x*y) = %d\n",
+        [i(num_terms(rf_num(Prod)))], !IO),
+
+    % x / y
+    Quot = field_div(X, Y),
+    io.format("rf_num terms(x/y) = %d\n",
+        [i(num_terms(rf_num(Quot)))], !IO),
+
+    % const is const
+    C = const_rf(rational(3, 1)) : rat_func(rational),
+    ( if is_const_rf(C) then
+        io.write_string("const_rf(3) is const: yes\n", !IO)
+    else
+        io.write_string("const_rf(3) is const: no (WRONG)\n", !IO)
+    ),
+    ( if is_const_rf(X) then
+        io.write_string("var_rf(x) is const: yes (WRONG)\n", !IO)
+    else
+        io.write_string("var_rf(x) is const: no\n", !IO)
+    ),
+
+    % eval: x=2, y=3 => (x+y) = 5
+    Env = ( func(V) = R :-
+        ( if V = var(0) then R = rational(2, 1)
+        else R = rational(3, 1) )
+    ),
+    EvalSum = eval_rf(Env, Sum),
+    io.format("eval(x+y, x=2,y=3) = %s (should be 5)\n",
+        [s(show_rat(EvalSum))], !IO),
+
+    % reduce_frac: (x²-1)/(x-1) should reduce if gcd works
+    X2 = ring_mul(X, X),
+    % (x²-1) / (x-1)
+    Num = mp_sub(rf_num(X2), mp_one),
+    Den = mp_sub(mp_var(var(0)), mp_one),
+    RF = mk_rat_func(Num, Den),
+    RFR = reduce_frac(RF),
+    io.format("reduce_frac((x²-1)/(x-1)): num terms=%d, den terms=%d\n",
+        [i(num_terms(rf_num(RFR))), i(num_terms(rf_den(RFR)))], !IO).
+
+%---------------------------------------------------------------------------%
+% Groebner tests
+%---------------------------------------------------------------------------%
+
+:- pred test_groebner(io::di, io::uo) is det.
+
+test_groebner(!IO) :-
+    % Simple test: ideal <x+y, x-y> should have basis containing x and y
+    X = mp_var(var(0)) : mpoly(rational),
+    Y = mp_var(var(1)) : mpoly(rational),
+    G1 = mp_add(X, Y),
+    G2 = mp_sub(X, Y),
+    GB = groebner_basis(grevlex_ord, [G1, G2]),
+    io.format("GB(<x+y, x-y>) has %d elements\n",
+        [i(list.length(gb_polys(GB)))], !IO),
+
+    % x+y should reduce to 0 modulo the basis
+    R1 = gb_reduce(GB, G1),
+    ( if mp_is_zero(R1) then
+        io.write_string("x+y reduces to 0: yes\n", !IO)
+    else
+        io.write_string("x+y reduces to 0: no (WRONG)\n", !IO)
+    ),
+
+    % x² + y² should reduce to 0 modulo <x+y, x-y>
+    % since x² + y² = x(x+y) - y(x-y) + 2y² but also x=0, y=0 in V(I)
+    % Actually x+y, x-y => x, y are in the ideal, so x²+y² reduces to 0
+    X2Y2 = mp_add(mp_mul(X, X), mp_mul(Y, Y)),
+    R2 = gb_reduce(GB, X2Y2),
+    ( if mp_is_zero(R2) then
+        io.write_string("x²+y² reduces to 0: yes\n", !IO)
+    else
+        io.write_string("x²+y² reduces to 0: no (WRONG)\n", !IO)
+    ),
+
+    % div_mod_mpoly test
+    {_, Rem} = div_mod_mpoly(grevlex_ord, X2Y2, gb_polys(GB)),
+    ( if mp_is_zero(Rem) then
+        io.write_string("div_mod remainder is 0: yes\n", !IO)
+    else
+        io.write_string("div_mod remainder is 0: no (WRONG)\n", !IO)
+    ).
+
+%---------------------------------------------------------------------------%
+% Trager factoring tests
+%---------------------------------------------------------------------------%
+
+:- pred test_trager(io::di, io::uo) is det.
+
+test_trager(!IO) :-
+    % Q(√2): minpoly = t²-2
+    MinPoly = poly([rational(-2, 1), rational.zero, rational.one]),
+    Field = mk_ext_field(MinPoly, "√2"),
+    io.format("ext_degree = %d\n", [i(ext_degree(Field))], !IO),
+
+    % x² - 2 over Q(√2) should factor as (x-α)(x+α)
+    Alpha = generator(Field),
+    Two = embed(Field, rational(2, 1)),
+    % f = x² - 2 (as poly over Q(√2))
+    ZeroExt = embed(Field, rational.zero),
+    OneExt = embed(Field, rational.one),
+    NegTwo = ext_neg(Two),
+    F = poly([NegTwo, ZeroExt, OneExt]),
+    Factors = factor_sf_over_extension(Field, F),
+    io.format("factors of x²-2 over Q(√2): %d factors\n",
+        [i(list.length(Factors))], !IO),
+
+    % Each factor should be degree 1
+    ( if Factors = [F1, F2] then
+        io.format("  factor degrees: %d, %d\n",
+            [i(degree(F1)), i(degree(F2))], !IO)
+    else
+        io.write_string("  unexpected number of factors\n", !IO)
+    ),
+
+    % norm_poly test: norm of (x - α) should be x² - 2
+    XMinusAlpha = poly([ext_neg(Alpha), OneExt]),
+    N = norm_poly(Field, XMinusAlpha),
+    io.format("norm(x-α) = %s\n", [s(show_rat_poly(N))], !IO).
 
 %---------------------------------------------------------------------------%
 % Display helpers
