@@ -57,6 +57,10 @@
 :- import_module rad_alg_convert.
 :- import_module rad_equality.
 :- import_module rad_order.
+:- import_module tower.
+:- import_module dyn_tower.
+:- import_module dyn_tower_display.
+:- import_module rad_dag.
 
 %---------------------------------------------------------------------------%
 
@@ -138,6 +142,15 @@ main(!IO) :-
 
     io.write_string("\n=== Radical equality/order tests ===\n", !IO),
     test_rad_eq_order(!IO),
+
+    io.write_string("\n=== Tower tests ===\n", !IO),
+    test_tower(!IO),
+
+    io.write_string("\n=== Dynamic tower tests ===\n", !IO),
+    test_dyn_tower(!IO),
+
+    io.write_string("\n=== RAD DAG tests ===\n", !IO),
+    test_rad_dag(!IO),
 
     io.write_string("\nAll tests passed.\n", !IO).
 
@@ -1343,6 +1356,118 @@ test_rad_eq_order(!IO) :-
     Simplified = simplify_via_canonical(re_root(2, re_lit(R(4, 1)))),
     S = pretty.pretty(Simplified),
     io.format("simplify_via_canonical(√4) = %s\n", [s(S)], !IO).
+
+%---------------------------------------------------------------------------%
+% Tower tests
+%---------------------------------------------------------------------------%
+
+:- pred test_tower(io::di, io::uo) is det.
+
+test_tower(!IO) :-
+    % adjoin_sqrt(2) gives field with x^2 - 2 and a generator
+    {_Field, Gen} = adjoin_sqrt(rational(2, 1)),
+    io.format("adjoin_sqrt(2) generator: ok\n", [], !IO),
+
+    % eval_in_field: evaluate √2 as a field element
+    Sqrt2 = re_root(2, re_lit(rational(2, 1))),
+    EmbedR = ( func(R) = extension.embed(_Field, R) ),
+    ResolveRoot = ( func(_N, _V) = Gen ),
+    _Elem = eval_in_field(EmbedR, ResolveRoot, Sqrt2),
+    io.format("eval_in_field(√2): ok\n", [], !IO).
+
+%---------------------------------------------------------------------------%
+% Dynamic tower tests
+%---------------------------------------------------------------------------%
+
+:- pred test_dyn_tower(io::di, io::uo) is det.
+
+test_dyn_tower(!IO) :-
+    % Build a simple tower: adjoin √2
+    {Lvl, Alpha} = adjoin_tower_root(0, 2, t_rat(rational(2, 1))),
+
+    % α + α = 2α
+    Sum = t_add(Alpha, Alpha),
+    Two = t_mul(t_from_int(2), Alpha),
+    ( if t_eq(Sum, Two) then
+        io.write_string("α + α = 2α: yes\n", !IO)
+    else
+        io.write_string("α + α = 2α: WRONG\n", !IO)
+    ),
+
+    % α * α = 2 (since α² = 2)
+    Sq = t_mul(Alpha, Alpha),
+    ( if t_eq(Sq, t_rat(rational(2, 1))) then
+        io.write_string("α² = 2: yes\n", !IO)
+    else
+        io.write_string("α² = 2: WRONG\n", !IO)
+    ),
+
+    % 1/α * α = 1
+    Inv = t_inv(Alpha),
+    Prod = t_mul(Inv, Alpha),
+    ( if t_eq(Prod, t_rat(rational.one)) then
+        io.write_string("(1/α)·α = 1: yes\n", !IO)
+    else
+        io.write_string("(1/α)·α = 1: WRONG\n", !IO)
+    ),
+
+    % tower_to_rad_expr: convert α back
+    RE = tower_to_rad_expr(Alpha),
+    REStr = pretty.pretty(RE),
+    io.format("tower_to_rad_expr(α) = %s\n", [s(REStr)], !IO
+    ),
+
+    % Display: extract_tower and pretty_tower
+    TD = extract_tower("α", promote_to(Lvl, Alpha)),
+    PrettyStr = pretty_tower(TD),
+    io.format("pretty_tower: %s\n", [s(PrettyStr)], !IO).
+
+%---------------------------------------------------------------------------%
+% RAD DAG tests
+%---------------------------------------------------------------------------%
+
+:- pred test_rad_dag(io::di, io::uo) is det.
+
+test_rad_dag(!IO) :-
+    R = ( func(N, D) = rational(N, D) ),
+
+    % Simple expression: 1 + 2 = 3
+    E1 = re_add(re_lit(R(1, 1)), re_lit(R(2, 1))),
+    D1 = to_dag(E1),
+    io.format("dag_size(1+2) = %d\n", [i(dag_size(D1))], !IO),
+    io.format("dag_depth(1+2) = %d\n", [i(dag_depth(D1))], !IO),
+
+    % fold_constants should simplify Lit+Lit → Lit
+    D1F = dag_fold_constants(D1),
+    io.format("dag_size after fold(1+2) = %d\n",
+        [i(dag_size(D1F))], !IO),
+
+    % Round-trip: to_dag then from_dag
+    E1B = from_dag(D1),
+    ( if E1B = re_add(re_lit(One), re_lit(Two)),
+         One = R(1, 1), Two = R(2, 1)
+    then
+        io.write_string("from_dag round-trip: ok\n", !IO)
+    else
+        io.write_string("from_dag round-trip: WRONG\n", !IO)
+    ),
+
+    % √2 expression: fold_constants should extract
+    E2 = re_root(2, re_lit(R(8, 1))),
+    D2 = to_dag(E2),
+    D2F = dag_fold_constants(D2),
+    E2B = from_dag(D2F),
+    % √8 = 2√2, so after fold should have Mul(Lit 2, Root 2 (Lit 2))
+    io.format("fold(√8) dag_size = %d\n", [i(dag_size(D2F))], !IO),
+    io.format("fold(√8) = %s\n", [s(pretty.pretty(E2B))], !IO),
+
+    % Interval eval: √2 ≈ 1.414
+    E3 = re_root(2, re_lit(R(2, 1))),
+    D3 = to_dag(E3),
+    CI = dag_eval_complex_interval(D3),
+    Re = ci_real_part(CI),
+    io.format("interval(√2) lo=%s hi=%s\n",
+        [s(show_rat(iv_lo(Re))), s(show_rat(iv_hi(Re)))], !IO).
 
 %---------------------------------------------------------------------------%
 % Display helpers
