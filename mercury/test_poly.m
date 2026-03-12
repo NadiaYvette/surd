@@ -20,16 +20,21 @@
 :- implementation.
 
 :- import_module cyclotomic.
+:- import_module extension.
 :- import_module factoring.
 :- import_module integer.
 :- import_module int.
+:- import_module interval.
 :- import_module list.
+:- import_module map.
+:- import_module multivariate.
 :- import_module positive.
 :- import_module prime_factors.
 :- import_module poly.
 :- import_module rational.
 :- import_module resultant.
 :- import_module root_bound.
+:- import_module set.
 :- import_module string.
 
 %---------------------------------------------------------------------------%
@@ -55,6 +60,15 @@ main(!IO) :-
 
     io.write_string("\n=== Root bound tests ===\n", !IO),
     test_root_bound(!IO),
+
+    io.write_string("\n=== Interval tests ===\n", !IO),
+    test_interval(!IO),
+
+    io.write_string("\n=== Extension field tests ===\n", !IO),
+    test_extension(!IO),
+
+    io.write_string("\n=== Multivariate tests ===\n", !IO),
+    test_multivariate(!IO),
 
     io.write_string("\nAll tests passed.\n", !IO).
 
@@ -301,6 +315,169 @@ test_root_bound(!IO) :-
     Roots = approx_roots(X2M1),
     io.format("approx_roots(x^2-1) = %s\n",
         [s(show_rat_list(Roots))], !IO).
+
+%---------------------------------------------------------------------------%
+% Interval tests
+%---------------------------------------------------------------------------%
+
+:- pred test_interval(io::di, io::uo) is det.
+
+test_interval(!IO) :-
+    R = ( func(N) = rational.rational(N) ),
+
+    % midpoint([1, 3]) = 2
+    Iv1 = interval(R(1), R(3)),
+    io.format("midpoint([1,3]) = %s\n",
+        [s(show_rat(midpoint(Iv1)))], !IO),
+
+    % width([1, 3]) = 2
+    io.format("width([1,3]) = %s\n",
+        [s(show_rat(width(Iv1)))], !IO),
+
+    % iadd([1,2], [3,4]) = [4,6]
+    Iv2 = interval(R(3), R(4)),
+    IvSum = iadd(interval(R(1), R(2)), Iv2),
+    io.format("iadd([1,2],[3,4]) = [%s, %s]\n",
+        [s(show_rat(iv_lo(IvSum))), s(show_rat(iv_hi(IvSum)))], !IO),
+
+    % imul([2,3], [4,5]) = [8,15]
+    IvProd = imul(interval(R(2), R(3)), interval(R(4), R(5))),
+    io.format("imul([2,3],[4,5]) = [%s, %s]\n",
+        [s(show_rat(iv_lo(IvProd))), s(show_rat(iv_hi(IvProd)))], !IO),
+
+    % isqrt([4,9]) contains [2,3]
+    IvSqrt = isqrt(interval(R(4), R(9))),
+    io.format("isqrt([4,9]) ~ [%s, %s]\n",
+        [s(show_rat(iv_lo(IvSqrt))), s(show_rat(iv_hi(IvSqrt)))], !IO),
+
+    % pi_interval should contain a value near 3.14159...
+    Pi = pi_interval,
+    io.format("pi ~ [%s, %s]\n",
+        [s(show_rat(iv_lo(Pi))), s(show_rat(iv_hi(Pi)))], !IO),
+
+    % strictly_positive test
+    ( if strictly_positive(interval(R(1), R(2))) then
+        io.write_string("[1,2] strictly positive: yes\n", !IO)
+    else
+        io.write_string("[1,2] strictly positive: no (WRONG)\n", !IO)
+    ),
+
+    % contains_zero test
+    ( if contains_zero(interval(R(-1), R(1))) then
+        io.write_string("[-1,1] contains zero: yes\n", !IO)
+    else
+        io.write_string("[-1,1] contains zero: no (WRONG)\n", !IO)
+    ).
+
+%---------------------------------------------------------------------------%
+% Extension field tests
+%---------------------------------------------------------------------------%
+
+:- pred test_extension(io::di, io::uo) is det.
+
+test_extension(!IO) :-
+    R = ( func(N) = rational.rational(N) ),
+
+    % Q(√2): minimal polynomial x² - 2
+    MinPoly = mk_poly([R(-2), R(0), R(1)]),
+    Field = mk_ext_field(MinPoly, "√2"),
+    io.format("ext_degree(Q(√2)) = %d\n", [i(ext_degree(Field))], !IO),
+
+    % α = generator
+    Alpha = generator(Field) : ext_elem(rational),
+
+    % α² should reduce to 2 (since α² ≡ 2 mod (x²-2))
+    AlphaSq = ext_mul(Alpha, Alpha),
+    io.format("α² = %s (should be [2])\n",
+        [s(show_rat_poly(elem_poly(AlphaSq)))], !IO),
+
+    % (1 + α) * (1 - α) = 1 - α² = 1 - 2 = -1
+    One = embed(Field, R(1)),
+    OnePlusA = ext_add(One, Alpha),
+    OneMinusA = ext_sub(One, Alpha),
+    Prod = ext_mul(OnePlusA, OneMinusA),
+    io.format("(1+α)(1-α) = %s (should be [-1])\n",
+        [s(show_rat_poly(elem_poly(Prod)))], !IO),
+
+    % Inverse of α: α⁻¹ = α/2 (since α·(α/2) = α²/2 = 2/2 = 1)
+    AlphaInv = ext_inv(Alpha),
+    io.format("α⁻¹ = %s (should be [0, 1/2])\n",
+        [s(show_rat_poly(elem_poly(AlphaInv)))], !IO),
+
+    % Verify: α * α⁻¹ = 1
+    Check = ext_mul(Alpha, AlphaInv),
+    io.format("α·α⁻¹ = %s (should be [1])\n",
+        [s(show_rat_poly(elem_poly(Check)))], !IO),
+
+    % Test ring instance: ring_add, ring_mul
+    A2 = ring_add(Alpha, Alpha) : ext_elem(rational),
+    io.format("α+α = %s (should be [0, 2])\n",
+        [s(show_rat_poly(elem_poly(A2)))], !IO),
+
+    % extGcd: gcd(x, x²-2) should give (1, s, t) with s·x + t·(x²-2) = 1
+    {G, _, _} = ext_gcd(
+        mk_poly([R(0), R(1)]),
+        mk_poly([R(-2), R(0), R(1)])),
+    io.format("gcd(x, x²-2) = %s (should be [1])\n",
+        [s(show_rat_poly(G))], !IO).
+
+%---------------------------------------------------------------------------%
+% Multivariate tests
+%---------------------------------------------------------------------------%
+
+:- pred test_multivariate(io::di, io::uo) is det.
+
+test_multivariate(!IO) :-
+    X = var(0),
+    Y = var(1),
+
+    % x + y
+    PX = mp_var(X) : mpoly(rational),
+    PY = mp_var(Y) : mpoly(rational),
+    Sum = mp_add(PX, PY),
+    io.format("num_terms(x+y) = %d\n", [i(num_terms(Sum))], !IO),
+    io.format("total_degree(x+y) = %d\n", [i(total_degree(Sum))], !IO),
+
+    % x * y
+    Prod = mp_mul(PX, PY),
+    io.format("num_terms(x*y) = %d\n", [i(num_terms(Prod))], !IO),
+    io.format("total_degree(x*y) = %d\n", [i(total_degree(Prod))], !IO),
+
+    % (x + y)² = x² + 2xy + y²
+    Sq = mp_mul(Sum, Sum),
+    io.format("num_terms((x+y)²) = %d\n", [i(num_terms(Sq))], !IO),
+    io.format("total_degree((x+y)²) = %d\n", [i(total_degree(Sq))], !IO),
+
+    % degree_in(x, x²+2xy+y²) = 2
+    io.format("degree_in(x, (x+y)²) = %d\n",
+        [i(degree_in(X, Sq))], !IO),
+
+    % Evaluate x²+2xy+y² at x=2, y=3: should be (2+3)² = 25
+    Env = ( func(V) = R :-
+        ( if V = X then R = rational(2)
+        else R = rational(3) )
+    ),
+    Val = mp_eval(Env, Sq),
+    io.format("eval((x+y)², x=2,y=3) = %s (should be 25)\n",
+        [s(show_rat(Val))], !IO),
+
+    % mp_const and mp_is_zero
+    Zero = mp_zero : mpoly(rational),
+    ( if mp_is_zero(Zero) then
+        io.write_string("mp_zero is zero: yes\n", !IO)
+    else
+        io.write_string("mp_zero is zero: no (WRONG)\n", !IO)
+    ),
+    ( if mp_is_zero(PX) then
+        io.write_string("x is zero: yes (WRONG)\n", !IO)
+    else
+        io.write_string("x is zero: no\n", !IO)
+    ),
+
+    % Test variables
+    Vars = mp_variables(Sq),
+    io.format("variables((x+y)²) has %d vars\n",
+        [i(set.count(Vars))], !IO).
 
 %---------------------------------------------------------------------------%
 % Display helpers
