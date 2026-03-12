@@ -22,6 +22,7 @@ module Math.Field.Extension
   , extPow
   , extEq
   , isSentinelField
+  , extGcd
   ) where
 
 import Math.Polynomial.Univariate
