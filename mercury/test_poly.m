@@ -19,6 +19,7 @@
 
 :- implementation.
 
+:- import_module bool.
 :- import_module cyclotomic.
 :- import_module extension.
 :- import_module factoring.
@@ -29,6 +30,7 @@
 :- import_module interval.
 :- import_module list.
 :- import_module map.
+:- import_module maybe.
 :- import_module multivariate.
 :- import_module positive.
 :- import_module prime_factors.
@@ -47,6 +49,9 @@
 :- import_module latex.
 :- import_module denest_sqrt.
 :- import_module denest_nthroot.
+:- import_module denest.
+:- import_module normal_form.
+:- import_module root_isolation.
 
 %---------------------------------------------------------------------------%
 
@@ -110,6 +115,15 @@ main(!IO) :-
 
     io.write_string("\n=== Nth root denesting tests ===\n", !IO),
     test_denest_nthroot(!IO),
+
+    io.write_string("\n=== Normal form tests ===\n", !IO),
+    test_normal_form(!IO),
+
+    io.write_string("\n=== Root isolation tests ===\n", !IO),
+    test_root_isolation(!IO),
+
+    io.write_string("\n=== Denest dispatcher tests ===\n", !IO),
+    test_denest(!IO),
 
     io.write_string("\nAll tests passed.\n", !IO).
 
@@ -987,6 +1001,189 @@ test_denest_nthroot(!IO) :-
     else
         io.write_string("³√(2+√5) does not denest: expected\n", !IO)
     ).
+
+%---------------------------------------------------------------------------%
+% Normal form tests
+%---------------------------------------------------------------------------%
+
+:- pred test_normal_form(io::di, io::uo) is det.
+
+test_normal_form(!IO) :-
+    % norm_lit(3) is not zero
+    NL3 = norm_lit(rational(3, 1)),
+    ( if norm_is_zero(NL3) then
+        io.write_string("norm_lit(3) is zero: WRONG\n", !IO)
+    else
+        io.write_string("norm_lit(3) is not zero: yes\n", !IO)
+    ),
+
+    % norm_coeff of a literal
+    ( if norm_coeff(NL3) = yes(C3), C3 = rational(3, 1) then
+        io.write_string("norm_coeff(3) = 3: yes\n", !IO)
+    else
+        io.write_string("norm_coeff(3) = 3: WRONG\n", !IO)
+    ),
+
+    % norm_add: 3 + 5 = 8
+    Sum = norm_add(norm_lit(rational(3, 1)), norm_lit(rational(5, 1))),
+    ( if norm_coeff(Sum) = yes(C8), C8 = rational(8, 1) then
+        io.write_string("norm_add(3,5) = 8: yes\n", !IO)
+    else
+        io.write_string("norm_add(3,5) = 8: WRONG\n", !IO)
+    ),
+
+    % norm_root(2, 4) = 2 (perfect square extracted)
+    NR4 = norm_root(2, rational(4, 1)),
+    ( if norm_coeff(NR4) = yes(C2), C2 = rational(2, 1) then
+        io.write_string("norm_root(2,4) = 2: yes\n", !IO)
+    else
+        io.write_string("norm_root(2,4) = 2: WRONG\n", !IO)
+    ),
+
+    % √2 · √2 = 2 via norm_mul
+    Sqrt2 = norm_root(2, rational(2, 1)),
+    Prod = norm_mul(Sqrt2, Sqrt2),
+    ( if norm_coeff(Prod) = yes(CP), CP = rational(2, 1) then
+        io.write_string("√2·√2 = 2: yes\n", !IO)
+    else
+        io.write_string("√2·√2 = 2: WRONG\n", !IO)
+    ),
+
+    % √2 · √3 is NOT rational
+    Sqrt3 = norm_root(2, rational(3, 1)),
+    Prod23 = norm_mul(Sqrt2, Sqrt3),
+    ( if norm_coeff(Prod23) = no then
+        io.write_string("√2·√3 is irrational: yes\n", !IO)
+    else
+        io.write_string("√2·√3 is irrational: WRONG\n", !IO)
+    ),
+
+    % norm_root(2, 12) = 2√3 (check via norm_mul with itself)
+    NR12 = norm_root(2, rational(12, 1)),
+    Sq12 = norm_mul(NR12, NR12),
+    ( if norm_coeff(Sq12) = yes(C12), C12 = rational(12, 1) then
+        io.write_string("(√12)² = 12: yes\n", !IO)
+    else
+        io.write_string("(√12)² = 12: WRONG\n", !IO)
+    ),
+
+    % toNormExpr round-trip
+    E1 = re_add(re_lit(rational(2, 1)),
+        re_mul(re_lit(rational(3, 1)),
+            re_sqrt(re_lit(rational(5, 1))))),
+    NE1 = to_norm_expr(E1),
+    RE1 = from_norm_expr(NE1),
+    V_orig = eval_float(E1),
+    V_round = eval_float(RE1),
+    Diff = float.abs(float.'-'(V_orig, V_round)),
+    ( if float.'<'(Diff, 1.0e-10) then
+        io.write_string("toNormExpr/fromNormExpr round-trip: yes\n", !IO)
+    else
+        io.format("toNormExpr/fromNormExpr round-trip: WRONG (diff=%f)\n",
+            [f(Diff)], !IO)
+    ),
+
+    % normInv: 1/√2 · √2 = 1
+    InvSqrt2 = norm_inv(Sqrt2),
+    Check = norm_mul(InvSqrt2, Sqrt2),
+    ( if norm_coeff(Check) = yes(C1), C1 = rational.one then
+        io.write_string("(1/√2)·√2 = 1: yes\n", !IO)
+    else
+        io.write_string("(1/√2)·√2 = 1: WRONG\n", !IO)
+    ),
+
+    % ImagUnit: i² = -1
+    I = norm_atom(imag_unit),
+    I2 = norm_mul(I, I),
+    ( if norm_coeff(I2) = yes(CM1), CM1 = rational(-1, 1) then
+        io.write_string("i² = -1: yes\n", !IO)
+    else
+        io.write_string("i² = -1: WRONG\n", !IO)
+    ),
+
+    % norm_pow(√2, 4) = 4
+    P4 = norm_pow(Sqrt2, 4),
+    ( if norm_coeff(P4) = yes(C4P), C4P = rational(4, 1) then
+        io.write_string("(√2)⁴ = 4: yes\n", !IO)
+    else
+        io.write_string("(√2)⁴ = 4: WRONG\n", !IO)
+    ).
+
+%---------------------------------------------------------------------------%
+% Root isolation tests
+%---------------------------------------------------------------------------%
+
+:- pred test_root_isolation(io::di, io::uo) is det.
+
+test_root_isolation(!IO) :-
+    % x² - 2: two real roots
+    P1 = poly([-rational(2, 1), rational.zero, rational.one]),
+    Roots1 = isolate_real_roots(P1),
+    io.format("roots of x²-2: %d found\n", [i(list.length(Roots1))], !IO),
+
+    % x² + 1: no real roots
+    P2 = poly([rational.one, rational.zero, rational.one]),
+    Roots2 = isolate_real_roots(P2),
+    io.format("roots of x²+1: %d found (expected 0)\n",
+        [i(list.length(Roots2))], !IO),
+
+    % x - 3: one root at 3
+    P3 = poly([-rational(3, 1), rational.one]),
+    Roots3 = isolate_real_roots(P3),
+    ( if Roots3 = [II3], root_in_interval(II3) = yes(R3),
+         R3 = rational(3, 1) then
+        io.write_string("root of x-3 at 3: yes\n", !IO)
+    else
+        io.write_string("root of x-3 at 3: WRONG\n", !IO)
+    ),
+
+    % Sturm count for x²-1 on (-2, 2]
+    P4 = poly([-rational.one, rational.zero, rational.one]),
+    SC = sturm_count(P4, rational(-2, 1), rational(2, 1)),
+    io.format("sturm_count(x²-1, -2, 2) = %d (expected 2)\n", [i(SC)], !IO),
+
+    % Refine root of x²-2 near √2
+    ( if Roots1 = [_, II2] then
+        Refined = refine_root(rational(1, 1000), II2),
+        IV = ii_interval(Refined),
+        Lo = iv_lo(IV),
+        Hi = iv_hi(IV),
+        Width = rational.'-'(Hi, Lo),
+        ( if rational.'<'(Width, rational(1, 1000)) then
+            io.write_string("refined √2 interval width < 0.001: yes\n", !IO)
+        else
+            io.write_string("refined √2 interval width < 0.001: WRONG\n", !IO)
+        )
+    else
+        io.write_string("refine: no positive root found\n", !IO)
+    ).
+
+%---------------------------------------------------------------------------%
+% Denest dispatcher tests
+%---------------------------------------------------------------------------%
+
+:- pred test_denest(io::di, io::uo) is det.
+
+test_denest(!IO) :-
+    % denest(√12) should simplify
+    E1 = re_root(2, re_lit(rational(12, 1))),
+    D1 = denest.denest(E1),
+    S1 = pretty.pretty(D1),
+    io.format("denest(√12) = %s\n", [s(S1)], !IO),
+
+    % denest(√(3+2√2)) should denest via sqrt algorithm
+    E2 = re_root(2, re_add(re_lit(rational(3, 1)),
+        re_mul(re_lit(rational(2, 1)),
+            re_root(2, re_lit(rational(2, 1)))))),
+    D2 = denest.denest(E2),
+    S2 = pretty.pretty(D2),
+    io.format("denest(√(3+2√2)) = %s\n", [s(S2)], !IO),
+
+    % denest(³√8) should simplify to 2
+    E3 = re_root(3, re_lit(rational(8, 1))),
+    D3 = denest.denest(E3),
+    S3 = pretty.pretty(D3),
+    io.format("denest(³√8) = %s\n", [s(S3)], !IO).
 
 %---------------------------------------------------------------------------%
 % Display helpers
