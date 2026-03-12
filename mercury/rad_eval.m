@@ -83,7 +83,17 @@ eval_float(re_mul(A, B)) = float.'*'(eval_float(A), eval_float(B)).
 eval_float(re_inv(A)) = float.'/'(1.0, eval_float(A)).
 eval_float(re_root(N, A)) = Result :-
     V = eval_float(A),
-    Result = math.pow(V, float.'/'(1.0, float.float(N))).
+    ( if float.'<'(V, 0.0) then
+        Result = float.'-'(0.0, math.exp(float.'*'(
+            float.'/'(1.0, float.float(N)),
+            math.ln(float.'-'(0.0, V)))))
+    else if float.'<'(V, 1.0e-300) then
+        Result = 0.0
+    else
+        Result = math.exp(float.'*'(
+            float.'/'(1.0, float.float(N)),
+            math.ln(V)))
+    ).
 eval_float(re_pow(A, N)) = Result :-
     V = eval_float(A),
     Result = float_pow(V, N).
@@ -193,12 +203,16 @@ cinv(complex(R, I)) = complex(float.'/'(R, D), float.'/'(float.'-'(0.0, I), D)) 
 
 complex_nth_root(N, complex(R, I)) = Result :-
     Mag = math.sqrt(float.'+'(float.'*'(R, R), float.'*'(I, I))),
-    Theta = math.atan2(I, R),
-    FN = float.float(N),
-    RN = math.pow(Mag, float.'/'(1.0, FN)),
-    AN = float.'/'(Theta, FN),
-    Result = complex(float.'*'(RN, math.cos(AN)),
-                     float.'*'(RN, math.sin(AN))).
+    ( if float.'<'(Mag, 1.0e-300) then
+        Result = complex(0.0, 0.0)
+    else
+        Theta = math.atan2(I, R),
+        FN = float.float(N),
+        RN = math.exp(float.'*'(float.'/'(1.0, FN), math.ln(Mag))),
+        AN = float.'/'(Theta, FN),
+        Result = complex(float.'*'(RN, math.cos(AN)),
+                         float.'*'(RN, math.sin(AN)))
+    ).
 
 :- func complex_pow(complex, int) = complex.
 

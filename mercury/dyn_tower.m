@@ -17,6 +17,7 @@
 :- interface.
 
 :- import_module list.
+:- import_module integer.
 :- import_module maybe.
 :- import_module rad_expr.
 :- import_module rational.
@@ -90,7 +91,7 @@
 % Zero checking, level inspection
 %---------------------------------------------------------------------------%
 
-t_is_zero(t_rat(R)) :- R = rational.zero.
+t_is_zero(t_rat(R)) :- integer.is_zero(numer(R)).
 t_is_zero(t_ext(Cs, _)) :- list.all_true(t_is_zero, Cs).
 
 t_level(t_rat(_)) = no.
@@ -242,12 +243,10 @@ t_mul(A, B) = Result :-
     ).
 
 t_inv(E) = Result :-
-    ( if E = t_rat(R) then
-        ( if R = rational.zero then
-            require.error("t_inv: division by zero")
-        else
-            Result = t_rat(rational.'/'(rational.one, R))
-        )
+    ( if t_is_zero(E) then
+        require.error("t_inv: division by zero")
+    else if E = t_rat(R) then
+        Result = t_rat(rational.'/'(rational.one, R))
     else if E = t_ext(Cs, L) then
         Result = t_inv_ext(Cs, L)
     else
