@@ -43,6 +43,10 @@
 :- import_module string.
 :- import_module trager_factoring.
 :- import_module transcendental.
+:- import_module pretty.
+:- import_module latex.
+:- import_module denest_sqrt.
+:- import_module denest_nthroot.
 
 %---------------------------------------------------------------------------%
 
@@ -94,6 +98,18 @@ main(!IO) :-
 
     io.write_string("\n=== Radical normalize tests ===\n", !IO),
     test_rad_normalize(!IO),
+
+    io.write_string("\n=== Pretty-print tests ===\n", !IO),
+    test_pretty(!IO),
+
+    io.write_string("\n=== LaTeX tests ===\n", !IO),
+    test_latex(!IO),
+
+    io.write_string("\n=== Sqrt denesting tests ===\n", !IO),
+    test_denest_sqrt(!IO),
+
+    io.write_string("\n=== Nth root denesting tests ===\n", !IO),
+    test_denest_nthroot(!IO),
 
     io.write_string("\nAll tests passed.\n", !IO).
 
@@ -799,6 +815,177 @@ test_rad_normalize(!IO) :-
         io.write_string("normalize(√12+√3) = 3√3: yes\n", !IO)
     else
         io.write_string("normalize(√12+√3) = 3√3: WRONG\n", !IO)
+    ).
+
+%---------------------------------------------------------------------------%
+% Pretty-print tests
+%---------------------------------------------------------------------------%
+
+:- pred test_pretty(io::di, io::uo) is det.
+
+test_pretty(!IO) :-
+    % pretty(√2) = "√2"
+    E1 = re_sqrt(re_lit(rational(2, 1))),
+    S1 = pretty.pretty(E1),
+    io.format("pretty(√2) = %s\n", [s(S1)], !IO),
+
+    % pretty(2 + 3√5)
+    E2 = re_add(re_lit(rational(2, 1)),
+        re_mul(re_lit(rational(3, 1)), re_sqrt(re_lit(rational(5, 1))))),
+    S2 = pretty.pretty(E2),
+    io.format("pretty(2+3√5) = %s\n", [s(S2)], !IO),
+
+    % pretty(1/2)
+    E3 = re_lit(rational(1, 2)),
+    S3 = pretty.pretty(E3),
+    io.format("pretty(1/2) = %s\n", [s(S3)], !IO),
+
+    % pretty(a - b) = "a - b" not "a + -b"
+    E4 = re_add(re_lit(rational(3, 1)), re_neg(re_lit(rational(2, 1)))),
+    S4 = pretty.pretty(E4),
+    io.format("pretty(3-2) = %s\n", [s(S4)], !IO),
+
+    % pretty(√(-1)) = "i"
+    E5 = re_root(2, re_lit(rational(-1, 1))),
+    S5 = pretty.pretty(E5),
+    io.format("pretty(√(-1)) = %s\n", [s(S5)], !IO),
+
+    % pretty(x^3)
+    E6 = re_pow(re_sqrt(re_lit(rational(2, 1))), 3),
+    S6 = pretty.pretty(E6),
+    io.format("pretty(√2³) = %s\n", [s(S6)], !IO),
+
+    % pretty_cse: shared subexpressions
+    S7 = re_sqrt(re_lit(rational(2, 1))),
+    E7 = re_add(re_mul(S7, S7), re_mul(S7, re_lit(rational(3, 1)))),
+    Cse7 = pretty_cse(E7),
+    io.format("pretty_cse(√2·√2 + √2·3) = %s\n", [s(Cse7)], !IO).
+
+%---------------------------------------------------------------------------%
+% LaTeX tests
+%---------------------------------------------------------------------------%
+
+:- pred test_latex(io::di, io::uo) is det.
+
+test_latex(!IO) :-
+    % latex(√2)
+    E1 = re_sqrt(re_lit(rational(2, 1))),
+    S1 = latex.latex(E1),
+    io.format("latex(√2) = %s\n", [s(S1)], !IO),
+
+    % latex(1/√2) = \\frac{1}{\\sqrt{2}}
+    E2 = re_inv(re_sqrt(re_lit(rational(2, 1)))),
+    S2 = latex.latex(E2),
+    io.format("latex(1/√2) = %s\n", [s(S2)], !IO),
+
+    % latex(a/b)
+    E3 = re_mul(re_lit(rational(1, 1)), re_inv(re_lit(rational(2, 1)))),
+    S3 = latex.latex(E3),
+    io.format("latex(1/2) = %s\n", [s(S3)], !IO),
+
+    % latex(√(-1)) = \\mathrm{i}
+    E4 = re_root(2, re_lit(rational(-1, 1))),
+    S4 = latex.latex(E4),
+    io.format("latex(√(-1)) = %s\n", [s(S4)], !IO),
+
+    % latex(³√5)
+    E5 = re_root(3, re_lit(rational(5, 1))),
+    S5 = latex.latex(E5),
+    io.format("latex(³√5) = %s\n", [s(S5)], !IO),
+
+    % latex(1/2 as rational)
+    E6 = re_lit(rational(1, 2)),
+    S6 = latex.latex(E6),
+    io.format("latex(1/2 lit) = %s\n", [s(S6)], !IO).
+
+%---------------------------------------------------------------------------%
+% Sqrt denesting tests
+%---------------------------------------------------------------------------%
+
+:- pred test_denest_sqrt(io::di, io::uo) is det.
+
+test_denest_sqrt(!IO) :-
+    % √(3 + 2√2) = √2 + √1 = 1 + √2
+    ( if try_sqrt_denest(rational(3, 1), rational(2, 1), rational(2, 1),
+            {Sign, X, Y}) then
+        io.format("√(3+2√2): sign=%d, x=%s, y=%s\n",
+            [i(Sign), s(show_rat(X)), s(show_rat(Y))], !IO)
+    else
+        io.write_string("√(3+2√2): no denesting (WRONG)\n", !IO)
+    ),
+
+    % √(5 + 2√6) = √2 + √3
+    ( if try_sqrt_denest(rational(5, 1), rational(2, 1), rational(6, 1),
+            {Sign2, X2, Y2}) then
+        io.format("√(5+2√6): sign=%d, x=%s, y=%s\n",
+            [i(Sign2), s(show_rat(X2)), s(show_rat(Y2))], !IO)
+    else
+        io.write_string("√(5+2√6): no denesting (WRONG)\n", !IO)
+    ),
+
+    % √(2 + √3) should NOT denest (disc = 4 - 3 = 1, sd = 1, x=3/2, y=1/2, ok)
+    % Actually it does! Let's check.
+    ( if try_sqrt_denest(rational(2, 1), rational(1, 1), rational(3, 1),
+            {Sign3, X3, Y3}) then
+        io.format("√(2+√3): sign=%d, x=%s, y=%s\n",
+            [i(Sign3), s(show_rat(X3)), s(show_rat(Y3))], !IO)
+    else
+        io.write_string("√(2+√3): no denesting\n", !IO)
+    ),
+
+    % Test expression-level denesting
+    E1 = re_root(2, re_add(re_lit(rational(3, 1)),
+        re_mul(re_lit(rational(2, 1)),
+            re_root(2, re_lit(rational(2, 1)))))),
+    ( if denest_sqrt_expr(E1, D1) then
+        S1 = pretty.pretty(D1),
+        io.format("denest_sqrt_expr(√(3+2√2)) = %s\n", [s(S1)], !IO)
+    else
+        io.write_string("denest_sqrt_expr(√(3+2√2)): failed (WRONG)\n", !IO)
+    ),
+
+    % Test recursive denesting
+    R1 = denest_sqrt(E1),
+    SR1 = pretty.pretty(R1),
+    io.format("denest_sqrt(√(3+2√2)) = %s\n", [s(SR1)], !IO).
+
+%---------------------------------------------------------------------------%
+% Nth root denesting tests
+%---------------------------------------------------------------------------%
+
+:- pred test_denest_nthroot(io::di, io::uo) is det.
+
+test_denest_nthroot(!IO) :-
+    % ⁿ√(aⁿ·b) = a·ⁿ√b: √12 = 2√3
+    E1 = denest_nthroot(re_root(2, re_lit(rational(12, 1)))),
+    S1 = pretty.pretty(E1),
+    io.format("denest(√12) = %s\n", [s(S1)], !IO),
+
+    % ³√8 = 2
+    E2 = denest_nthroot(re_root(3, re_lit(rational(8, 1)))),
+    S2 = pretty.pretty(E2),
+    io.format("denest(³√8) = %s\n", [s(S2)], !IO),
+
+    % ³√(27/8) = 3/2
+    E3 = denest_nthroot(re_root(3, re_lit(rational(27, 8)))),
+    S3 = pretty.pretty(E3),
+    io.format("denest(³√(27/8)) = %s\n", [s(S3)], !IO),
+
+    % √(√16) = √4 → collapse to ⁴√16 → 2
+    E4 = denest_nthroot(re_root(2, re_root(2, re_lit(rational(16, 1))))),
+    S4 = pretty.pretty(E4),
+    io.format("denest(√(√16)) = %s\n", [s(S4)], !IO),
+
+    % ³√(-8) = -2 (odd root of negative)
+    E5 = denest_nthroot(re_root(3, re_lit(rational(-8, 1)))),
+    S5 = pretty.pretty(E5),
+    io.format("denest(³√(-8)) = %s\n", [s(S5)], !IO),
+
+    % Cube root denesting: ³√(2+√5) — likely won't denest
+    ( if try_cube_root_denest(rational(2, 1), rational(1, 1), rational(5, 1), _) then
+        io.write_string("³√(2+√5) denests\n", !IO)
+    else
+        io.write_string("³√(2+√5) does not denest: expected\n", !IO)
     ).
 
 %---------------------------------------------------------------------------%
