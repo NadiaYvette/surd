@@ -483,8 +483,14 @@ dagEvalComplex (RadDAG nodes rootId) = vals IntMap.! rootId
       | otherwise = 1 / ((vals IntMap.! a) ^ negate n)
 
     complexNthRoot n z =
-      let r = magnitude z
-          theta = atan2 (imagPart z) (realPart z)
+      -- Normalize ±0 in imaginary part to avoid IEEE 754 sign-of-zero
+      -- issues: sqrt(-45e6 + (-0.0)i) would give -6708i instead of +6708i
+      -- because atan2(-0.0, -45e6) = -π instead of +π.
+      let re = realPart z
+          im = imagPart z
+          im' = if im == 0 then 0 else im  -- canonicalise -0.0 → +0.0
+          r = magnitude z
+          theta = atan2 im' re
        in mkPolar (r ** (1 / fromIntegral n)) (theta / fromIntegral n)
       where
         realPart (x :+ _) = x

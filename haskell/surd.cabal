@@ -40,6 +40,12 @@ library
     Surd.Trig.TowerDescent
     Surd.Integration.Euler
     Surd.Integration.Elliptic
+    Surd.Galois.Permutation
+    Surd.Galois.TransitiveGroup
+    Surd.Galois.Resolvent
+    Surd.Galois.Identify
+    Surd.Galois.RadicalTower
+    Surd.Galois.Solve
   build-depends:
     base >= 4.18 && < 5,
     aern2-mp >= 0.2.15,
@@ -64,6 +70,16 @@ executable surd-euler-integral
 executable surd-elliptic-integral
   hs-source-dirs:   demo
   main-is:          EllipticIntegral.hs
+  default-language: GHC2021
+  ghc-options:      -Wall -Wno-pattern-namespace-specifier -O2
+  build-depends:
+    base >= 4.18 && < 5,
+    algebraic-polynomials,
+    surd
+
+executable surd-solvable-quintic
+  hs-source-dirs:   demo
+  main-is:          SolvableQuintic.hs
   default-language: GHC2021
   ghc-options:      -Wall -Wno-pattern-namespace-specifier -O2
   build-depends:

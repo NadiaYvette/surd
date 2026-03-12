@@ -24,6 +24,7 @@ import Math.Internal.Interval (Interval (..))
 import Math.Polynomial.Factoring (rationalRoots)
 import Math.Polynomial.Univariate
 import Surd.Algebraic.Number
+import Surd.Galois.Solve (solveAlgNum)
 import Surd.Polynomial.MinimalPoly (annihilatingPoly, minimalPoly)
 import Surd.Polynomial.MinimalPolyTower (minimalPolyTower)
 import Surd.Radical.Eval (ExactReal, evalComplex, evalComplexExact, evalExact)
@@ -62,9 +63,11 @@ radExprToAlgNum expr =
 --   degree 2: quadratic formula
 --   degree 3: Cardano's formula (real case only for now)
 --   degree 4: Ferrari's formula
+--   degree 5: Lagrange resolvents (solvable Galois group only)
 --
--- Returns Nothing if the degree is too high or the formula
--- would require complex intermediates we can't simplify.
+-- Returns Nothing if the degree is too high, the Galois group
+-- is not solvable, or the formula would require complex
+-- intermediates we can't simplify.
 algNumToRadExpr :: AlgNum -> Maybe (RadExpr Rational)
 algNumToRadExpr a =
   let p = anMinPoly a
@@ -78,7 +81,15 @@ algNumToRadExpr a =
         2 -> solveQuadratic cs approx
         3 -> solveCubic cs approx
         4 -> solveQuartic cs approx
+        5 -> solveQuintic a
         _ -> Nothing
+
+-- | Solve a degree-5 minimal polynomial via Galois group computation.
+solveQuintic :: AlgNum -> Maybe (RadExpr Rational)
+solveQuintic a =
+  case solveAlgNum a of
+    Just e -> Just e
+    Nothing -> Nothing  -- not solvable or numerical matching failed
 
 -- | Simplify a radical expression by converting to canonical form
 -- and back. If the algebraic number has a simpler radical representation,
