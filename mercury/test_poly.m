@@ -22,6 +22,7 @@
 :- import_module cyclotomic.
 :- import_module extension.
 :- import_module factoring.
+:- use_module float.
 :- import_module groebner.
 :- import_module integer.
 :- import_module int.
@@ -32,6 +33,9 @@
 :- import_module positive.
 :- import_module prime_factors.
 :- import_module poly.
+:- import_module rad_eval.
+:- import_module rad_expr.
+:- import_module rad_normalize.
 :- import_module rational.
 :- import_module resultant.
 :- import_module root_bound.
@@ -81,6 +85,15 @@ main(!IO) :-
 
     io.write_string("\n=== Trager factoring tests ===\n", !IO),
     test_trager(!IO),
+
+    io.write_string("\n=== Radical expression tests ===\n", !IO),
+    test_rad_expr(!IO),
+
+    io.write_string("\n=== Radical eval tests ===\n", !IO),
+    test_rad_eval(!IO),
+
+    io.write_string("\n=== Radical normalize tests ===\n", !IO),
+    test_rad_normalize(!IO),
 
     io.write_string("\nAll tests passed.\n", !IO).
 
@@ -628,6 +641,165 @@ test_trager(!IO) :-
     XMinusAlpha = poly([ext_neg(Alpha), OneExt]),
     N = norm_poly(Field, XMinusAlpha),
     io.format("norm(x-α) = %s\n", [s(show_rat_poly(N))], !IO).
+
+%---------------------------------------------------------------------------%
+% Radical expression tests
+%---------------------------------------------------------------------------%
+
+:- pred test_rad_expr(io::di, io::uo) is det.
+
+test_rad_expr(!IO) :-
+    % √12 expression
+    Sqrt12 = re_sqrt(re_lit(rational(12, 1))),
+    io.format("depth(√12) = %d\n", [i(re_depth(Sqrt12))], !IO),
+    io.format("size(√12) = %d\n", [i(re_size(Sqrt12))], !IO),
+
+    % 2 + 3√5
+    E1 = re_add(re_lit(rational(2, 1)),
+                re_mul(re_lit(rational(3, 1)),
+                       re_sqrt(re_lit(rational(5, 1))))),
+    io.format("size(2+3√5) = %d\n", [i(re_size(E1))], !IO),
+
+    % collect_radicals
+    Rads = collect_radicals(E1),
+    io.format("radicals(2+3√5) = %d pairs\n",
+        [i(list.length(Rads))], !IO),
+
+    % sub and div helpers
+    S = re_sub(re_lit(rational(5, 1)), re_lit(rational(3, 1))),
+    ( if S = re_add(re_lit(_), re_neg(re_lit(_))) then
+        io.write_string("re_sub structure: correct\n", !IO)
+    else
+        io.write_string("re_sub structure: WRONG\n", !IO)
+    ),
+
+    % map_coeffs: double all coefficients
+    E2 = re_map_coeffs(( func(R) = rational.'*'(rational(2, 1), R) ),
+        re_lit(rational(3, 1))),
+    ( if E2 = re_lit(R2), R2 = rational(6, 1) then
+        io.write_string("map_coeffs(×2, 3) = 6: yes\n", !IO)
+    else
+        io.write_string("map_coeffs(×2, 3) = 6: WRONG\n", !IO)
+    ).
+
+%---------------------------------------------------------------------------%
+% Radical eval tests
+%---------------------------------------------------------------------------%
+
+:- pred test_rad_eval(io::di, io::uo) is det.
+
+test_rad_eval(!IO) :-
+    % eval_float(√4) = 2.0
+    V1 = eval_float(re_sqrt(re_lit(rational(4, 1)))),
+    io.format("eval_float(√4) = %.1f\n", [f(V1)], !IO),
+
+    % eval_float(2 + 3) = 5.0
+    V2 = eval_float(re_add(re_lit(rational(2, 1)),
+                           re_lit(rational(3, 1)))),
+    io.format("eval_float(2+3) = %.1f\n", [f(V2)], !IO),
+
+    % eval_complex(√(-1)) should give i
+    C1 = eval_complex(re_sqrt(re_lit(rational(-1, 1)))),
+    io.format("eval_complex(√(-1)) = %.4f + %.4fi\n",
+        [f(re(C1)), f(im(C1))], !IO),
+
+    % eval_float(³√8) = 2.0
+    V3 = eval_float(re_root(3, re_lit(rational(8, 1)))),
+    io.format("eval_float(³√8) = %.1f\n", [f(V3)], !IO),
+
+    % eval_float(2^3) = 8.0
+    V4 = eval_float(re_pow(re_lit(rational(2, 1)), 3)),
+    io.format("eval_float(2³) = %.1f\n", [f(V4)], !IO),
+
+    % eval_interval(√2): should contain 1.414...
+    IV = eval_interval(re_sqrt(re_lit(rational(2, 1)))),
+    Lo = iv_lo(IV),
+    Hi = iv_hi(IV),
+    ( if rational.'<'(Lo, rational(15, 10)),
+        rational.'>'(Hi, rational(14, 10))
+    then
+        io.write_string("eval_interval(√2) contains 1.414: yes\n", !IO)
+    else
+        io.write_string("eval_interval(√2) contains 1.414: WRONG\n", !IO)
+    ).
+
+%---------------------------------------------------------------------------%
+% Radical normalize tests
+%---------------------------------------------------------------------------%
+
+:- pred test_rad_normalize(io::di, io::uo) is det.
+
+test_rad_normalize(!IO) :-
+    % fold_constants: 2 + 3 = 5
+    E1 = re_add(re_lit(rational(2, 1)), re_lit(rational(3, 1))),
+    R1 = fold_constants(E1),
+    ( if R1 = re_lit(R), R = rational(5, 1) then
+        io.write_string("fold_constants(2+3) = 5: yes\n", !IO)
+    else
+        io.write_string("fold_constants(2+3) = 5: WRONG\n", !IO)
+    ),
+
+    % fold_constants: 0 + x = x
+    X = re_sqrt(re_lit(rational(2, 1))),
+    R2 = fold_constants(re_add(re_lit(rational.zero), X)),
+    ( if R2 = X then
+        io.write_string("fold_constants(0+√2) = √2: yes\n", !IO)
+    else
+        io.write_string("fold_constants(0+√2) = √2: WRONG\n", !IO)
+    ),
+
+    % fold_constants: 1 * x = x
+    R3 = fold_constants(re_mul(re_lit(rational.one), X)),
+    ( if R3 = X then
+        io.write_string("fold_constants(1*√2) = √2: yes\n", !IO)
+    else
+        io.write_string("fold_constants(1*√2) = √2: WRONG\n", !IO)
+    ),
+
+    % extract_perfect_powers: √12 = 2√3
+    R4 = extract_perfect_powers(re_sqrt(re_lit(rational(12, 1)))),
+    ( if R4 = re_mul(re_lit(C4), re_root(2, re_lit(Inner4))),
+        C4 = rational(2, 1), Inner4 = rational(3, 1)
+    then
+        io.write_string("extract(√12) = 2√3: yes\n", !IO)
+    else
+        io.write_string("extract(√12) = 2√3: WRONG\n", !IO)
+    ),
+
+    % extract_perfect_powers: √4 = 2
+    R5 = extract_perfect_powers(re_sqrt(re_lit(rational(4, 1)))),
+    ( if R5 = re_lit(C5), C5 = rational(2, 1) then
+        io.write_string("extract(√4) = 2: yes\n", !IO)
+    else
+        io.write_string("extract(√4) = 2: WRONG\n", !IO)
+    ),
+
+    % normalize: 3√5 + 2√5 = 5√5
+    E6 = re_add(
+        re_mul(re_lit(rational(3, 1)),
+               re_sqrt(re_lit(rational(5, 1)))),
+        re_mul(re_lit(rational(2, 1)),
+               re_sqrt(re_lit(rational(5, 1))))),
+    R6 = normalize(E6),
+    ( if R6 = re_mul(re_lit(C6), re_root(2, re_lit(B6))),
+        C6 = rational(5, 1), B6 = rational(5, 1)
+    then
+        io.write_string("normalize(3√5+2√5) = 5√5: yes\n", !IO)
+    else
+        io.write_string("normalize(3√5+2√5) = 5√5: WRONG\n", !IO)
+    ),
+
+    % normalize: √12 + √3 = 3√3
+    E7 = re_add(re_sqrt(re_lit(rational(12, 1))),
+                re_sqrt(re_lit(rational(3, 1)))),
+    R7 = normalize(E7),
+    ( if R7 = re_mul(re_lit(C7), re_root(2, re_lit(B7))),
+        C7 = rational(3, 1), B7 = rational(3, 1)
+    then
+        io.write_string("normalize(√12+√3) = 3√3: yes\n", !IO)
+    else
+        io.write_string("normalize(√12+√3) = 3√3: WRONG\n", !IO)
+    ).
 
 %---------------------------------------------------------------------------%
 % Display helpers
