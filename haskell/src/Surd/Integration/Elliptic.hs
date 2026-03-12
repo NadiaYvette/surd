@@ -29,9 +29,10 @@ module Surd.Integration.Elliptic
 
 import Data.List (sortBy)
 import Data.Ord (comparing)
+import Data.Ratio (denominator, numerator)
 import Math.Polynomial.Factoring (factor)
 import Math.Polynomial.Univariate
-import Surd.Algebraic.Convert (algNumToRadExpr)
+import Surd.Algebraic.Convert (algNumToRadExpr, simplifyViaCanonical)
 import Surd.Algebraic.Number
 import Surd.Algebraic.RootIsolation (isolateRealRoots, IsolatingInterval(..), rootInInterval)
 import Math.Internal.Interval (Interval(..))
@@ -163,10 +164,11 @@ quarticModulus _ = Nothing
 modulusFromSq :: RadExpr Rational -> RadExpr Rational
 modulusFromSq k2 = normalize (Root 2 k2)
 
--- | Simplify a radical expression via NormalForm round-trip.
--- Handles cases like 2/√2 → √2 that normalize alone doesn't simplify.
+-- | Simplify a radical expression via NormalForm round-trip,
+-- then algebraic number round-trip for deeper simplification.
+-- Handles cases like 2/√2 → √2 and 4/√(6+4√2) → 4-2√2.
 simplifyRad :: RadExpr Rational -> RadExpr Rational
-simplifyRad = normalize . fromNormExpr . toNormExpr
+simplifyRad = simplifyViaCanonical . normalize . fromNormExpr . toNormExpr
 
 --------------------------------------------------------------------------------
 -- Reduction to Legendre forms
@@ -181,9 +183,10 @@ reduceElliptic jacobi ei = do
   -- Find all real roots in descending order
   roots <- findRealRoots p
   -- Compute modulus
-  (k2alg, k2rad) <- computeModulusSq roots
-  -- k = √(k²). If k² is rational, try exact sqrt; otherwise use radical.
-  let kRad = modulusFromSq k2rad
+  (k2alg, k2raw) <- computeModulusSq roots
+  -- Simplify k² and k
+  let k2rad = simplifyRad k2raw
+      kRad  = simplifyRad (modulusFromSq k2rad)
   -- Reduce the specific integrand type
   terms <- reduceIntegrand ei roots lc d k2alg k2rad kRad
   pure $ EllipticResult
@@ -389,7 +392,7 @@ prettyRootList rs = intercalate_ ", " (map pretty rs)
 
 prettyLegendreForm :: Bool -> LegendreForm -> String
 prettyLegendreForm jacobi lf =
-  let c = pretty (lfCoeff lf)
+  let c = prettyCoeff (lfCoeff lf)
       k = pretty (lfModulus lf)
       phi = prettyAmplitude (lfAmplitude lf)
       kindStr = case lfKind lf of
@@ -402,6 +405,11 @@ prettyLegendreForm jacobi lf =
                        ++ ", " ++ k ++ ")"
   in kindStr
 
+-- | Pretty-print a coefficient, adding parens if it's a sum.
+prettyCoeff :: RadExpr Rational -> String
+prettyCoeff e@(Add _ _) = "(" ++ pretty e ++ ")"
+prettyCoeff e           = pretty e
+
 prettyAmplitude :: AmplitudeExpr -> String
 prettyAmplitude ae =
   "arcsin(√(" ++ prettyAmpInner ae ++ "))"
@@ -412,15 +420,26 @@ prettyAmplitudeSin ae =
 
 prettyAmpInner :: AmplitudeExpr -> String
 prettyAmpInner ae =
-  let shiftStr = case aeShift ae of
+  let hasScale = case aeScale ae of
+        Inv (Lit 1) -> False
+        Lit 1       -> False
+        _           -> True
+      shiftStr = case aeShift ae of
         Lit r | r == 0    -> "x"
-              | r < 0     -> "(x + " ++ pretty (Lit (negate r)) ++ ")"
-              | otherwise -> "(x - " ++ pretty (aeShift ae) ++ ")"
+              | r < 0     -> (if hasScale then "(" else "")
+                             ++ "x + " ++ pretty (Lit (negate r))
+                             ++ (if hasScale then ")" else "")
+              | otherwise -> (if hasScale then "(" else "")
+                             ++ "x - " ++ pretty (aeShift ae)
+                             ++ (if hasScale then ")" else "")
         e -> "(x - " ++ pretty e ++ ")"
-      scaleStr = case aeScale ae of
-        Inv (Lit 1) -> ""
-        Lit 1       -> ""
-        _           -> " · " ++ pretty (aeScale ae)
+      scaleStr = if hasScale
+                 then case aeScale ae of
+                        Inv e -> "/" ++ pretty e
+                        Lit r | denominator r /= 1 && numerator r == 1
+                              -> "/" ++ show (denominator r)
+                        e     -> " · " ++ pretty e
+                 else ""
   in shiftStr ++ scaleStr
 
 --------------------------------------------------------------------------------
@@ -441,7 +460,7 @@ latexRootList rs = intercalate_ ", " (map latex rs)
 
 latexLegendreForm :: Bool -> LegendreForm -> String
 latexLegendreForm jacobi lf =
-  let c = latex (lfCoeff lf)
+  let c = latexCoeff (lfCoeff lf)
       k = latex (lfModulus lf)
       phi = latexAmplitude (lfAmplitude lf)
       kindStr = case lfKind lf of
@@ -454,6 +473,10 @@ latexLegendreForm jacobi lf =
                        ++ maybe "?" latex (lfParameter lf)
                        ++ ", " ++ k ++ "\\right)"
   in kindStr
+
+latexCoeff :: RadExpr Rational -> String
+latexCoeff e@(Add _ _) = "\\left(" ++ latex e ++ "\\right)"
+latexCoeff e           = latex e
 
 latexAmplitude :: AmplitudeExpr -> String
 latexAmplitude ae =

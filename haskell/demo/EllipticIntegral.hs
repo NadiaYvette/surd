@@ -74,8 +74,10 @@ examples =
 main :: IO ()
 main = do
   let fmt = "text"  -- could parse from args
-      jacobi = False
-  mapM_ (renderExample fmt jacobi) examples
+  putStrLn "══════ Legendre form ══════\n"
+  mapM_ (renderExample fmt False) examples
+  putStrLn "\n══════ Jacobi inverse form ══════\n"
+  mapM_ (renderExample fmt True) [head examples, examples !! 4]
 
 renderExample :: String -> Bool -> Example -> IO ()
 renderExample fmt jacobi ex = do
