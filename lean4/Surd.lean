@@ -38,3 +38,9 @@ import Surd.Trig.RootOfUnity
 import Surd.Trig.TowerDescent
 import Surd.Trig
 import Surd.PSLQ
+import Surd.Types
+import Surd.Poly.TragerFactoring
+import Surd.Poly.Groebner
+import Surd.Galois.Permutation
+import Surd.Galois.TransitiveGroup
+import Surd.Galois.Resolvent
