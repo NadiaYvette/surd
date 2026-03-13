@@ -44,3 +44,8 @@ import Surd.Poly.Groebner
 import Surd.Galois.Permutation
 import Surd.Galois.TransitiveGroup
 import Surd.Galois.Resolvent
+import Surd.Galois.Identify
+import Surd.Galois.RadicalTower
+import Surd.Galois.Solve
+import Surd.Integration.Euler
+import Surd.Integration.Elliptic

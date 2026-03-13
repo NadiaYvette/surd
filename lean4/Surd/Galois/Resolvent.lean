@@ -24,7 +24,7 @@ namespace Surd
 -- Complex number helpers (using Float pairs)
 -- ---------------------------------------------------------------------------
 
-private structure CFloat where
+structure CFloat where
   re : Float
   im : Float
   deriving Inhabited
