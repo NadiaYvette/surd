@@ -5,6 +5,9 @@ import Surd.Interval
 import Surd.Poly.Univariate
 import Surd.Poly.Cyclotomic
 import Surd.Poly.Resultant
+import Surd.Poly.Factoring
+import Surd.Poly.RootBound
+import Surd.Poly.Multivariate
 import Surd.Radical.Expr
 import Surd.Radical.Eval
 import Surd.Radical.Normalize
@@ -15,6 +18,8 @@ import Surd.Radical.Equality
 import Surd.Radical.Order
 import Surd.Radical.NormalForm
 import Surd.Field.Tower
+import Surd.Field.Extension
+import Surd.Field.Transcendental
 import Surd.Algebraic.RootIsolation
 import Surd.Algebraic.Number
 import Surd.Algebraic.Convert
@@ -32,3 +37,4 @@ import Surd.Trig.Galois
 import Surd.Trig.RootOfUnity
 import Surd.Trig.TowerDescent
 import Surd.Trig
+import Surd.PSLQ
