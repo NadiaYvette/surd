@@ -26,3 +26,5 @@ import Surd.Radical.Denest
 import Surd.Radical.Groebner
 import Surd.Radical.EvalMP
 import Surd.Field.DynTower
+import Surd.Field.DynTower.Display
+import Surd.Polynomial.MinimalPolyTower
