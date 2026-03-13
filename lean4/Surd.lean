@@ -13,3 +13,6 @@ import Surd.Radical.Pretty
 import Surd.Radical.LaTeX
 import Surd.Radical.Equality
 import Surd.Radical.Order
+import Surd.Radical.NormalForm
+import Surd.Field.Tower
+import Surd.Algebraic.RootIsolation
