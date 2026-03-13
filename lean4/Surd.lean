@@ -28,3 +28,7 @@ import Surd.Radical.EvalMP
 import Surd.Field.DynTower
 import Surd.Field.DynTower.Display
 import Surd.Polynomial.MinimalPolyTower
+import Surd.Trig.Galois
+import Surd.Trig.RootOfUnity
+import Surd.Trig.TowerDescent
+import Surd.Trig
