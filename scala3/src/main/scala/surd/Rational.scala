@@ -61,11 +61,11 @@ final case class Rational private (num: BigInt, den: BigInt)
 
 object Rational:
   private def normalize(n: BigInt, d: BigInt): Rational =
-    if n == 0 then Rational(BigInt(0), BigInt(1))
+    if n == 0 then new Rational(BigInt(0), BigInt(1))
     else
       val sign = if d < 0 then BigInt(-1) else BigInt(1)
       val g = n.gcd(d)
-      Rational(sign * n / g, sign * d / g)
+      new Rational(sign * n / g, sign * d / g)
 
   def apply(n: BigInt, d: BigInt): Rational =
     require(d != 0, "Rational denominator cannot be zero")

@@ -35,7 +35,7 @@ interface Ring k => Field k where
 ||| of coefficients, low-degree first. Invariant: no trailing zeros
 ||| (the leading coefficient is nonzero), except for the zero polynomial
 ||| which is [].
-export
+public export
 record Poly k where
   constructor MkPoly
   coeffs : List k

@@ -10,7 +10,7 @@ import Data.Nat
 ------------------------------------------------------------------------
 
 ||| A closed interval [lo, hi] with rational endpoints.
-export
+public export
 record Interval where
   constructor MkInterval
   lo : Rational
@@ -227,7 +227,7 @@ containsZero iv = lo iv <= Rational.zero && hi iv >= Rational.zero
 ------------------------------------------------------------------------
 
 ||| A complex interval [re_lo, re_hi] + i*[im_lo, im_hi].
-export
+public export
 record ComplexInterval where
   constructor MkComplexInterval
   ciReal : Interval
