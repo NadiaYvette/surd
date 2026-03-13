@@ -3,4 +3,9 @@ import Surd.Positive
 import Surd.PrimeFactors
 import Surd.Interval
 import Surd.Poly.Univariate
+import Surd.Poly.Cyclotomic
+import Surd.Poly.Resultant
 import Surd.Radical.Expr
+import Surd.Radical.Eval
+import Surd.Radical.Normalize
+import Surd.Radical.DAG
