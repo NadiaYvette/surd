@@ -145,6 +145,19 @@ protected def compare [Ord k] : RadExpr k → RadExpr k → Ordering
 instance [Ord k] : Ord (RadExpr k) where
   compare := RadExpr.compare
 
+/-- Hashable instance when k has Hashable. -/
+protected def hashVal [Hashable k] : RadExpr k → UInt64
+  | .lit a => mixHash 0 (hash a)
+  | .neg a => mixHash 1 (RadExpr.hashVal a)
+  | .add a b => mixHash 2 (mixHash (RadExpr.hashVal a) (RadExpr.hashVal b))
+  | .mul a b => mixHash 3 (mixHash (RadExpr.hashVal a) (RadExpr.hashVal b))
+  | .inv a => mixHash 4 (RadExpr.hashVal a)
+  | .root n a => mixHash 5 (mixHash (hash n) (RadExpr.hashVal a))
+  | .pow a n => mixHash 6 (mixHash (RadExpr.hashVal a) (hash n))
+
+instance [Hashable k] : Hashable (RadExpr k) where
+  hash := RadExpr.hashVal
+
 /-- Convenience: lift a rational literal. -/
 def ratE (r : Rat) : RadExpr Rat := .lit r
 

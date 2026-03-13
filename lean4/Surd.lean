@@ -9,3 +9,7 @@ import Surd.Radical.Expr
 import Surd.Radical.Eval
 import Surd.Radical.Normalize
 import Surd.Radical.DAG
+import Surd.Radical.Pretty
+import Surd.Radical.LaTeX
+import Surd.Radical.Equality
+import Surd.Radical.Order
