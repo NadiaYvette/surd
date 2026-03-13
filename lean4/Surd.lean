@@ -23,3 +23,6 @@ import Surd.Radical.Denest.Sqrt
 import Surd.Radical.Denest.NthRoot
 import Surd.Radical.Denest.Landau
 import Surd.Radical.Denest
+import Surd.Radical.Groebner
+import Surd.Radical.EvalMP
+import Surd.Field.DynTower
