@@ -1,0 +1,15 @@
+package surd
+version = 0.1.0
+sourcedir = "src"
+
+modules = Surd.Rational,
+          Surd.Positive,
+          Surd.PrimeFactors,
+          Surd.Poly,
+          Surd.Types,
+          Surd.Interval,
+          Surd.Normalize,
+          Surd.Pretty,
+          Surd.LaTeX,
+          Surd.Eval,
+          Surd.Expr
