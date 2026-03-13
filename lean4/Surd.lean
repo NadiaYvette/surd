@@ -19,3 +19,7 @@ import Surd.Algebraic.RootIsolation
 import Surd.Algebraic.Number
 import Surd.Algebraic.Convert
 import Surd.Polynomial.MinimalPoly
+import Surd.Radical.Denest.Sqrt
+import Surd.Radical.Denest.NthRoot
+import Surd.Radical.Denest.Landau
+import Surd.Radical.Denest
