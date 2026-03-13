@@ -16,3 +16,6 @@ import Surd.Radical.Order
 import Surd.Radical.NormalForm
 import Surd.Field.Tower
 import Surd.Algebraic.RootIsolation
+import Surd.Algebraic.Number
+import Surd.Algebraic.Convert
+import Surd.Polynomial.MinimalPoly
