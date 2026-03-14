@@ -5,7 +5,18 @@ import Poly
 import Rational
 import Resolvent
 import TransitiveGroup
+import PrimeFactors
 import Data.Integer
+
+// ─── General entry point ───
+
+identifyGaloisGroup :: !(Poly Rational) -> ?(GaloisResult)
+identifyGaloisGroup f
+    | degree f == 5 = identifyGaloisGroup5 f
+    | degree f >= 3 && isPrime (degree f) = identifyGaloisGroupPrime f
+    = ?None
+
+// ─── Degree-5 identification (sextic resolvent) ───
 
 identifyGaloisGroup5 :: !(Poly Rational) -> ?(GaloisResult)
 identifyGaloisGroup5 f
@@ -23,9 +34,73 @@ buildGaloisResult f (?Just sextic) discSq roots
     # name = if (not hasSexticRoot && not discSq) "S5"
              (if (not hasSexticRoot && discSq) "A5"
              (if (hasSexticRoot && not discSq) "F20"
-             (if (isCyclicByFrobenius f) "C5" "D5")))
+             (if (isCyclicByFrobenius f 5) "C5" "D5")))
     # group = hd [g \\ g <- transGroupsOfDegree 5 | g.tgName == name]
     = ?Just { grGroup = group, grRoots = roots }
+
+// ─── General prime-degree identification (Frobenius/Chebotarev) ───
+
+identifyGaloisGroupPrime :: !(Poly Rational) -> ?(GaloisResult)
+identifyGaloisGroupPrime f
+    # n = degree f
+    # disc = discriminantOf f
+    # discSq = isSquareRational disc
+    # roots = complexRootsOf f
+    # groups = transGroupsOfDegree n
+    // Compute factorisation patterns mod small primes
+    # cs = getCoeffs f
+    # lcmDen = foldl (\acc r -> lcmI acc (toInt (denom r))) 1 cs
+    # intCs = [toInt (numer (r * ratFromInt lcmDen)) \\ r <- cs]
+    # lc = last intCs
+    # discN = toInt (numer disc)
+    # discD = toInt (denom disc)
+    # testPs = take 50 [p \\ p <- smallPrimes | lc rem p <> 0 && discN rem p <> 0 && discD rem p <> 0]
+    # patterns = [factorPattern [((c rem p) + p) rem p \\ c <- intCs] p \\ p <- testPs]
+    // Check AGL patterns
+    # insideAGL = all (isAGLPattern n) patterns
+    # nonTrivCycleLengths = flatten [filter (\k -> k <> 1) pat
+                                    \\ pat <- patterns
+                                    | pat <> [n] && pat <> repeatn n 1]
+    # minD = if (isEmpty nonTrivCycleLengths) 1
+             (foldl lcmI 1 nonTrivCycleLengths)
+    | not insideAGL
+        // Not in AGL(1,p): either A_p or S_p
+        # finalGroup = if discSq
+                       (hd [g \\ g <- groups | g.tgName == "A" +++ toString n])
+                       (last groups)
+        = ?Just { grGroup = finalGroup, grRoots = roots }
+    // Inside AGL(1,p): find smallest d >= minD dividing p-1
+    # solvableDivs = sort [g.tgOrder / n \\ g <- groups | g.tgSolvable]
+    # groupD = firstOrDefault (n - 1) [d \\ d <- solvableDivs | d >= minD]
+    # finalGroup = firstOrDefaultG (last groups) [g \\ g <- groups | g.tgOrder == n * groupD]
+    = ?Just { grGroup = finalGroup, grRoots = roots }
+
+firstOrDefault :: !Int ![Int] -> Int
+firstOrDefault def [] = def
+firstOrDefault _ [x:_] = x
+
+firstOrDefaultG :: !TransitiveGroup ![TransitiveGroup] -> TransitiveGroup
+firstOrDefaultG def [] = def
+firstOrDefaultG _ [x:_] = x
+
+// Test whether a factorisation pattern is consistent with AGL(1,p).
+// Valid patterns: [p] (translation), [1,1,...,1] (identity),
+// or [1, k, k, ...k] (non-translation with one fixed point).
+isAGLPattern :: !Int ![Int] -> Bool
+isAGLPattern n pat
+    | pat == [n] = True
+    | pat == repeatn n 1 = True
+    | length pat >= 2 && minI pat == 1
+        # ones = length [x \\ x <- pat | x == 1]
+        # ks = [x \\ x <- pat | x <> 1]
+        | ones == 1 && not (isEmpty ks) && all (\k -> k == hd ks) ks = True
+        = False
+    = False
+
+minI :: ![Int] -> Int
+minI [x] = x
+minI [x:xs] = min x (minI xs)
+minI [] = 999999999
 
 // ─── Sextic resolvent ───
 sexticResolvent5 :: ![(Real, Real)] -> ?(Poly Rational)
@@ -107,9 +182,10 @@ approxRatR x
     | isEmpty candidates = ratFromInt (toInt (if (x >= 0.0) (x + 0.5) (x - 0.5)))
     = snd (hd (sortBy (\(a,_) (b,_) -> a < b) candidates))
 
-// ─── Frobenius test ───
-isCyclicByFrobenius :: !(Poly Rational) -> Bool
-isCyclicByFrobenius f
+// ─── Frobenius test (generalised for degree n) ───
+
+isCyclicByFrobenius :: !(Poly Rational) !Int -> Bool
+isCyclicByFrobenius f n
     # cs = getCoeffs f
     # lcmDen = foldl (\acc r -> lcmI acc (toInt (denom r))) 1 cs
     # intCs = [toInt (numer (r * ratFromInt lcmDen)) \\ r <- cs]
@@ -118,7 +194,13 @@ isCyclicByFrobenius f
     # discN = toInt (numer disc)
     # discD = toInt (denom disc)
     # testPs = take 20 [p \\ p <- smallPrimes | lc rem p <> 0 && discN rem p <> 0 && discD rem p <> 0]
-    = not (any (hasNonCyclicPattern intCs) testPs)
+    = not (any (hasNonCyclicPatternN intCs n) testPs)
+
+hasNonCyclicPatternN :: ![Int] !Int !Int -> Bool
+hasNonCyclicPatternN intCs n p
+    # cs = [((c rem p) + p) rem p \\ c <- intCs]
+    # pat = factorPattern cs p
+    = pat <> [n] && pat <> repeatn n 1
 
 getCoeffs :: !(Poly Rational) -> [Rational]
 getCoeffs (Poly cs) = cs
@@ -129,12 +211,6 @@ lcmI a b = abs (a * b / gcdI a b)
 gcdI :: !Int !Int -> Int
 gcdI a 0 = abs a
 gcdI a b = gcdI b (a rem b)
-
-hasNonCyclicPattern :: ![Int] !Int -> Bool
-hasNonCyclicPattern intCs p
-    # cs = [((c rem p) + p) rem p \\ c <- intCs]
-    # pat = factorPattern cs p
-    = pat <> [5] && pat <> [1, 1, 1, 1, 1]
 
 factorPattern :: ![Int] !Int -> [Int]
 factorPattern fcs p = goFP [] 1 (fpTrim fcs) [0, 1] p
@@ -151,7 +227,8 @@ goFP degs k f h p
     # f` = fpDiv f g p
     = goFP (degs ++ repeatn nf k) (k + 1) f` h` p
 
-// F_p polynomial arithmetic
+// ─── F_p polynomial arithmetic ───
+
 fpTrim :: ![Int] -> [Int]
 fpTrim cs = reverse (dropWhile (\x -> x == 0) (reverse cs))
 

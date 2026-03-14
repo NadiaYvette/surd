@@ -12,6 +12,12 @@ import Surd.Eval
 import Surd.NormalForm
 import Surd.Trig
 import Surd.Extension
+import Surd.TransitiveGroup
+import Surd.Identify
+import Surd.GaloisSolve
+import Surd.RadicalTower
+import Surd.Resolvent
+import Surd.Permutation
 
 import Data.Nat
 import Data.List
@@ -352,6 +358,78 @@ testExtension ref = do
     (prod == negOne')
 
 ------------------------------------------------------------------------
+-- Galois group tests
+------------------------------------------------------------------------
+
+testGalois : IORef TestState -> IO ()
+testGalois ref = do
+  putStrLn ""
+  putStrLn "--- Galois groups (prime degrees) ---"
+
+  -- TransitiveGroup: degree 3 should have 4 groups
+  -- divisors of 2 = {1, 2}, so 2 solvable + A3 + S3 = 4
+  let g3 = transGroupsOfDegreeRT 3
+  test ref "trans groups deg 3: 4 groups"
+    (length g3 == 4)
+
+  -- Degree 5: divisors of 4 = {1, 2, 4}, so 3 solvable + A5 + S5 = 5
+  let g5 = transGroupsOfDegreeRT 5
+  test ref "trans groups deg 5: 5 groups"
+    (length g5 == 5)
+
+  -- Degree 7: divisors of 6 = {1, 2, 3, 6}, so 4 solvable + A7 + S7 = 6
+  let g7 = transGroupsOfDegreeRT 7
+  test ref "trans groups deg 7: 6 groups"
+    (length g7 == 6)
+
+  -- Check solvability flags
+  let solvable5 = filter (\g => tgSolvable g) g5
+  test ref "trans groups deg 5: 3 solvable"
+    (length solvable5 == 3)
+
+  let solvable7 = filter (\g => tgSolvable g) g7
+  test ref "trans groups deg 7: 4 solvable"
+    (length solvable7 == 4)
+
+  -- CompositionSeriesPrime: check for Z7
+  let z7 = case find (\g => tgName g == "Z7") g7 of
+              Just g  => compositionSeriesPrimeRT g
+              Nothing => Nothing
+  test ref "composition series Z7: 2 levels"
+    (case z7 of Just cs => length cs == 2; Nothing => False)
+
+  -- Galois identification: degree 3
+  let p3 = mkPoly [negate (Rational.fromInteger 2), Rational.zero, Rational.zero, Rational.one]
+  let g3id = identifyGaloisGroup p3
+  test ref "identify x^3-2: identified"
+    (case g3id of
+       IdentifiedRT _ => True
+       _ => False)
+
+  test ref "x^3-2 solvable"
+    (isSolvableResult g3id)
+
+  -- Degree 11: divisors of 10 = {1, 2, 5, 10}, 4 solvable + A11 + S11 = 6
+  let g11 = transGroupsOfDegreeRT 11
+  test ref "trans groups deg 11: 6 groups"
+    (length g11 == 6)
+
+  -- Degree 13: divisors of 12 = {1,2,3,4,6,12}, 6 solvable + A13 + S13 = 8
+  let g13 = transGroupsOfDegreeRT 13
+  test ref "trans groups deg 13: 8 groups"
+    (length g13 == 8)
+
+  -- Degree 7 identification
+  let p7 = mkPoly [Rational.fromInteger 3, negate (Rational.fromInteger 7),
+                    Rational.zero, Rational.zero, Rational.zero, Rational.zero,
+                    Rational.zero, Rational.one]
+  let g7id = identifyGaloisGroup p7
+  test ref "identify x^7-7x+3: identified"
+    (case g7id of
+       IdentifiedRT _ => True
+       _ => False)
+
+------------------------------------------------------------------------
 -- Main
 ------------------------------------------------------------------------
 
@@ -370,6 +448,7 @@ main = do
   testNormalForm ref
   testTrig ref
   testExtension ref
+  testGalois ref
 
   s <- readIORef ref
   putStrLn ""

@@ -1,3 +1,5 @@
 (library
  (name surd)
- (libraries zarith))
+ (libraries zarith)
+ (ocamlopt_flags (:standard -w -50))
+ (ocamlc_flags (:standard -w -50)))

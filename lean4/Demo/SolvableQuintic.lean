@@ -1,10 +1,12 @@
 /-
-  Solvable quintic solver demo.
+  Solvable polynomial solver demo.
 
   Demonstrates Galois-theoretic identification and radical tower construction
-  for degree-5 polynomials over Q. Classifies each polynomial's Galois group
-  among the five transitive subgroups of S₅, then — when the group is solvable
+  for polynomials over Q. Classifies each polynomial's Galois group
+  among the transitive subgroups of Sₙ, then — when the group is solvable
   — constructs explicit radical expressions for the roots.
+
+  Supports degree 5 and all prime degrees.
 -/
 import Surd.Galois.Identify
 import Surd.Galois.RadicalTower
@@ -25,35 +27,43 @@ structure Example where
   exNotes : String
 
 def examples : List Example :=
-  [ { exName := "x⁵ + x⁴ - 4x³ - 3x² + 3x + 1"
+  [ -- Degree 5 examples
+    { exName := "x^5 + x^4 - 4x^3 - 3x^2 + 3x + 1"
       exPoly := Poly.mkPoly #[1, 3, -3, -4, 1, 1]
-      exNotes := "C₅ — minimal polynomial of 2cos(2π/11)" }
-  , { exName := "x⁵ - 2"
+      exNotes := "C5 -- minimal polynomial of 2cos(2pi/11)" }
+  , { exName := "x^5 - 2"
       exPoly := Poly.mkPoly #[-2, 0, 0, 0, 0, 1]
-      exNotes := "F₂₀ — Gal(Q(⁵√2,ζ₅)/Q) = Z/5 ⋊ Z/4" }
-  , { exName := "x⁵ + 20x + 32"
+      exNotes := "F20 -- Gal(Q(5th-root(2),zeta5)/Q) = Z/5 semi Z/4" }
+  , { exName := "x^5 + 20x + 32"
       exPoly := Poly.mkPoly #[32, 20, 0, 0, 0, 1]
-      exNotes := "D₅ — dihedral group of order 10" }
-  , { exName := "x⁵ - 4x + 2"
+      exNotes := "D5 -- dihedral group of order 10" }
+  , { exName := "x^5 - 4x + 2"
       exPoly := Poly.mkPoly #[2, -4, 0, 0, 0, 1]
-      exNotes := "S₅ — irreducible by Eisenstein (not solvable)" }
-  , { exName := "x⁵ - x - 1"
-      exPoly := Poly.mkPoly #[-1, -1, 0, 0, 0, 1]
-      exNotes := "S₅ (not solvable)" }
+      exNotes := "S5 -- irreducible by Eisenstein (not solvable)" }
+  -- Degree 7 example (prime degree, cyclic)
+  , { exName := "x^7 + x^6 - 6x^5 - 5x^4 + 10x^3 + 6x^2 - 4x - 1"
+      exPoly := Poly.mkPoly #[-1, -4, 6, 10, -5, -6, 1, 1]
+      exNotes := "Z7 -- minimal polynomial of 2cos(2pi/29), cyclic" }
+  -- Degree 3 example (prime, always solvable)
+  , { exName := "x^3 - 2"
+      exPoly := Poly.mkPoly #[-2, 0, 0, 1]
+      exNotes := "S3 -- cube root of 2" }
   ]
 
 def runExample (ex : Example) : IO Unit := do
-  IO.println s!"─── {ex.exName} ───"
+  IO.println s!"--- {ex.exName} ---"
   IO.println s!"  ({ex.exNotes})"
 
   let f := ex.exPoly
+  let deg := f.coeffs.size - 1
   let disc := discriminantOf f
   let discSq := isSquareRational disc
 
+  IO.println s!"  degree: {deg}"
   IO.println s!"  disc(f) = {disc}"
   IO.println s!"  disc is square: {discSq}"
 
-  match identifyGaloisGroup5 f with
+  match identifyGaloisGroup f with
   | none => IO.println "  (Galois group identification failed)\n"
   | some gr => do
     let tg := gr.grGroup
@@ -68,7 +78,7 @@ def runExample (ex : Example) : IO Unit := do
       IO.println s!"    {r.re}"
 
     if tg.tgSolvable then
-      match solveViaTower gr f with
+      match solveViaTowerN gr f with
       | none => IO.println "  (radical tower construction failed)\n"
       | some radExprs => do
         IO.println "  Radical expressions:"
@@ -79,12 +89,12 @@ def runExample (ex : Example) : IO Unit := do
         for e in showExprs do
           let v := dagEvalComplex (RadDAG.toDAG e)
           IO.println s!"    {pretty e}"
-          IO.println s!"    ≈ {v.re}"
+          IO.println s!"    approx {v.re}"
         IO.println ""
     else
-      IO.println "  (not solvable — no radical expression exists)\n"
+      IO.println "  (not solvable -- no radical expression exists)\n"
 
 def main : IO Unit := do
-  IO.println "══════ Solvable Quintic Solver ══════\n"
+  IO.println "====== Solvable Polynomial Solver ======\n"
   for ex in examples do
     runExample ex

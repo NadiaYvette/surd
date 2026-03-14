@@ -83,6 +83,9 @@ module Surd.Galois.TransitiveGroup (
 )
 where
 
+import Data.List (nub, sort)
+import Math.Internal.Positive (Positive)
+import Math.Internal.PrimeFactors (factorise)
 import Surd.Galois.Permutation
 
 {- | A transitive subgroup of \(S_n\), with metadata for Galois group
@@ -133,7 +136,7 @@ data TransitiveGroup = TransitiveGroup
     to outermost root extraction).  Empty for non-solvable groups.
     -}
     }
-    deriving (Show)
+    deriving (Show, Eq)
 
 {- | Test whether a transitive group is solvable (\(\equiv\) 'tgSolvable').
 A solvable Galois group means the polynomial is solvable by radicals,
@@ -144,13 +147,29 @@ isSolvable :: TransitiveGroup -> Bool
 isSolvable = tgSolvable
 
 {- | All transitive subgroups of \(S_n\) (up to conjugacy) for the given
-degree \(n\), sorted by increasing group order.  Currently covers
-degree 5 only (5 groups: \(C_5, D_5, F_{20}, A_5, S_5\)); returns
-the empty list for unsupported degrees.
+degree \(n\), sorted by increasing group order.
+
+For prime \(n\), the groups are computed at runtime from the structure
+of \(\mathrm{AGL}(1,n)\). For degree 5, the hard-coded database is
+used (as a fast path). For unsupported composite degrees, returns the
+empty list.
 -}
 transGroupsOfDegree :: Int -> [TransitiveGroup]
 transGroupsOfDegree 5 = degree5Groups
-transGroupsOfDegree _ = []
+transGroupsOfDegree n
+    | n >= 3 && isPrime (fromIntegral n) = transGroupsOfPrimeRT n
+    | otherwise = []
+
+-- | Test whether an integer is prime (trial division, sufficient for
+-- degrees we care about).
+isPrime :: Integer -> Bool
+isPrime n
+    | n < 2 = False
+    | n < 4 = True
+    | even n = False
+    | otherwise = all (\d -> n `mod` d /= 0) [3, 5 .. isqrt n]
+  where
+    isqrt = floor . (sqrt :: Double -> Double) . fromIntegral
 
 {- | Find the transitive group(s) of the given degree and order.
 There may be more than one conjugacy class with the same order
@@ -244,6 +263,112 @@ degree5Groups =
     ]
 
 ------------------------------------------------------------------------
+-- Runtime prime group computation
+------------------------------------------------------------------------
+
+-- | Modular exponentiation (internal).
+modExpRT :: Integer -> Integer -> Integer -> Integer
+modExpRT _ 0 _ = 1
+modExpRT b e m
+    | even e = let half = modExpRT b (e `div` 2) m in (half * half) `mod` m
+    | otherwise = (b * modExpRT b (e - 1) m) `mod` m
+
+-- | Primitive root modulo a prime (internal).
+primitiveRootRT :: Integer -> Integer
+primitiveRootRT p =
+    let phi = p - 1
+        factors = nub $ map fst (factorise (fromInteger phi :: Positive))
+        isPrimRoot g = all (\q -> modExpRT g (phi `div` q) p /= 1) factors
+     in head (filter isPrimRoot [2 .. p - 1])
+
+-- | Sorted positive divisors of n (internal).
+divisorsRT :: Integer -> [Integer]
+divisorsRT n =
+    let isqrt = floor . (sqrt :: Double -> Double) . fromIntegral
+        small = [d | d <- [1 .. isqrt n], n `mod` d == 0]
+     in nub $ sort $ concatMap (\d -> if d * d == n then [d] else [d, n `div` d]) small
+
+-- | Prime factorisation as a flat list with multiplicity (internal).
+primeFactorsWithMultRT :: Integer -> [Integer]
+primeFactorsWithMultRT 1 = []
+primeFactorsWithMultRT n =
+    concatMap (\(q, e) -> replicate e q) (factorise (fromInteger n :: Positive))
+
+{- | All transitive subgroups of \(S_p\) for a prime \(p\), computed at
+runtime from the structure of \(\mathrm{AGL}(1,p)\).
+
+The solvable subgroups are \(\mathbb{Z}/p \rtimes H\) for each divisor
+\(d\) of \(p-1\), plus \(A_p\) and \(S_p\) (non-solvable for \(p \ge 5\)).
+-}
+transGroupsOfPrimeRT :: Int -> [TransitiveGroup]
+transGroupsOfPrimeRT p' =
+    let p = fromIntegral p' :: Integer
+        g = primitiveRootRT p
+        ds = divisorsRT (p - 1)
+        n = p'
+        -- Build one solvable group per divisor of p-1
+        mkAffine d =
+            let trans = fromMapping [fromIntegral ((i + 1) `mod` p) | i <- [0 .. p - 1]]
+                scaleFactor = modExpRT g ((p - 1) `div` d) p
+                scale = fromMapping [fromIntegral ((scaleFactor * i) `mod` p) | i <- [0 .. p - 1]]
+                gens = if d == 1 then [trans] else [trans, scale]
+                gName
+                    | d == 1     = "Z" ++ show p
+                    | d == 2     = "D" ++ show p
+                    | d == p - 1 = "AGL(1," ++ show p ++ ")"
+                    | otherwise  = "Z" ++ show p ++ ":Z" ++ show d
+                cFactors = map fromIntegral (primeFactorsWithMultRT d ++ [p])
+             in TransitiveGroup
+                    { tgName = gName
+                    , tgDegree = n
+                    , tgOrder = p * d
+                    , tgGenerators = gens
+                    , tgSolvable = True
+                    , tgMaximalSupergroups = []
+                    , tgCompositionFactors = cFactors
+                    }
+        solvableGroups = map mkAffine ds
+        -- A_p
+        ap = TransitiveGroup
+            { tgName = "A" ++ show p
+            , tgDegree = n
+            , tgOrder = product [1 .. p] `div` 2
+            , tgGenerators =
+                [ fromCycles n [[0 .. n - 1]]
+                , fromCycles n [[0, 1, 2]]
+                ]
+            , tgSolvable = p' < 5
+            , tgMaximalSupergroups = []
+            , tgCompositionFactors = []
+            }
+        -- S_p
+        sp = TransitiveGroup
+            { tgName = "S" ++ show p
+            , tgDegree = n
+            , tgOrder = product [1 .. p]
+            , tgGenerators =
+                [ fromCycles n [[0 .. n - 1]]
+                , fromCycles n [[0, 1]]
+                ]
+            , tgSolvable = p' < 4
+            , tgMaximalSupergroups = []
+            , tgCompositionFactors = []
+            }
+        allGroups = sort $ solvableGroups ++ [ap, sp]
+        -- Assign maximal supergroups
+        indexed = zip [0 :: Int ..] allGroups
+        assignSuper (myIdx, tg) =
+            let myOrd = tgOrder tg
+                cands = [(i, tgOrder cg) | (i, cg) <- indexed, i /= myIdx, tgOrder cg > myOrd, tgOrder cg `mod` myOrd == 0]
+                isMax (_, superOrd) =
+                    not $ any (\(_, midOrd) -> midOrd > myOrd && midOrd < superOrd && superOrd `mod` midOrd == 0 && midOrd `mod` myOrd == 0) cands
+             in tg{tgMaximalSupergroups = [i | (i, _) <- cands, isMax (i, tgOrder (snd (indexed !! i)))]}
+     in map assignSuper indexed
+
+instance Ord TransitiveGroup where
+    compare a b = compare (tgOrder a) (tgOrder b)
+
+------------------------------------------------------------------------
 -- Composition series
 ------------------------------------------------------------------------
 
@@ -261,12 +386,16 @@ radical tower descent: to express the roots in radicals, adjoin a
 \(|G_i / G_{i+1}|\)-th root at each step, working from the bottom of
 the chain upward.
 
-Returns 'Nothing' for non-solvable groups (\(A_5\), \(S_5\)).
+Returns 'Nothing' for non-solvable groups.
+
+For degree-5 groups, uses the hard-coded series. For prime-degree groups,
+computes the series from the affine structure.
 -}
 compositionSeries :: TransitiveGroup -> Maybe [[Perm]]
 compositionSeries tg
     | not (tgSolvable tg) = Nothing
     | otherwise = case tgName tg of
+        -- Fast path: degree-5 hard-coded
         "C5" -> Just [tgGenerators tg, []]
         "D5" ->
             Just
@@ -278,11 +407,38 @@ compositionSeries tg
             Just
                 [ tgGenerators tg
                 , -- D5 inside F20
-
                     [ fromCycles 5 [[0, 1, 2, 3, 4]]
                     , fromCycles 5 [[1, 4], [2, 3]]
                     ]
                 , [fromCycles 5 [[0, 1, 2, 3, 4]]] -- C5
                 , []
                 ]
-        _ -> Nothing
+        -- General prime-degree affine groups
+        _ | isPrime (fromIntegral (tgDegree tg)) ->
+                compositionSeriesPrime tg
+          | otherwise -> Nothing
+
+{- | Composition series for a solvable affine subgroup of \(S_p\).
+
+The group has the form \(\mathbb{Z}/p \rtimes H\) where \(H\) is cyclic
+of order \(d\). The series descends through subgroups of \(H\) by
+removing one prime factor at a time, then drops to \(\{1\}\).
+-}
+compositionSeriesPrime :: TransitiveGroup -> Maybe [[Perm]]
+compositionSeriesPrime tg =
+    let p = fromIntegral (tgDegree tg) :: Integer
+        n = tgDegree tg
+        g = primitiveRootRT p
+        d = tgOrder tg `div` p
+        dFactors = primeFactorsWithMultRT d
+        -- Chain of divisors: d, d/q1, d/(q1*q2), ..., 1
+        dChain = scanl (\acc q -> acc `div` q) d dFactors
+        trans = fromCycles n [[0 .. n - 1]]
+        mkGens d'
+            | d' <= 1 = [trans]
+            | otherwise =
+                let sf = modExpRT g ((p - 1) `div` d') p
+                    scale = fromMapping [fromIntegral ((sf * i) `mod` p) | i <- [0 .. p - 1]]
+                 in [trans, scale]
+     in Just (map mkGens dChain ++ [[]])
+

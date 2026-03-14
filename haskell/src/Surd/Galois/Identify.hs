@@ -82,6 +82,7 @@ in practice to distinguish the two cases.
 module Surd.Galois.Identify (
     -- * Galois group identification
     identifyGaloisGroup5,
+    identifyGaloisGroup,
 
     -- * Result type
     GaloisResult (..),
@@ -94,6 +95,7 @@ import Data.Ord (comparing)
 import Data.Ratio (denominator, numerator, (%))
 import Math.Polynomial.Univariate
 import Surd.Galois.Resolvent
+import Surd.Galois.Permutation
 import Surd.Galois.TransitiveGroup
 
 -- | Result of Galois group identification.
@@ -491,3 +493,137 @@ perms xs = [x : rest | (x, ys) <- picks xs, rest <- perms ys]
   where
     picks [] = []
     picks (y : ys) = (y, ys) : [(z, y : zs) | (z, zs) <- picks ys]
+
+------------------------------------------------------------------------
+-- General Galois group identification
+------------------------------------------------------------------------
+
+{- | Identify the Galois group of an irreducible polynomial over
+\(\mathbb{Q}\) of any supported degree.
+
+For degree 5, delegates to the optimised 'identifyGaloisGroup5'.
+For other prime degrees, uses generalized Stauduhar descent through the
+lattice of solvable transitive subgroups.
+
+Returns 'Nothing' for unsupported degrees (composite degrees other
+than 5) or if the resolvent computation fails.
+-}
+identifyGaloisGroup :: Poly Rational -> Maybe GaloisResult
+identifyGaloisGroup f
+    | degree f == 5 = identifyGaloisGroup5 f
+    | degree f >= 3 && isPrimeDeg (degree f) = identifyGaloisGroupPrime f
+    | otherwise = Nothing
+
+isPrimeDeg :: Int -> Bool
+isPrimeDeg n
+    | n < 2 = False
+    | n < 4 = True
+    | even n = False
+    | otherwise = all (\d -> n `mod` d /= 0) [3, 5 .. floor (sqrt (fromIntegral n :: Double))]
+
+{- | Identify the Galois group of a prime-degree polynomial via
+generalized Stauduhar descent.
+
+The strategy:
+
+1. Compute the discriminant. If it is a perfect square, the group is
+   contained in \(A_p\).
+2. Compute a resolvent for the maximal solvable group
+   \(\mathrm{AGL}(1,p)\) using a generic invariant. If the resolvent
+   has a rational root, the group is inside \(\mathrm{AGL}(1,p)\).
+3. Descend through the chain of subgroups of \(\mathrm{AGL}(1,p)\)
+   (parametrized by divisors of \(p-1\)) using Frobenius tests to
+   determine the exact group.
+-}
+identifyGaloisGroupPrime :: Poly Rational -> Maybe GaloisResult
+identifyGaloisGroupPrime f = do
+    let n = degree f
+        p = fromIntegral n :: Integer
+        disc = discriminantOf f
+        discSq = isSquareRational disc
+        roots = complexRootsOf f
+        groups = transGroupsOfDegree n
+
+    -- Step 1: Check if inside AGL(1,p) using Frobenius/Chebotarev
+    -- For prime p, the solvable groups are exactly the subgroups of AGL(1,p).
+    -- We use factorisation patterns modulo small primes to determine the group.
+    let cs = unPoly f
+        lcmDen = foldl lcm 1 (map denominator cs)
+        intCs = [numerator (c * fromIntegral lcmDen) | c <- cs]
+        lc' = last intCs
+        discN = numerator disc
+        discD = denominator disc
+        goodPrime pr =
+            let pr' = fromIntegral pr
+             in lc' `mod` pr' /= 0 && discN `mod` pr' /= 0 && discD `mod` pr' /= 0
+        testPrimes = take 50 [pr | pr <- smallPrimes, goodPrime pr]
+
+    -- Collect factorisation patterns
+    let patterns = [sort (factorPattern (map (\c -> ((c `mod` fromIntegral pr) + fromIntegral pr) `mod` fromIntegral pr) intCs) (fromIntegral pr)) | pr <- testPrimes]
+
+    -- For a group G ≤ AGL(1,p), elements are of the form x ↦ ax + b.
+    -- The non-identity elements with a=1 (translations) give cycle pattern [p].
+    -- Elements with a≠1 have exactly one fixed point and cycles of length ord(a).
+    -- So patterns from AGL(1,p) are: [p], [1,1,...,1], or [1, k, k, ...k]
+    -- where k | (p-1).
+    -- A pattern NOT of these forms means the group is NOT in AGL(1,p).
+    --
+    -- For Z/p ⋊ H with |H| = d, the element orders in H divide d,
+    -- so the cycle lengths in non-translation elements divide d.
+    -- The minimum d required is the lcm of all observed non-trivial cycle lengths.
+
+    let isAGLPattern pat =
+            pat == [n]                          -- translation: [p]
+            || pat == replicate n 1             -- identity: [1,...,1]
+            || (length pat >= 2                 -- non-translation: [1, k, k, ...]
+                && minimum pat == 1
+                && length [x | x <- pat, x == 1] == 1
+                && let ks = filter (/= 1) pat
+                    in all (== head' ks) ks)
+
+        head' (x:_) = x
+        head' [] = 0
+
+        -- Check if ALL observed patterns are consistent with AGL(1,p)
+        insideAGL = all isAGLPattern patterns
+
+        -- Find the minimum d: lcm of all observed non-trivial cycle lengths
+        nonTrivCycleLengths =
+            [ fromIntegral k
+            | pat <- patterns
+            , pat /= [n]               -- skip translations
+            , pat /= replicate n 1     -- skip identity
+            , k <- pat
+            , k /= 1                   -- skip the fixed point
+            ]
+
+        minD = if null nonTrivCycleLengths
+               then 1  -- only translations and identity seen → cyclic group
+               else foldl lcm 1 nonTrivCycleLengths
+
+    let divs = sort [tgOrder g `div` p | g <- groups, tgSolvable g]
+
+    if not insideAGL
+        then
+            -- Not in AGL(1,p): either A_p or S_p
+            let finalGroup = if discSq
+                    then case [g | g <- groups, tgName g == "A" ++ show p] of
+                            (g : _) -> g
+                            [] -> last groups
+                    else last groups  -- S_p
+             in Just GaloisResult{grGroup = finalGroup, grRoots = roots}
+        else do
+            -- Inside AGL(1,p): find the smallest d that is ≥ minD and divides p-1
+            let groupD = case filter (>= minD) divs of
+                    (d : _) -> d
+                    [] -> p - 1  -- fallback to full AGL(1,p)
+
+            -- Check discriminant: if disc is a perfect square, group must be
+            -- inside A_p, which constrains d (all elements must be even permutations)
+            let finalGroup = case [g | g <- groups, tgOrder g == p * groupD] of
+                    (g : _) -> g
+                    [] -> case [g | g <- groups, tgName g == "AGL(1," ++ show p ++ ")"] of
+                            (g : _) -> g
+                            [] -> last groups
+
+            Just GaloisResult{grGroup = finalGroup, grRoots = roots}

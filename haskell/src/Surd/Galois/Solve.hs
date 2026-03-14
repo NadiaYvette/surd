@@ -83,9 +83,9 @@ import Data.List (minimumBy)
 import Data.Ord (comparing)
 import Math.Polynomial.Univariate (Poly, degree)
 import Surd.Algebraic.Number (AlgNum (..), algApprox)
-import Surd.Galois.Identify (GaloisResult (..), identifyGaloisGroup5)
-import Surd.Galois.RadicalTower (solveViaTower)
-import Surd.Galois.TransitiveGroup (tgSolvable)
+import Surd.Galois.Identify (GaloisResult (..), identifyGaloisGroup, identifyGaloisGroup5)
+import Surd.Galois.RadicalTower (solveViaTower, solveViaTowerN)
+import Surd.Galois.TransitiveGroup (tgName, tgSolvable)
 import Surd.Radical.DAG (dagEvalComplex, toDAG)
 import Surd.Types
 
@@ -150,15 +150,15 @@ solvability is checked via 'tgSolvable'. If the group is solvable,
 -}
 identifyAndSolve :: Poly Rational -> Maybe (String, [RadExpr Rational])
 identifyAndSolve f
-    | degree f /= 5 = Nothing
+    | degree f <= 4 = Nothing
     | otherwise = do
-        gr <- identifyGaloisGroup5 f
+        gr <- identifyGaloisGroup f
         let tg = grGroup gr
         if not (tgSolvable tg)
             then Nothing
             else do
-                roots <- solveViaTower gr f
-                Just (show (grGroup gr), roots)
+                roots <- solveViaTowerN gr f
+                Just (tgName tg, roots)
 
 {- | Pick the radical expression whose numerical value is closest to
 the target real value.

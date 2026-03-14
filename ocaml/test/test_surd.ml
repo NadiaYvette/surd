@@ -408,6 +408,236 @@ let test_denest () =
   ()
 
 (* ------------------------------------------------------------------ *)
+(* Permutation                                                        *)
+(* ------------------------------------------------------------------ *)
+
+let test_permutation () =
+  section "Permutation";
+
+  let id = Surd.Permutation.identity 5 in
+  check "identity is_identity" (Surd.Permutation.is_identity id);
+
+  let cycle = Surd.Permutation.from_cycles 5 [[0; 1; 2; 3; 4]] in
+  check "cycle not identity" (not (Surd.Permutation.is_identity cycle));
+  check "cycle apply 0" (Surd.Permutation.apply cycle 0 = 1);
+  check "cycle apply 4" (Surd.Permutation.apply cycle 4 = 0);
+  check "cycle order" (Surd.Permutation.order cycle = 5);
+
+  let inv = Surd.Permutation.inverse cycle in
+  let prod = Surd.Permutation.compose cycle inv in
+  check "inverse compose" (Surd.Permutation.is_identity prod);
+
+  let trans = Surd.Permutation.from_cycles 5 [[1; 4]; [2; 3]] in
+  check "transposition order" (Surd.Permutation.order trans = 2);
+  check "transposition sign" (Surd.Permutation.sign trans = 1);
+
+  let cycle_sign = Surd.Permutation.sign cycle in
+  check "5-cycle sign" (cycle_sign = 1);  (* even permutation *)
+
+  (* Schreier-Sims *)
+  let bsgs = Surd.Permutation.schreier_sims 5 [cycle; trans] in
+  check "D5 order" (Surd.Permutation.group_order bsgs = 10);
+  check "D5 contains cycle" (Surd.Permutation.group_contains bsgs cycle);
+  check "D5 contains trans" (Surd.Permutation.group_contains bsgs trans);
+
+  let s5_gens = [
+    Surd.Permutation.from_cycles 5 [[0; 1; 2; 3; 4]];
+    Surd.Permutation.from_cycles 5 [[0; 1]];
+  ] in
+  let s5_bsgs = Surd.Permutation.schreier_sims 5 s5_gens in
+  check "S5 order" (Surd.Permutation.group_order s5_bsgs = 120);
+  ()
+
+(* ------------------------------------------------------------------ *)
+(* Transitive groups                                                  *)
+(* ------------------------------------------------------------------ *)
+
+let test_transitive_group () =
+  section "Transitive groups";
+
+  (* Degree 5 *)
+  let groups5 = Surd.Transitive_group.trans_groups_of_degree 5 in
+  check "degree 5: 5 groups" (List.length groups5 = 5);
+
+  let orders5 = List.map (fun g -> g.Surd.Transitive_group.order) groups5 in
+  check "degree 5 orders" (orders5 = [5; 10; 20; 60; 120]);
+
+  let names5 = List.map (fun g -> g.Surd.Transitive_group.name) groups5 in
+  check "degree 5 names" (
+    List.mem "Z5" names5 && List.mem "D5" names5 &&
+    List.mem "AGL(1,5)" names5 && List.mem "A5" names5 &&
+    List.mem "S5" names5);
+
+  let solvable5 = List.map (fun g -> g.Surd.Transitive_group.solvable) groups5 in
+  check "degree 5 solvability" (solvable5 = [true; true; true; false; false]);
+
+  (* Degree 7: p-1=6, divisors [1,2,3,6], so 4 solvable + A7 + S7 = 6 *)
+  let groups7 = Surd.Transitive_group.trans_groups_of_degree 7 in
+  check "degree 7: 6 groups" (List.length groups7 = 6);
+  let orders7 = List.map (fun g -> g.Surd.Transitive_group.order) groups7 in
+  check "degree 7 smallest order" (List.hd orders7 = 7);
+
+  (* Degree 3 *)
+  let groups3 = Surd.Transitive_group.trans_groups_of_degree 3 in
+  check "degree 3 has groups" (List.length groups3 > 0);
+
+  (* Composition series *)
+  let z5 = List.hd groups5 in
+  let cs = Surd.Transitive_group.composition_series z5 in
+  check "Z5 composition series exists" (cs <> None);
+  begin match cs with
+  | Some series -> check "Z5 series length" (List.length series = 2)
+  | None -> ()
+  end;
+  ()
+
+(* ------------------------------------------------------------------ *)
+(* Resolvent                                                          *)
+(* ------------------------------------------------------------------ *)
+
+let test_resolvent () =
+  section "Resolvent";
+
+  (* x^2 - 2: roots at +/- sqrt(2) *)
+  let f = P.of_coeffs [R.of_int (-2); R.zero; R.one] in
+  let roots = Surd.Resolvent.complex_roots_of f in
+  check "x^2-2 has 2 roots" (List.length roots = 2);
+  let r1 = (List.hd roots).Complex.re in
+  let r2 = (List.nth roots 1).Complex.re in
+  check_float "x^2-2 root product" (-2.0) (r1 *. r2) 1e-8;
+
+  (* x^3 - 2: roots include cbrt(2) *)
+  let g = P.of_coeffs [R.of_int (-2); R.zero; R.zero; R.one] in
+  let roots3 = Surd.Resolvent.complex_roots_of g in
+  check "x^3-2 has 3 roots" (List.length roots3 = 3);
+
+  (* x^5 - 1 *)
+  let h = P.of_coeffs [R.of_int (-1); R.zero; R.zero; R.zero; R.zero; R.one] in
+  let roots5 = Surd.Resolvent.complex_roots_of h in
+  check "x^5-1 has 5 roots" (List.length roots5 = 5);
+
+  (* Discriminant of x^2 - 2 = 8 *)
+  let disc = Surd.Resolvent.discriminant_of f in
+  Printf.printf "    disc(x^2-2) = %s\n%!" (R.to_string disc);
+  check "disc(x^2-2) = 8" (R.equal disc (R.of_int 8));
+
+  (* is_square_rational *)
+  check "4 is square" (Surd.Resolvent.is_square_rational (R.of_int 4));
+  check "9 is square" (Surd.Resolvent.is_square_rational (R.of_int 9));
+  check "2 not square" (not (Surd.Resolvent.is_square_rational (R.of_int 2)));
+  check "1/4 is square" (Surd.Resolvent.is_square_rational (R.of_ints 1 4));
+
+  (* has_rational_root *)
+  let lin = P.of_coeffs [R.of_int (-3); R.one] in
+  check "x-3 has rational root" (Surd.Resolvent.has_rational_root lin);
+  check "x^2-2 no rational root" (not (Surd.Resolvent.has_rational_root f));
+  ()
+
+(* ------------------------------------------------------------------ *)
+(* Galois identification                                              *)
+(* ------------------------------------------------------------------ *)
+
+let test_identify () =
+  section "Galois identification";
+
+  (* x^5 - 2: Galois group is S5 (not solvable over Q by radicals
+     since the splitting field is complicated, but the polynomial
+     itself is solvable because it has a root 5th-root(2)) *)
+  (* Actually x^5 - 2 is irreducible and has Galois group F20 or S5...
+     Let's use known polynomials *)
+
+  (* x^5 - 5x + 12: known to have Galois group S5 *)
+  let f_s5 = P.of_coeffs [R.of_int 12; R.zero; R.zero; R.zero; R.zero; R.one] in
+  (* This is x^5 + 12, which has 5 roots *)
+  let _ = f_s5 in
+
+  (* x^5 - x - 1: known to have Galois group S5 *)
+  let f = P.of_coeffs [R.of_int (-1); R.of_int (-1); R.zero; R.zero; R.zero; R.one] in
+  begin match Surd.Identify.identify f with
+  | Some gr ->
+    check "x^5-x-1 not solvable" (not gr.Surd.Identify.group.Surd.Transitive_group.solvable)
+  | None ->
+    check "x^5-x-1 identification" false  (* should identify *)
+  end;
+
+  (* x^5 - 2: Galois group is AGL(1,5) = F20 *)
+  let f2 = P.of_coeffs [R.of_int (-2); R.zero; R.zero; R.zero; R.zero; R.one] in
+  begin
+    let disc2 = Surd.Resolvent.discriminant_of f2 in
+    Printf.printf "    disc(x^5-2) = %s, square=%b\n%!"
+      (R.to_string disc2) (Surd.Resolvent.is_square_rational disc2);
+    match Surd.Identify.identify f2 with
+    | Some gr ->
+      let name = gr.Surd.Identify.group.Surd.Transitive_group.name in
+      Printf.printf "    x^5-2 identified as: %s\n%!" name;
+      check "x^5-2 identified" true
+    | None ->
+      (* Debug: try sextic resolvent *)
+      let roots = Surd.Resolvent.complex_roots_of f2 in
+      Printf.printf "    x^5-2 roots: %d\n%!" (List.length roots);
+      Printf.printf "    x^5-2: identify returned None\n%!";
+      check "x^5-2 identified" false
+  end;
+
+  (* x^5 + x + 3: test identification works *)
+  let f3 = P.of_coeffs [R.of_int 3; R.one; R.zero; R.zero; R.zero; R.one] in
+  begin match Surd.Identify.identify f3 with
+  | Some _gr ->
+    check "x^5+x+3 identified" true
+  | None ->
+    check "x^5+x+3 identified" false
+  end;
+  ()
+
+(* ------------------------------------------------------------------ *)
+(* Galois solve                                                       *)
+(* ------------------------------------------------------------------ *)
+
+let test_galois_solve () =
+  section "Galois solve";
+
+  (* x^5 - 1: cyclic group C5, all roots are 5th roots of unity *)
+  (* But this is reducible: x^5 - 1 = (x-1)(x^4+x^3+x^2+x+1) *)
+  (* Use the cyclotomic polynomial x^4+x^3+x^2+x+1 instead *)
+  (* That has degree 4, not 5. Use x^5 - 2 which is irreducible *)
+
+  (* is_solvable *)
+  let f_lin = P.of_coeffs [R.of_int (-3); R.one] in
+  check "linear is solvable" (Surd.Galois_solve.is_solvable f_lin);
+
+  (* x^5 - x - 1: not solvable *)
+  let f_ns = P.of_coeffs [R.of_int (-1); R.of_int (-1); R.zero; R.zero; R.zero; R.one] in
+  check "x^5-x-1 not solvable" (not (Surd.Galois_solve.is_solvable f_ns));
+
+  (* x^5 - x - 1: known to have S5 Galois group, not solvable *)
+  begin match Surd.Galois_solve.solve f_ns with
+  | None -> check "x^5-x-1 solve returns None" true
+  | Some _ -> check "x^5-x-1 solve returns None" false
+  end;
+
+  (* Solvable quintic: x^5 - 5x^4 + 3x^3 + 2x^2 + x - 1
+     Actually, let's use a known cyclic quintic.
+     x^5 + x^4 - 4x^3 - 3x^2 + 3x + 1 is the minimal polynomial
+     of 2*cos(2*pi/11) which has cyclic Galois group C5. *)
+  let f_c5 = P.of_coeffs [R.one; R.of_int 3; R.of_int (-3); R.of_int (-4); R.one; R.one] in
+  begin match Surd.Galois_solve.solve f_c5 with
+  | None -> check "cyclic quintic solved" false
+  | Some roots ->
+    check "cyclic quintic has 5 roots" (List.length roots = 5);
+    (* Verify the roots numerically *)
+    List.iteri (fun i root ->
+      let v = Surd.Eval.eval_complex root in
+      let fv = List.fold_left (fun acc (j, c) ->
+        let xj = Surd.Eval.ComplexEval.pow v j in
+        Complex.add acc (Complex.mul { Complex.re = R.to_float c; im = 0.0 } xj)
+      ) Complex.zero (List.mapi (fun j c -> (j, c)) (P.to_coeffs f_c5)) in
+      check (Printf.sprintf "cyclic quintic root %d" i)
+        (Complex.norm fv < 0.1)
+    ) roots
+  end;
+  ()
+
+(* ------------------------------------------------------------------ *)
 (* Main                                                               *)
 (* ------------------------------------------------------------------ *)
 
@@ -428,6 +658,11 @@ let () =
   test_root_isolation ();
   test_normal_form ();
   test_denest ();
+  test_permutation ();
+  test_transitive_group ();
+  test_resolvent ();
+  test_identify ();
+  test_galois_solve ();
   Printf.printf "\n=====================\n";
   Printf.printf "Results: %d passed, %d failed\n" !tests_passed !tests_failed;
   if !tests_failed > 0 then begin

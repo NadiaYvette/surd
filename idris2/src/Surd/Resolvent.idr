@@ -19,22 +19,40 @@ public export
 CNum : Type
 CNum = (Double, Double)
 
+export
 cAdd : CNum -> CNum -> CNum
 cAdd (a, b) (c, d) = (a + c, b + d)
 
+export
 cSub : CNum -> CNum -> CNum
 cSub (a, b) (c, d) = (a - c, b - d)
 
+export
 cMul : CNum -> CNum -> CNum
 cMul (a, b) (c, d) = (a * c - b * d, a * d + b * c)
 
+export
 cDiv : CNum -> CNum -> CNum
 cDiv (a, b) (c, d) =
   let den = c * c + d * d
   in ((a * c + b * d) / den, (b * c - a * d) / den)
 
+export
 cMag : CNum -> Double
 cMag (a, b) = sqrt (a * a + b * b)
+
+export
+cNeg : CNum -> CNum
+cNeg (a, b) = (negate a, negate b)
+
+export
+cScale : Double -> CNum -> CNum
+cScale s (a, b) = (s * a, s * b)
+
+export
+cPowNat : CNum -> Nat -> CNum
+cPowNat _ Z = (1.0, 0.0)
+cPowNat z (S k) = cMul z (cPowNat z k)
 
 ratD : Rational -> Double
 ratD r = cast (numer r) / cast (denom r)

@@ -1,8 +1,15 @@
 /-
   Surd.Galois.Identify — Galois group identification for irreducible
-  degree-5 polynomials over Q via Stauduhar descent.
+  polynomials over Q.
 
-  Decision tree:
+  For degree 5: Stauduhar descent via discriminant + sextic resolvent
+  + Frobenius test.
+
+  For other prime degrees p: generalized Stauduhar descent through
+  the lattice of AGL(1,p) subgroups using Frobenius/Chebotarev
+  factorisation patterns.
+
+  Decision tree (degree 5):
     disc square?  sextic root?   result
     no            no             S₅
     yes           no             A₅
@@ -13,6 +20,7 @@ import Surd.Poly.Univariate
 import Surd.Poly.Factoring
 import Surd.Galois.Resolvent
 import Surd.Galois.TransitiveGroup
+import Surd.PrimeFactors
 import Surd.Rat
 import Std.Internal.Rat
 
@@ -116,7 +124,7 @@ private def roundToRatPoly (roots : List CFloat) : Option (Poly Rat) :=
   else some (Poly.mkPoly (results.filterMap id |>.toArray))
 
 -- ---------------------------------------------------------------------------
--- Sextic resolvent
+-- Sextic resolvent (degree 5 only)
 -- ---------------------------------------------------------------------------
 
 /-- F₂₀-invariant θ(x₀,...,x₄) = Σ xᵢ²(x_{i+1}x_{i+4} + x_{i+2}x_{i+3}). -/
@@ -236,7 +244,7 @@ where
       go res' b' (e / 2)
 
 -- ---------------------------------------------------------------------------
--- Frobenius test
+-- Frobenius/Chebotarev test
 -- ---------------------------------------------------------------------------
 
 /-- Distinct-degree factorization pattern of f mod p. -/
@@ -259,13 +267,14 @@ where
 private def smallPrimes : List Int :=
   [3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113]
 
-private def hasNonCyclicPattern (intCs : List Int) (p : Int) : Bool :=
+private def hasNonCyclicPatternDeg (intCs : List Int) (p : Int) (deg : Nat) : Bool :=
   let cs := intCs.map fun c => ((c % p) + p) % p
   let pat := factorPattern cs p
-  pat != [5] && pat != [1, 1, 1, 1, 1]
+  pat != [deg] && pat != List.replicate deg 1
 
-/-- Frobenius/Chebotarev test: true if C₅, false if D₅. -/
-private def isCyclicByFrobenius (f : Poly Rat) : Bool :=
+/-- Generalized Frobenius test for degree-n polynomial.
+    Returns true if the Galois group has only cyclic-pattern factorisations. -/
+private def isCyclicByFrobeniusDeg (f : Poly Rat) (deg : Nat) : Bool :=
   let cs := f.coeffs.toList
   let lcmDen := cs.foldl (fun acc c => Nat.lcm acc c.den) 1
   let intCs : List Int := cs.map fun c =>
@@ -278,10 +287,14 @@ private def isCyclicByFrobenius (f : Poly Rat) : Bool :=
   let goodPrime (p : Int) : Bool :=
     lc % p != 0 && discN % p != 0 && discD % p != 0
   let testPs := (smallPrimes.filter goodPrime).take 20
-  !(testPs.any (hasNonCyclicPattern intCs))
+  !(testPs.any (hasNonCyclicPatternDeg intCs · deg))
+
+/-- Frobenius/Chebotarev test: true if C₅, false if D₅. -/
+private def isCyclicByFrobenius (f : Poly Rat) : Bool :=
+  isCyclicByFrobeniusDeg f 5
 
 -- ---------------------------------------------------------------------------
--- Main entry point
+-- Degree-5 identification (original fast path)
 -- ---------------------------------------------------------------------------
 
 /-- Identify the Galois group of a degree-5 polynomial over Q. -/
@@ -304,5 +317,104 @@ partial def identifyGaloisGroup5 (f : Poly Rat) : Option GaloisResult :=
       match (transGroupsOfDegree 5).find? (fun g => g.tgName == name) with
       | some group => some ⟨group, roots⟩
       | none => none
+
+-- ---------------------------------------------------------------------------
+-- General prime-degree identification
+-- ---------------------------------------------------------------------------
+
+/-- Identify the Galois group of a prime-degree polynomial via
+    generalized Stauduhar descent using Frobenius/Chebotarev patterns.
+
+    Strategy:
+    1. Check factorisation patterns mod small primes.
+    2. AGL-consistent patterns are: [p], [1,...,1], or [1, k, k, ...k].
+    3. If any non-AGL pattern observed → Aₚ (if disc square) or Sₚ.
+    4. Within AGL: min stabiliser order = lcm of non-trivial cycle lengths. -/
+private partial def identifyGaloisGroupPrime (f : Poly Rat) : Option GaloisResult :=
+  let n := f.coeffs.size - 1
+  let p := n
+  let disc := discriminantOf f
+  let discSq := isSquareRational disc
+  let roots := complexRootsOf f
+  let groups := transGroupsOfDegree n
+
+  -- Compute integer coefficients for Frobenius tests
+  let cs := f.coeffs.toList
+  let lcmDen := cs.foldl (fun acc c => Nat.lcm acc c.den) 1
+  let intCs : List Int := cs.map fun c =>
+    let scaled := c * (Int.ofNat lcmDen : Rat)
+    scaled.num
+  let lc := intCs.getLast!
+  let discN := disc.num
+  let discD := Int.ofNat disc.den
+  let goodPrime (pr : Int) : Bool :=
+    lc % pr != 0 && discN % pr != 0 && discD % pr != 0
+  let testPrimes := (smallPrimes.filter goodPrime).take 50
+
+  -- Collect factorisation patterns
+  let patterns := testPrimes.map fun pr =>
+    let csM := intCs.map fun c => ((c % pr) + pr) % pr
+    (factorPattern csM pr).mergeSort (· ≤ ·)
+
+  -- Check if pattern is consistent with AGL(1,p)
+  let nI : Int := Int.ofNat n
+  let isAGLPattern (pat : List Int) : Bool :=
+    pat == [nI]                              -- translation: [p]
+    || pat == List.replicate n 1             -- identity: [1,...,1]
+    || (pat.length >= 2                      -- non-translation: [1, k, k, ...]
+        && pat.min? == some 1
+        && (pat.filter (· == 1)).length == 1
+        && match pat.filter (· != 1) with
+           | [] => true
+           | k :: ks => ks.all (· == k))
+
+  let insideAGL := patterns.all isAGLPattern
+
+  -- Find minimum d: lcm of all observed non-trivial cycle lengths
+  let nonTrivCycleLengths : List Nat := patterns.flatMap fun pat =>
+    if pat == [nI] || pat == List.replicate n 1 then []
+    else (pat.filter (· != 1)).map Int.toNat
+
+  let minD : Nat := if nonTrivCycleLengths.isEmpty then 1
+    else nonTrivCycleLengths.foldl Nat.lcm 1
+
+  if !insideAGL then
+    -- Not in AGL(1,p): either Aₚ or Sₚ
+    let finalGroup :=
+      if discSq then
+        match groups.find? (fun g => g.tgName == "A" ++ toString p) with
+        | some g => g
+        | none => groups.getLast!
+      else groups.getLast!  -- Sₚ
+    some ⟨finalGroup, roots⟩
+  else
+    -- Inside AGL(1,p): find the smallest d that is ≥ minD and divides p-1
+    let divs := (groups.filter (·.tgSolvable)).map (fun g => g.tgOrder / p)
+      |>.mergeSort (· ≤ ·)
+    let groupD := match divs.find? (· >= minD) with
+      | some d => d
+      | none => p - 1  -- fallback to full AGL(1,p)
+    let finalGroup := match groups.find? (fun g => g.tgOrder == p * groupD) with
+      | some g => g
+      | none => match groups.find? (fun g => g.tgName == "AGL(1," ++ toString p ++ ")") with
+        | some g => g
+        | none => groups.getLast!
+    some ⟨finalGroup, roots⟩
+
+-- ---------------------------------------------------------------------------
+-- Unified entry point
+-- ---------------------------------------------------------------------------
+
+/-- Identify the Galois group of an irreducible polynomial over Q
+    of any supported degree.
+
+    For degree 5, delegates to the optimised identifyGaloisGroup5.
+    For other prime degrees, uses generalized Stauduhar descent.
+    Returns none for unsupported degrees. -/
+partial def identifyGaloisGroup (f : Poly Rat) : Option GaloisResult :=
+  let deg := f.coeffs.size - 1
+  if deg == 5 then identifyGaloisGroup5 f
+  else if deg >= 3 && isPrime deg then identifyGaloisGroupPrime f
+  else none
 
 end Surd

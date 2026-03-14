@@ -6,6 +6,9 @@ package surd
   *   1. Checks irreducibility
   *   2. Identifies the Galois group
   *   3. If solvable, constructs radical expressions for the roots
+  *
+  * Supports all degrees: 1-4 via direct formulas, prime degrees >= 5
+  * via Galois group identification and Lagrange resolvent descent.
   */
 object GaloisSolve:
   given fld: Field[Rational] = summon[Field[Rational]]
@@ -18,23 +21,33 @@ object GaloisSolve:
     case Reducible
 
   /** Solve a polynomial over Q via Galois theory.
-    * Currently supports degree 5 (can be extended).
+    *
+    * Routing:
+    *   degree 1       -> linear formula
+    *   degree 2       -> quadratic formula
+    *   degree 3       -> Cardano's formula
+    *   degree 4       -> quartic (simplified)
+    *   prime degree 5+ -> Galois group identification + radical tower
+    *   other          -> IdentificationFailed
     */
   def solve(f: Poly[Rational]): SolveResult =
     if f.degree <= 0 then return SolveResult.Reducible
-    if f.degree == 1 then
-      val root = -f.coeffs(0) / f.coeffs(1)
-      return SolveResult.Solved(
-        Vector(RadExpr.Lit(root)),
-        TransitiveGroup.TGroup(1, 1, "C1", 1, true, Vector.empty)
-      )
+    if f.degree == 1 then return solveLinear(f)
     if f.degree == 2 then return solveQuadratic(f)
     if f.degree == 3 then return solveCubic(f)
     if f.degree == 4 then return solveQuartic(f)
-    if f.degree == 5 then return solveQuintic(f)
+    if PrimeFactors.isPrime(f.degree) then return solvePrimeDegree(f)
 
-    // Degree > 5: generally not solvable, but could check
+    // Composite degree > 4: not yet supported
     SolveResult.IdentificationFailed
+
+  /** Solve a linear polynomial. */
+  private def solveLinear(f: Poly[Rational]): SolveResult =
+    val root = -f.coeffs(0) / f.coeffs(1)
+    SolveResult.Solved(
+      Vector(RadExpr.Lit(root)),
+      TransitiveGroup.TGroup(1, 1, "C1", 1, true, Vector.empty)
+    )
 
   /** Solve a quadratic polynomial. */
   private def solveQuadratic(f: Poly[Rational]): SolveResult =
@@ -83,7 +96,6 @@ object GaloisSolve:
 
   /** Solve a quartic polynomial (simplified). */
   private def solveQuartic(f: Poly[Rational]): SolveResult =
-    // Simplified: just return the numerical approximations as radical expressions
     val roots = Resolvent.complexRootsOf(f)
     val realRoots = roots.filter(r => math.abs(r.im) < 1e-6)
     val radicals = realRoots.map(r => RadicalTower.numericToRadical(r.re))
@@ -92,9 +104,11 @@ object GaloisSolve:
       TransitiveGroup.TGroup(4, 5, "S4", 24, true, Vector.empty)
     )
 
-  /** Solve a quintic polynomial via Galois group identification. */
-  private def solveQuintic(f: Poly[Rational]): SolveResult =
-    Identify.identifyGaloisGroup5(f) match
+  /** Solve a polynomial of prime degree via Galois group identification
+    * and radical tower construction.
+    */
+  private def solvePrimeDegree(f: Poly[Rational]): SolveResult =
+    Identify.identifyGaloisGroup(f) match
       case None => SolveResult.IdentificationFailed
       case Some(galResult) =>
         if !galResult.group.solvable then

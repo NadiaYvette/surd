@@ -8,13 +8,13 @@
 %
 % Composes:
 %   - galois_identify: identifies the Galois group of an irreducible
-%     polynomial (currently degree 5 only)
+%     polynomial (all prime degrees >= 3)
 %   - radical_tower: constructs an explicit radical tower and solves
 %     via Lagrange resolvents
 %   - rad_alg_convert: handles degrees 1–4 via quadratic/Cardano/Ferrari
 %
 % For degree ≤ 4, solve_alg_num returns no so that the caller can use
-% direct formulas. For degree 5, the Galois pipeline is invoked.
+% direct formulas. For degree >= 5 (prime), the Galois pipeline is invoked.
 %
 %---------------------------------------------------------------------------%
 
@@ -33,7 +33,7 @@
     % Try to express an algebraic number as a radical expression.
     %
     % Returns no for degree ≤ 4 (caller should use Cardano/Ferrari),
-    % for degree > 5 (not yet supported), or for non-solvable groups.
+    % for unsupported degrees (composite > 4), or for non-solvable groups.
     %
 :- func solve_alg_num(alg_num) = maybe(rad_expr(rational)).
 
@@ -96,13 +96,14 @@ solve_poly(F) = Result :-
     ).
 
 identify_and_solve(F) = Result :-
-    ( if poly.degree(F) \= 5 then
+    D = poly.degree(F),
+    ( if int.'=<'(D, 4) then
         Result = no
     else
-        ( if identify_galois_group_5(F) = yes(GR) then
+        ( if identify_galois_group(F) = yes(GR) then
             TG = gr_group(GR),
             ( if tg_solvable(TG) = bool.yes then
-                ( if solve_via_tower(GR, F) = yes(Roots) then
+                ( if solve_via_tower_n(GR, F) = yes(Roots) then
                     Result = yes({tg_name(TG), Roots})
                 else
                     Result = no

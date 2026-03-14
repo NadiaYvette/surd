@@ -138,7 +138,7 @@ Surd.Permutation.checked: Surd.Permutation.fst
 	$(FSTAR) $(FSTAR_FLAGS) --include . $<
 	touch $@
 
-Surd.TransitiveGroup.checked: Surd.TransitiveGroup.fst Surd.Permutation.checked
+Surd.TransitiveGroup.checked: Surd.TransitiveGroup.fst Surd.Permutation.checked Surd.PrimeFactors.checked Surd.Positive.checked
 	$(FSTAR) $(FSTAR_FLAGS) --include . $<
 	touch $@
 
@@ -146,15 +146,15 @@ Surd.Resolvent.checked: Surd.Resolvent.fst Surd.Poly.checked Surd.Rational.check
 	$(FSTAR) $(FSTAR_FLAGS) --include . $<
 	touch $@
 
-Surd.Identify.checked: Surd.Identify.fst Surd.Poly.checked Surd.Rational.checked Surd.Factoring.checked Surd.Resolvent.checked Surd.TransitiveGroup.checked
+Surd.Identify.checked: Surd.Identify.fst Surd.Poly.checked Surd.Rational.checked Surd.Factoring.checked Surd.Resolvent.checked Surd.TransitiveGroup.checked Surd.PrimeFactors.checked
 	$(FSTAR) $(FSTAR_FLAGS) --include . $<
 	touch $@
 
-Surd.RadicalTower.checked: Surd.RadicalTower.fst Surd.Types.checked Surd.Poly.checked Surd.Rational.checked
+Surd.RadicalTower.checked: Surd.RadicalTower.fst Surd.Types.checked Surd.Poly.checked Surd.Rational.checked Surd.Eval.checked Surd.TransitiveGroup.checked Surd.PrimeFactors.checked
 	$(FSTAR) $(FSTAR_FLAGS) --include . $<
 	touch $@
 
-Surd.GaloisSolve.checked: Surd.GaloisSolve.fst Surd.Types.checked Surd.Poly.checked Surd.Rational.checked Surd.Identify.checked Surd.TransitiveGroup.checked Surd.RadicalTower.checked Surd.Convert.checked
+Surd.GaloisSolve.checked: Surd.GaloisSolve.fst Surd.Types.checked Surd.Poly.checked Surd.Rational.checked Surd.Identify.checked Surd.TransitiveGroup.checked Surd.RadicalTower.checked Surd.Convert.checked Surd.PrimeFactors.checked Surd.Eval.checked
 	$(FSTAR) $(FSTAR_FLAGS) --include . $<
 	touch $@
 

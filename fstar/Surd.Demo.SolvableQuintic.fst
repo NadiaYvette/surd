@@ -31,6 +31,7 @@ let format_group (g: transitive_group_id) : string =
   | TG_An n -> "A_" ^ string_of_int n
   | TG_F20 -> "F_20 (Frobenius)"
   | TG_V4 -> "V_4 (Klein)"
+  | TG_Aff p d -> "Z/" ^ string_of_int p ^ " ⋊ Z/" ^ string_of_int d
   | TG_Other n ord -> "T(" ^ string_of_int n ^ ", order " ^ string_of_int ord ^ ")"
 
 /// Format a solve result.

@@ -1,6 +1,12 @@
 /-
   Surd.Galois.Solve — Top-level solver composing Galois group identification
-  and radical tower solving for degree-5 polynomials.
+  and radical tower solving for polynomials of any supported degree.
+
+  Degree routing:
+    degree ≤ 4  →  Nothing (caller delegates to Cardano/Ferrari)
+    degree = 5  →  identify Galois group; if solvable, solve via radical tower
+    degree ≥ 7  →  if prime, identify and solve via generalised pipeline
+    (prime)       otherwise Nothing (composite degrees not yet supported)
 -/
 import Surd.Poly.Univariate
 import Surd.Radical.Expr
@@ -9,6 +15,7 @@ import Surd.Algebraic.Number
 import Surd.Galois.Identify
 import Surd.Galois.RadicalTower
 import Surd.Galois.TransitiveGroup
+import Surd.PrimeFactors
 import Surd.Rat
 import Std.Internal.Rat
 
@@ -44,16 +51,19 @@ private def pickClosestReal (exprs : List (RadExpr Rat)) (target : Float)
 -- Public API (ordered so that callees precede callers)
 -- ---------------------------------------------------------------------------
 
-/-- Identify the Galois group and solve if solvable. -/
+/-- Identify the Galois group and solve if solvable.
+    Supports degree 5 and all prime degrees via the generalised pipeline. -/
 partial def identifyAndSolve (f : Poly Rat) : Option (String × List (RadExpr Rat)) := do
-  if f.coeffs.size - 1 != 5 then failure
-  let gr ← identifyGaloisGroup5 f
+  let deg := f.coeffs.size - 1
+  if deg <= 4 then failure
+  let gr ← identifyGaloisGroup f
   let tg := gr.grGroup
   if !tg.tgSolvable then failure
-  let roots ← solveViaTower gr f
+  let roots ← solveViaTowerN gr f
   pure (tg.tgName, roots)
 
-/-- Solve a polynomial returning radical expressions for all roots. -/
+/-- Solve a polynomial returning radical expressions for all roots.
+    Supports degree 5 and all prime degrees. -/
 partial def solvePoly (f : Poly Rat) : Option (List (RadExpr Rat)) := do
   let (_, roots) ← identifyAndSolve f
   pure roots

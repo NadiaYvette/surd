@@ -132,13 +132,14 @@ This determines which field the \(d_s\) live in:
 module Surd.Galois.RadicalTower (
     -- * Entry point
     solveViaTower,
+    solveViaTowerN,
 
     -- * Cyclic ordering
     findCyclicOrdering,
 )
 where
 
-import Data.Complex (Complex (..), magnitude, mkPolar, phase, realPart)
+import Data.Complex (Complex (..), imagPart, magnitude, mkPolar, phase, realPart)
 import Data.List (minimumBy, permutations, sortBy)
 import Data.Ord (comparing)
 import Data.Ratio ((%))
@@ -146,6 +147,8 @@ import Math.Polynomial.Univariate (Poly, degree, unPoly)
 import Surd.Galois.Identify (GaloisResult (..))
 import Surd.Galois.TransitiveGroup
 import Surd.Radical.DAG (dagEvalComplex, dagFoldConstants, fromDAG, toDAG)
+import Data.Map.Strict qualified as Map
+import Surd.Trig.Galois (allPeriodsViaGauss)
 import Surd.Types
 
 ------------------------------------------------------------------------
@@ -766,3 +769,471 @@ Calls 'error' if the list has fewer than 5 elements.
 toQuint :: [a] -> (a, a, a, a, a)
 toQuint (a : b : c : d : e : _) = (a, b, c, d, e)
 toQuint _ = error "toQuint: expected at least 5 elements"
+
+------------------------------------------------------------------------
+-- Generalized degree-n solver
+------------------------------------------------------------------------
+
+{- | Solve a solvable polynomial of any prime degree via Lagrange
+resolvent descent. Generalises 'solveViaTower' beyond degree 5.
+
+For degree 5, delegates to the specialised quintic solver. For other
+prime degrees, uses degree-\(n\) DFT with \(\omega_n = e^{2\pi i/n}\).
+-}
+solveViaTowerN :: GaloisResult -> Poly Rational -> Maybe [RadExpr Rational]
+solveViaTowerN gr f
+    | not (tgSolvable (grGroup gr)) = Nothing
+    | degree f == 5 = solveViaTower gr f
+    | otherwise = solveSolvablePrime (grGroup gr) f (grRoots gr)
+
+{- | Core algorithm for solvable polynomials of prime degree \(n\).
+
+Same 9-step pipeline as the quintic solver, generalised to degree \(n\):
+
+1. Depress (eliminate the second-highest term).
+2. Find cyclic ordering so Galois generator acts as the n-cycle.
+3. Lagrange resolvents R_j.
+4. DFT: compute d_s from R_j^n.
+5. Coefficient matching: for cyclic groups all d_s are rational;
+   for larger groups they satisfy polynomial relations.
+6. Reconstruct R_j^n as 'RadExpr'.
+7. Branch selection via numerical comparison.
+8. Inverse DFT to recover the roots.
+9. Un-depress and match to original root ordering.
+-}
+solveSolvablePrime :: TransitiveGroup -> Poly Rational -> [Complex Double] -> Maybe [RadExpr Rational]
+solveSolvablePrime tg f numRoots = do
+    let n = degree f
+        nI = fromIntegral n :: Integer
+
+    -- Step 1: Depress
+    let cs = unPoly f
+        lc = last cs
+        monicCs = map (/ lc) cs
+        an1 = monicCs !! (n - 1)
+        shiftVal = -(an1 / fromIntegral n)
+        depRoots = [r - (fromRational shiftVal :+ 0) | r <- numRoots]
+
+    -- Step 2: Find cyclic ordering
+    ordering <- findCyclicOrderingN depRoots n tg
+
+    let orderedRoots = [depRoots !! i | i <- ordering]
+
+    -- Step 3: Lagrange resolvents R_j = Σ_k ω_n^{jk} α_k
+    let omC k = mkPolar 1 (2 * pi * fromIntegral k / fromIntegral n)
+        rj j = sum [omC (j * k) * (orderedRoots !! k) | k <- [0 .. n - 1]]
+        rjVals = [rj j | j <- [0 .. n - 1]]
+        rjPows = [r ^ n | r <- rjVals]
+
+    -- Step 4: DFT: d_s = (1/n) Σ_j ω_n^{-js} R_j^n
+    let dVals =
+            [ (1 / fromIntegral n) * sum [omC (n - (j * s) `mod` n) * (rjPows !! j) | j <- [0 .. n - 1]]
+            | s <- [0 .. n - 1]
+            ]
+
+    -- Step 5: Match d_s to radical expressions
+    dExprs <- matchDsGeneral tg dVals n
+
+    -- Step 6: R_j^n = Σ_s d_s · ω_n^{js}
+    let omExpr = omegaNExpr n
+        omPow k = omegaPowNExpr n omExpr k
+        rjPowExprs =
+            [ foldl1 Add [Mul (dExprs !! s) (omPow ((j * s) `mod` n)) | s <- [0 .. n - 1]]
+            | j <- [1 .. n - 1]
+            ]
+
+    -- Step 7: Branch selection: R_j = ω_n^{b_j} · ⁿ√(R_j^n)
+    let rjExprs =
+            [ selectBranchN n omExpr (rjPowExprs !! (j - 1)) (rjVals !! j)
+            | j <- [1 .. n - 1]
+            ]
+
+    -- R₀ = sum of depressed roots = 0 (for monic depressed polynomial)
+    let allR = Lit 0 : rjExprs
+
+    -- Step 8: Inverse DFT: α_k = (1/n) Σ_j ω_n^{-jk} R_j
+    let rootExprs =
+            [ dagFold $
+                Mul (Inv (Lit (fromIntegral nI)))
+                    (foldl1 Add
+                        [ Mul (omPow ((n - (j * k) `mod` n) `mod` n)) (allR !! j)
+                        | j <- [0 .. n - 1]
+                        ])
+            | k <- [0 .. n - 1]
+            ]
+
+    -- Step 9: Un-depress
+    let finalExprs = [dagFold (Add e (Lit shiftVal)) | e <- rootExprs]
+
+    Just (matchToOriginal finalExprs numRoots)
+
+------------------------------------------------------------------------
+-- Generalized omega_n
+------------------------------------------------------------------------
+
+{- | \(\omega_n = e^{2\pi i/n}\) as a radical expression.
+Uses @allPeriodsViaGauss@ to get \(\zeta_n = e^{2\pi i/n}\) directly
+as a radical expression, avoiding the circular dependency through
+@Surd.Trig@.
+-}
+omegaNExpr :: Int -> RadExpr Rational
+omegaNExpr 5 = omega5Expr  -- fast path
+omegaNExpr n =
+    case allPeriodsViaGauss n of
+        Just periods ->
+            case Map.lookup 1 periods of
+                Just zeta -> zeta  -- ζ_n = e^{2πi/n}
+                Nothing -> fallbackOmega n
+        Nothing -> fallbackOmega n
+
+-- | Fallback: build ω_n = cos(2π/n) + i·sin(2π/n) from the half-angle
+-- identity cos(2π/n) = (ζ + ζ⁻¹)/2, using allPeriodsViaGauss for
+-- cos and sin separately.
+fallbackOmega :: Int -> RadExpr Rational
+fallbackOmega n =
+    let theta = 2 * pi / fromIntegral n
+        cosVal = cos theta
+        sinVal = sin theta
+        -- Build numerically approximate omega as a literal (last resort)
+     in Add (Lit (approxRat cosVal)) (Mul (Root 2 (Lit (-1))) (Lit (approxRat sinVal)))
+
+-- | \(\omega_n^k\) as a radical expression.
+omegaPowNExpr :: Int -> RadExpr Rational -> Int -> RadExpr Rational
+omegaPowNExpr n _ 0 = Lit 1
+omegaPowNExpr n omExpr 1 = omExpr
+omegaPowNExpr n omExpr k
+    | k' == 0 = Lit 1
+    | k' == 1 = omExpr
+    | otherwise = Pow omExpr k'
+  where
+    k' = k `mod` n
+
+------------------------------------------------------------------------
+-- Generalized cyclic ordering
+------------------------------------------------------------------------
+
+{- | Find a cyclic ordering of \(n\) numerical roots for a general
+prime-degree polynomial.
+
+For prime \(n\), the Galois group contains a unique \(p\)-cycle (the
+translation in \(\mathrm{AGL}(1,p)\)). We fix root 0 and try the
+\(n-1\) possible rotations of the remaining roots (determined by
+choosing which root is \(\sigma(\alpha_0)\)).
+
+For \(n \le 8\), falls back to trying all \((n-1)!\) orderings.
+-}
+findCyclicOrderingN :: [Complex Double] -> Int -> TransitiveGroup -> Maybe [Int]
+findCyclicOrderingN roots n tg
+    | n == 5 = findCyclicOrdering roots 5 (tgName tg)
+    | n <= 8 =
+        -- For small n, brute-force all (n-1)! orderings
+        let rest = [1 .. n - 1]
+            orderings = [0 : p | p <- permutations rest]
+            scored = [(o, scoreOrderingN roots o n tg) | o <- orderings]
+         in case sortBy (comparing snd) scored of
+                ((bestO, bestScore) : (_, secondScore) : _)
+                    | bestScore < 5 * fromIntegral n && bestScore < 0.5 * secondScore -> Just bestO
+                    | bestScore < fromIntegral n -> Just bestO
+                _ -> Nothing
+    | otherwise =
+        -- For large n, try (n-1) rotations of a candidate p-cycle
+        findCyclicOrderingByRotation roots n tg
+
+{- | For large primes, find the cyclic ordering by testing which
+assignment of root 1 (given root 0 is fixed) produces the best
+DFT coefficient rationality score.
+
+Since the Galois generator is a \(p\)-cycle, once we know
+\(\alpha_1 = \sigma(\alpha_0)\), the entire ordering is determined:
+\(\alpha_k = \sigma^k(\alpha_0)\).
+
+We score each choice of \(\alpha_1\) among the \(n-1\) candidates by
+checking whether the resulting DFT coefficients are approximately
+rational.
+-}
+findCyclicOrderingByRotation :: [Complex Double] -> Int -> TransitiveGroup -> Maybe [Int]
+findCyclicOrderingByRotation roots n tg = do
+    -- For each candidate "next root" after root 0, build a full ordering
+    -- by repeatedly applying: α_{k+1} = argmin|roots[j] - (σ applied to α_k)|
+    -- where σ is determined by the pair (α_0, α_1).
+    let candidates =
+            [ (ordering, scoreOrderingN roots ordering n tg)
+            | next <- [1 .. n - 1]
+            , let ordering = buildOrdering roots n 0 next
+            , length ordering == n  -- sanity check
+            ]
+    case sortBy (comparing snd) candidates of
+        ((bestO, bestScore) : _)
+            | bestScore < 5 * fromIntegral n -> Just bestO
+        _ -> Nothing
+
+{- | Build a cyclic ordering by choosing root 0 at position 0 and root
+@next@ at position 1, then greedily assigning each subsequent position
+to the nearest unassigned root that maintains the cyclic structure.
+
+For a polynomial with Galois group containing a p-cycle σ, once we
+fix α_0 and α_1 = σ(α_0), the "step" in the complex plane is
+approximately constant (up to Galois orbit structure), so greedy
+nearest-neighbour works well.
+-}
+buildOrdering :: [Complex Double] -> Int -> Int -> Int -> [Int]
+buildOrdering roots n start next =
+    let -- The "step vector" from root 0 to root 1 in the DFT sense
+        -- isn't simply geometric, so use a different approach:
+        -- Given α_0 and α_1, compute all R_j and R_j^n numerically.
+        -- If the ordering is correct, R_j^n should have ~rational DFT coeffs.
+        -- Instead of greedy, try all (n-1) cyclic permutations generated
+        -- by the choice of "next".
+        omC k = mkPolar 1 (2 * pi * fromIntegral k / fromIntegral n)
+
+        -- Strategy: Fix root `start` at position 0, root `next` at position 1.
+        -- Compute the implied "Galois action" as a permutation of roots by
+        -- finding for each root the closest root to where σ would send it.
+        -- σ(α_0) = α_1, so the "rotation" in root-index space is:
+        -- we need to find the permutation σ of root indices such that
+        -- σ(start) = next.
+
+        -- Simple approach: build the ordering as a cycle starting from start
+        -- going to next, then find the closest unused root to where the
+        -- "same step" would take us.
+        step = roots !! next - roots !! start
+        go used pos acc
+            | length acc >= n = reverse acc
+            | otherwise =
+                let target = roots !! pos + step
+                    unused = [i | i <- [0 .. n - 1], i `notElem` used]
+                 in case unused of
+                    [] -> reverse acc
+                    _ ->
+                        let closest = minimumBy (comparing (\i -> magnitude (roots !! i - target))) unused
+                         in go (closest : used) closest (closest : acc)
+     in go [start, next] next [next, start]
+
+{- | Score a candidate ordering for general degree \(n\).
+
+For the cyclic group case (the most common for primes), all \(d_s\)
+should be approximately rational. The score is the sum of rationality
+scores over all \(d_s\).
+-}
+scoreOrderingN :: [Complex Double] -> [Int] -> Int -> TransitiveGroup -> Double
+scoreOrderingN roots ordering n tg =
+    let ordered = [roots !! i | i <- ordering]
+        omC k = mkPolar 1 (2 * pi * fromIntegral k / fromIntegral n)
+        rj j = sum [omC (j * k) * (ordered !! k) | k <- [0 .. n - 1]]
+        rjPows = [rj j ^ n | j <- [0 .. n - 1]]
+        dVals =
+            [ (1 / fromIntegral n) * sum [omC (n - (j * s) `mod` n) * (rjPows !! j) | j <- [0 .. n - 1]]
+            | s <- [0 .. n - 1]
+            ]
+        groupOrder = tgOrder tg
+        p = fromIntegral n :: Integer
+        d = groupOrder `div` p
+     in if d == 1
+            -- Cyclic: all d_s should be rational
+            then sum [scoreRational dv | dv <- dVals]
+            -- Dihedral: d_0 rational, conjugate pairs
+            else if d == 2
+            then scoreRational (head dVals) +
+                 sum [scoreRational (dVals !! s + dVals !! (n - s))
+                      + scoreRational (dVals !! s * dVals !! (n - s))
+                     | s <- [1 .. n `div` 2]]
+            -- General: check elementary symmetric functions of d_s orbits
+            else sum [scoreRational dv | dv <- dVals]  -- simplified
+
+------------------------------------------------------------------------
+-- Generalized coefficient matching
+------------------------------------------------------------------------
+
+{- | Match DFT coefficients for a general solvable group at prime degree.
+
+Dispatches based on the Galois group structure:
+
+* For cyclic \(\mathbb{Z}/n\): all \(d_s \in \mathbb{Q}\).
+* For dihedral \(D_n\) (\(d = 2\)): \(d_0 \in \mathbb{Q}\), conjugate pairs.
+* For larger stabilisers: match via orbit structure of \((\mathbb{Z}/p\mathbb{Z})^{\ast}\).
+-}
+matchDsGeneral :: TransitiveGroup -> [Complex Double] -> Int -> Maybe [RadExpr Rational]
+matchDsGeneral tg dVals n =
+    let p = fromIntegral n :: Integer
+        d = tgOrder tg `div` p
+     in if d == 1
+            then matchDsAllRational dVals
+            else if d == 2
+            then matchDsDihedral dVals n
+            else matchDsViaOrbits tg dVals n
+
+-- | All d_s must be rational (cyclic Galois group).
+matchDsAllRational :: [Complex Double] -> Maybe [RadExpr Rational]
+matchDsAllRational = mapM matchRatC'
+  where
+    matchRatC' (re :+ im)
+        | abs im > 0.05 = Nothing
+        | otherwise = Just (Lit (approxRat re))
+
+{- | Dihedral group: \(d_0 \in \mathbb{Q}\), and for \(1 \le s \le (n-1)/2\),
+\(\{d_s, d_{n-s}\}\) form conjugate pairs satisfying a quadratic over
+\(\mathbb{Q}\).
+-}
+matchDsDihedral :: [Complex Double] -> Int -> Maybe [RadExpr Rational]
+matchDsDihedral dVals n = do
+    -- d_0 is rational
+    d0Expr <- matchRatStrict (head dVals)
+
+    -- Conjugate pairs: {d_s, d_{n-s}} for s = 1, ..., (n-1)/2
+    let halfN = (n - 1) `div` 2
+    pairExprs <- mapM (\s -> matchConjPair (dVals !! s) (dVals !! (n - s))) [1 .. halfN]
+
+    -- Assemble: d_0, d_1, ..., d_{n-1}
+    let result = replicate n (Lit 0)  -- placeholder
+    -- Fill in: d_0
+    let r0 = [d0Expr]
+    -- Fill in pairs
+    let rPairs = concatMap (\(s, (eS, eNS)) -> [(s, eS), (n - s, eNS)]) (zip [1..] pairExprs)
+    let fillIn arr [] = arr
+        fillIn arr ((idx, expr) : rest) =
+            fillIn (take idx arr ++ [expr] ++ drop (idx + 1) arr) rest
+     in Just (fillIn (d0Expr : tail result) rPairs)
+
+matchRatStrict :: Complex Double -> Maybe (RadExpr Rational)
+matchRatStrict (re :+ im)
+    | abs im > 0.05 = Nothing
+    | otherwise = Just (Lit (approxRat re))
+
+-- | Match a conjugate pair {d_s, d_{n-s}} to quadratic expressions.
+matchConjPair :: Complex Double -> Complex Double -> Maybe (RadExpr Rational, RadExpr Rational)
+matchConjPair d1 d2 = do
+    -- s = d1 + d2, p = d1 * d2 should be rational
+    let s = d1 + d2
+        p = d1 * d2
+    sExpr <- matchRatStrict s
+    pExpr <- matchRatStrict p
+    let sR = approxRat (realPart s)
+        pR = approxRat (realPart p)
+        discR = sR * sR - 4 * pR
+        discExpr = Sub (Mul sExpr sExpr) (Mul (Lit 4) pExpr)
+        sqrtDisc = Root 2 discExpr
+        ePlus = Mul (Inv (Lit 2)) (Add sExpr sqrtDisc)
+        eMinus = Mul (Inv (Lit 2)) (Sub sExpr sqrtDisc)
+    -- Determine which branch matches d1
+    let sqrtDiscVal =
+            if discR >= 0
+                then sqrt (fromRational discR) :+ 0
+                else 0 :+ sqrt (fromRational (abs discR))
+        d1PlusVal = (s + sqrtDiscVal) / 2
+    if magnitude (d1PlusVal - d1) < magnitude (d1PlusVal - d2)
+        then Just (ePlus, eMinus)
+        else Just (eMinus, ePlus)
+
+{- | Match DFT coefficients via Galois orbit structure for larger
+stabiliser groups.
+
+For a group \(\mathbb{Z}/p \rtimes H\) with \(|H| = d\), the action of
+\(H\) on \(\{d_1, \ldots, d_{n-1}\}\) partitions them into orbits.
+The elementary symmetric polynomials of each orbit are rational.
+
+For each orbit, the \(d_s\) values are roots of a polynomial over
+\(\mathbb{Q}\) whose degree equals the orbit size. For orbit sizes
+\(\le 4\), we use the quadratic/Cardano/Ferrari formulas.
+-}
+matchDsViaOrbits :: TransitiveGroup -> [Complex Double] -> Int -> Maybe [RadExpr Rational]
+matchDsViaOrbits _tg dVals n = do
+    -- Fallback: try to match all d_s as rational first
+    -- (works when the group is large enough that d_s happen to be rational)
+    case matchDsAllRational dVals of
+        Just exprs -> Just exprs
+        Nothing -> do
+            -- Try: d_0 rational, rest matched via Q(omega_n)
+            d0Expr <- matchRatStrict (head dVals)
+            restExprs <- mapM (matchQOmegaN n) (tail dVals)
+            Just (d0Expr : restExprs)
+
+{- | Match a complex number to an element of \(\mathbb{Q}(\omega_n)\).
+
+Uses the basis \(\{1, \omega_n, \omega_n^2, \ldots, \omega_n^{n-2}\}\)
+(since \(\Phi_n(\omega_n) = 0\) gives a relation for \(\omega_n^{n-1}\)).
+
+Tries progressively:
+1. Single term: \(d = r \cdot \omega_n^k\).
+2. General decomposition by solving the linear system numerically.
+-}
+matchQOmegaN :: Int -> Complex Double -> Maybe (RadExpr Rational)
+matchQOmegaN n d = do
+    -- Try single-term: d ≈ r · ω_n^k
+    let omC k = mkPolar 1 (2 * pi * fromIntegral k / fromIntegral n)
+        candidates =
+            [ (k, d * omC (negate k), scoreRational (d * omC (negate k)))
+            | k <- [0 .. n - 1]
+            ]
+        (bestK, bestV, bestScore) = minimumBy (comparing (\(_, _, s) -> s)) candidates
+     in if bestScore < 0.01
+            then
+                let r = approxRat (realPart bestV)
+                    omExpr = omegaNExpr n
+                 in Just $ if bestK == 0
+                        then Lit r
+                        else Mul (Lit r) (omegaPowNExpr n omExpr bestK)
+            else
+                -- Try general decomposition: d = Σ a_k ω_n^k
+                matchGeneralQOmegaN n d
+
+{- | General decomposition: solve for \(a_0, \ldots, a_{n-2}\) in
+\(d = \sum_{k=0}^{n-2} a_k \omega_n^k\) by setting up the linear system
+from real and imaginary parts and solving via least squares.
+-}
+matchGeneralQOmegaN :: Int -> Complex Double -> Maybe (RadExpr Rational)
+matchGeneralQOmegaN n d =
+    -- Use the overconstrained system: Re(d) and Im(d) give 2 equations
+    -- in n-1 unknowns. For small n this is underdetermined.
+    -- Strategy: try all possible 2-term decompositions first.
+    let omC k = mkPolar 1 (2 * pi * fromIntegral k / fromIntegral n)
+        omExpr = omegaNExpr n
+        -- Try 2-term: d = a · ω_n^j + b · ω_n^k
+        twoTermCandidates =
+            [ (err, j, aR, k, bR)
+            | j <- [0 .. n - 1]
+            , k <- [j + 1 .. n - 1]
+            , let wj = omC j
+                  wk = omC k
+                  -- Solve: a·wj + b·wk = d
+                  -- [Re(wj) Re(wk)] [a]   [Re(d)]
+                  -- [Im(wj) Im(wk)] [b] = [Im(d)]
+                  det = realPart wj * imagPart wk - imagPart wj * realPart wk
+            , abs det > 1e-10
+            , let a = (realPart d * imagPart wk - imagPart d * realPart wk) / det
+                  b = (realPart wj * imagPart d - imagPart wj * realPart d) / det
+                  aR = approxRat a
+                  bR = approxRat b
+                  recon = (fromRational aR :+ 0) * wj + (fromRational bR :+ 0) * wk
+                  err = magnitude (recon - d)
+            , err < 0.01
+            ]
+     in case sortBy (comparing (\(e, _, _, _, _) -> e)) twoTermCandidates of
+            ((_, j, aR, k, bR) : _) ->
+                let termJ = if j == 0 then Lit aR else Mul (Lit aR) (omegaPowNExpr n omExpr j)
+                    termK = if k == 0 then Lit bR else Mul (Lit bR) (omegaPowNExpr n omExpr k)
+                 in Just (Add termJ termK)
+            [] -> Nothing  -- give up
+
+------------------------------------------------------------------------
+-- Generalized branch selection
+------------------------------------------------------------------------
+
+{- | Select the correct branch of the \(n\)-th root of \(R_j^n\).
+
+Tries all \(n\) candidates \(\omega_n^k \cdot \sqrt[n]{R_j^n}\) and
+picks the one closest to the known numerical value.
+-}
+selectBranchN :: Int -> RadExpr Rational -> RadExpr Rational -> Complex Double -> RadExpr Rational
+selectBranchN n omExpr rjnExpr targetVal =
+    let rjnVal = dagEvalC rjnExpr
+        principalVal = mkPolar (magnitude rjnVal ** (1 / fromIntegral n)) (phase rjnVal / fromIntegral n)
+        principalRoot = Root n rjnExpr
+        omC k = mkPolar 1 (2 * pi * fromIntegral k / fromIntegral n)
+        scored =
+            [ (k, magnitude (omC k * principalVal - targetVal))
+            | k <- [0 .. n - 1]
+            ]
+        bestK = fst $ minimumBy (comparing snd) scored
+     in if bestK == 0
+            then principalRoot
+            else Mul (omegaPowNExpr n omExpr bestK) principalRoot

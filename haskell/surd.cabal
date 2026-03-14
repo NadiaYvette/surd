@@ -69,6 +69,7 @@ library
     Surd.Integration.Elliptic
     Surd.Galois.Permutation
     Surd.Galois.TransitiveGroup
+    Surd.Galois.AffineGroup
     Surd.Galois.Resolvent
     Surd.Galois.Identify
     Surd.Galois.RadicalTower

@@ -29,6 +29,9 @@ assume val double_cos : double -> double
 assume val double_sin : double -> double
 assume val double_zero : double
 assume val double_one : double
+assume val double_lt : double -> double -> bool
+assume val double_le : double -> double -> bool
+assume val double_gt : double -> double -> bool
 
 /// Convert a rational to a double.
 let double_of_rational (r: rational) : double =

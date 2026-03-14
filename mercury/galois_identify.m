@@ -4,13 +4,13 @@
 % File: galois_identify.m
 % Main author: nyc
 %
-% Galois group identification for irreducible degree-5 polynomials over Q.
+% Galois group identification for irreducible polynomials over Q.
 %
-% Uses the Stauduhar descent approach: start from S5, then apply
-% resolvent polynomials to descend through the transitive subgroup
-% lattice of S5.
+% For degree 5, uses the Stauduhar descent approach via discriminant
+% and sextic resolvent. For other prime degrees, uses generalized
+% Frobenius/Chebotarev identification via factorisation patterns.
 %
-% Decision tree:
+% Decision tree (degree 5):
 %   disc square?  sextic root?  result
 %   no            no            S5
 %   yes           no            A5
@@ -46,6 +46,14 @@
     %
 :- func identify_galois_group_5(poly(rational)) = maybe(galois_result).
 
+    % Identify the Galois group of an irreducible polynomial of any
+    % supported prime degree.
+    %
+    % Dispatches to the degree-5 fast path, or to the generalized
+    % Frobenius/Chebotarev identification for other primes.
+    %
+:- func identify_galois_group(poly(rational)) = maybe(galois_result).
+
     % Identify the Galois group using committed choice.
     % Once a group is identified, no backtracking is needed since the
     % discriminant/resolvent decision tree is deterministic.
@@ -61,13 +69,29 @@
 :- use_module float.
 :- use_module int.
 :- use_module math.
+:- import_module bool.
 :- import_module integer.
+:- import_module prime_factors.
 :- import_module require.
 :- import_module resolvent.
 :- import_module string.
 
 %---------------------------------------------------------------------------%
-% Main identification
+% Unified identification entry point
+%---------------------------------------------------------------------------%
+
+identify_galois_group(F) = Result :-
+    D = degree(F),
+    ( if D = 5 then
+        Result = identify_galois_group_5(F)
+    else if int.'>='(D, 3), is_prime(integer(D)) then
+        Result = identify_galois_group_prime(F)
+    else
+        Result = no
+    ).
+
+%---------------------------------------------------------------------------%
+% Degree-5 identification (optimised fast path)
 %---------------------------------------------------------------------------%
 
 identify_galois_group_5(F) = Result :-
@@ -93,7 +117,6 @@ identify_galois_group_5(F) = Result :-
     ).
 
 :- func identify_name(bool, bool, poly(rational)) = string.
-:- import_module bool.
 
 identify_name(DiscSq, HasSexticRoot, F) = Name :-
     ( if HasSexticRoot = no, DiscSq = no then
@@ -120,6 +143,167 @@ find_group_by_name([G | Gs], Name, Result) :-
     else
         find_group_by_name(Gs, Name, Result)
     ).
+
+%---------------------------------------------------------------------------%
+% Generalized prime-degree identification via Frobenius/Chebotarev
+%---------------------------------------------------------------------------%
+
+    % For prime degree p:
+    % 1. Compute discriminant; check if perfect square.
+    % 2. Compute factorisation patterns mod small primes.
+    % 3. Check if patterns are consistent with AGL(1,p).
+    % 4. Find minimum stabiliser order d from observed cycle lengths.
+    % 5. If not in AGL -> A_p (if disc square) or S_p.
+    % 6. If in AGL -> group with order p·d where d is smallest valid divisor.
+    %
+:- func identify_galois_group_prime(poly(rational)) = maybe(galois_result).
+
+identify_galois_group_prime(F) = Result :-
+    N = degree(F),
+    P = integer(N),
+    Disc = discriminant_of(F),
+    DiscSq = ( if is_square_rational(Disc) then yes else no ),
+    Roots = complex_roots_of(F),
+    Groups = trans_groups_of_degree(N),
+
+    % Prepare integer coefficients for Fp factorisation
+    Cs = coeffs(F),
+    lcm_of_denoms(Cs, LcmDen),
+    Scale = from_integers(LcmDen, integer.one),
+    IntCs = list.map(( func(C) = numer(C * Scale) ), Cs),
+    ( if list.last(IntCs, LC0) then
+        LC = LC0
+    else
+        LC = integer.one
+    ),
+    DiscN = integer.abs(numer(Disc)),
+    DiscD = denom(Disc),
+
+    % Collect good primes and their factorisation patterns
+    good_primes(LC, DiscN, DiscD, small_primes, 0, 50, GoodPs),
+    Patterns = list.map(
+        ( func(Pr) = Pat :-
+            PI = integer(Pr),
+            FpCs = list.map(
+                ( func(C) = integer.'mod'(
+                    integer.'+'(integer.'mod'(C, PI), PI), PI) ),
+                IntCs),
+            Pat0 = factor_pattern(FpCs, PI),
+            list.sort(Pat0, Pat)
+        ), GoodPs),
+
+    % Check if all patterns are consistent with AGL(1,p)
+    InsideAGL = ( if list.all_true(is_agl_pattern(N), Patterns) then
+                      yes
+                  else
+                      no ),
+
+    % Find the minimum d: lcm of all observed non-trivial cycle lengths
+    non_triv_cycle_lengths(Patterns, N, NTCLs),
+    MinD = ( if NTCLs = [] then
+                 integer.one
+             else
+                 list.foldl(lcm_integer, NTCLs, integer.one) ),
+
+    % Get sorted divisors of p-1 from the solvable groups
+    Divs = list.sort(list.filter_map(
+        ( func(G) = D is semidet :-
+            tg_solvable(G) = yes,
+            D = tg_order(G) // P ),
+        Groups)),
+
+    ( if InsideAGL = no then
+        % Not in AGL(1,p): A_p or S_p
+        FinalName = ( if DiscSq = yes then
+                          "A" ++ string.int_to_string(N)
+                      else
+                          "S" ++ string.int_to_string(N) ),
+        ( if find_group_by_name(Groups, FinalName, FG) then
+            Result = yes(galois_result(FG, Roots))
+        else
+            % Fallback: last group (S_p)
+            ( if list.last(Groups, LastG) then
+                Result = yes(galois_result(LastG, Roots))
+            else
+                Result = no
+            )
+        )
+    else
+        % Inside AGL(1,p): find smallest d >= MinD
+        GroupD = ( if find_ge(Divs, MinD) = yes(D0) then
+                       D0
+                   else
+                       P - integer.one ),
+        TargetOrder = P * GroupD,
+        ( if find_group_by_order(Groups, TargetOrder) = yes(FG) then
+            Result = yes(galois_result(FG, Roots))
+        else
+            % Fallback to full AGL(1,p)
+            AglName = "AGL(1," ++ string.int_to_string(N) ++ ")",
+            ( if find_group_by_name(Groups, AglName, FG2) then
+                Result = yes(galois_result(FG2, Roots))
+            else if list.last(Groups, LastG2) then
+                Result = yes(galois_result(LastG2, Roots))
+            else
+                Result = no
+            )
+        )
+    ).
+
+    % Check if a factorisation pattern is consistent with AGL(1,p).
+    % Valid patterns: [p], [1,...,1], or [1, k, k, ...k] where k | (p-1).
+    %
+:- pred is_agl_pattern(int::in, list(int)::in) is semidet.
+
+is_agl_pattern(N, Pat) :-
+    ( if Pat = [N] then
+        true    % translation: [p]
+    else if Pat = list.duplicate(N, 1) then
+        true    % identity: [1,...,1]
+    else
+        % Non-translation: [1, k, k, ...k]
+        int.'>='(list.length(Pat), 2),
+        Pat = [1 | Rest],
+        Rest = [K | _],
+        int.'>'(K, 1),
+        list.all_true(( pred(X::in) is semidet :- X = K ), Rest)
+    ).
+
+    % Extract non-trivial cycle lengths from factorisation patterns.
+    %
+:- pred non_triv_cycle_lengths(list(list(int))::in, int::in,
+    list(integer)::out) is det.
+
+non_triv_cycle_lengths(Patterns, N, Result) :-
+    list.foldl(
+        ( pred(Pat::in, Acc0::in, Acc1::out) is det :-
+            ( if
+                Pat \= [N],
+                Pat \= list.duplicate(N, 1)
+            then
+                NewKs = list.filter_map(
+                    ( func(K) = integer(K) is semidet :- K \= 1 ),
+                    Pat),
+                Acc1 = NewKs ++ Acc0
+            else
+                Acc1 = Acc0
+            )
+        ), Patterns, [], Result).
+
+:- func find_ge(list(integer), integer) = maybe(integer).
+
+find_ge([], _) = no.
+find_ge([D | Ds], MinD) =
+    ( if integer.'>='(D, MinD) then yes(D)
+    else find_ge(Ds, MinD) ).
+
+:- func find_group_by_order(list(transitive_group), integer)
+    = maybe(transitive_group).
+
+find_group_by_order([], _) = no.
+find_group_by_order([G | Gs], Ord) =
+    ( if tg_order(G) = Ord then yes(G)
+    else find_group_by_order(Gs, Ord) ).
 
 %---------------------------------------------------------------------------%
 % Sextic resolvent
@@ -708,7 +892,7 @@ small_primes = [3, 5, 7, 11, 13, 17, 19, 23, 29, 31,
 %---------------------------------------------------------------------------%
 
 identify_group_cc(F, Result) :-
-    identify_galois_group_5(F) = yes(Result).
+    identify_galois_group(F) = yes(Result).
 
 %---------------------------------------------------------------------------%
 :- end_module galois_identify.
