@@ -554,7 +554,7 @@ $$
 5. If $x \geq 0$ and $y \geq 0$, the denested form is:
 
 $$
-\sqrt{a + b\sqrt{r}} = \sqrt{x} + \operatorname{sgn}(b) \cdot \sqrt{y}.
+\sqrt{a + b\sqrt{r}} = \sqrt{x} + \mathrm{sgn}(b) \cdot \sqrt{y}.
 $$
 
 **Proof sketch.** Suppose $\sqrt{a + b\sqrt{r}} = \sqrt{x} + \sqrt{y}$.
@@ -729,7 +729,7 @@ irreducible over $\mathbb{Q}$.
 
 **Key properties:**
 
-1. The Galois group $\operatorname{Gal}(\mathbb{Q}(\zeta_n)/\mathbb{Q}) \cong
+1. The Galois group $\mathrm{Gal}(\mathbb{Q}(\zeta_n)/\mathbb{Q}) \cong
    (\mathbb{Z}/n\mathbb{Z})^*$, the multiplicative group of integers
    modulo $n$. An element $a \in (\mathbb{Z}/n\mathbb{Z})^*$ acts by
    $\sigma_a(\zeta_n) = \zeta_n^a$.
@@ -1195,10 +1195,10 @@ of a polynomial in an interval.
 $f_0 = f$, $f_1 = f'$, and for $i \geq 2$:
 
 $$
-f_i = -\operatorname{rem}(f_{i-2}, f_{i-1}),
+f_i = -\mathrm{rem}(f_{i-2}, f_{i-1}),
 $$
 
-where $\operatorname{rem}$ denotes the polynomial remainder. (Note the
+where $\mathrm{rem}$ denotes the polynomial remainder. (Note the
 negation: this ensures sign variation counting works correctly.)
 
 **Theorem** (Sturm, 1829). *Let $f$ be a square-free polynomial and
@@ -1209,7 +1209,7 @@ $$
 V(a) - V(b),
 $$
 
-*where $V(c) = \#\{i : \operatorname{sign}(f_i(c)) \neq \operatorname{sign}(f_{i+1}(c))\}$
+*where $V(c) = \#\{i : \mathrm{sign}(f_i(c)) \neq \mathrm{sign}(f_{i+1}(c))\}$
 is the number of sign variations in the sequence evaluated at $c$.*
 
 The library uses Sturm's theorem in `Surd.Algebraic.RootIsolation` for:
@@ -1231,7 +1231,7 @@ polynomial $q(x)$:
 **Composed sum.** An annihilating polynomial for $\alpha + \beta$ is:
 
 $$
-\operatorname{ComposedSum}(p, q)(x) = \operatorname{Res}_y\!\bigl(p(x - y),\, q(y)\bigr).
+\mathrm{ComposedSum}(p, q)(x) = \mathrm{Res}_y\!\bigl(p(x - y),\, q(y)\bigr).
 $$
 
 This polynomial has degree $\deg(p) \cdot \deg(q)$ and has $\alpha + \beta$
@@ -1242,7 +1242,7 @@ $q$).
 is:
 
 $$
-\operatorname{ComposedProduct}(p, q)(x) = \operatorname{Res}_y\!\bigl(y^{\deg p} \cdot p(x/y),\, q(y)\bigr).
+\mathrm{ComposedProduct}(p, q)(x) = \mathrm{Res}_y\!\bigl(y^{\deg p} \cdot p(x/y),\, q(y)\bigr).
 $$
 
 **Negation.** If $p(x)$ is the minimal polynomial of $\alpha$, then
@@ -1266,7 +1266,7 @@ This gives `AlgNum` its `Num` and `Fractional` instances.
 The composed sum polynomial can be computed via the **resultant**:
 
 $$
-\operatorname{Res}_y\!\bigl(p(x - y),\, q(y)\bigr) = \prod_{i,j} (x - \alpha_i - \beta_j),
+\mathrm{Res}_y\!\bigl(p(x - y),\, q(y)\bigr) = \prod_{i,j} (x - \alpha_i - \beta_j),
 $$
 
 where $\alpha_i$ are roots of $p$ and $\beta_j$ are roots of $q$. The
@@ -1276,7 +1276,7 @@ avoids computing the roots explicitly.
 For the composed product:
 
 $$
-\operatorname{Res}_y\!\left(y^n\, p\!\left(\frac{x}{y}\right),\, q(y)\right)
+\mathrm{Res}_y\!\left(y^n\, p\!\left(\frac{x}{y}\right),\, q(y)\right)
   = \prod_{i,j} (x - \alpha_i \beta_j).
 $$
 
@@ -1510,8 +1510,8 @@ sequence) controls coefficient growth by dividing each remainder by a
 known factor:
 
 1. Set $r_0 = f$, $r_1 = g$, $s_0 = 1$, $h_0 = 1$.
-2. For $i \geq 1$: compute $r_{i+1} = \operatorname{prem}(r_{i-1}, r_i) /
-   (s_i \cdot h_i^{d_i})$, where $\operatorname{prem}$ is the
+2. For $i \geq 1$: compute $r_{i+1} = \mathrm{prem}(r_{i-1}, r_i) /
+   (s_i \cdot h_i^{d_i})$, where $\mathrm{prem}$ is the
    pseudo-remainder, $d_i = \deg(r_{i-1}) - \deg(r_i)$, and $s_i, h_i$
    are recursively defined scaling factors.
 3. The last nonzero $r_i$ (made monic) is the GCD.
@@ -1596,7 +1596,7 @@ as exact polynomial divisions over $\mathbb{Z}$.
 The **resultant** of two polynomials $f(x)$ and $g(x)$ is:
 
 $$
-\operatorname{Res}(f, g) = \prod_{f(\alpha) = 0} g(\alpha)
+\mathrm{Res}(f, g) = \prod_{f(\alpha) = 0} g(\alpha)
   = (-1)^{mn} \prod_{g(\beta) = 0} f(\beta),
 $$
 
@@ -1608,7 +1608,7 @@ an $(m+n) \times (m+n)$ matrix whose rows are the coefficients of $f$ and
 $g$ shifted by successive powers of $x$:
 
 $$
-\operatorname{Syl}(f, g) = \begin{pmatrix}
+\mathrm{Syl}(f, g) = \begin{pmatrix}
 a_m & a_{m-1} & \cdots & a_0 & 0 & \cdots & 0 \\
 0 & a_m & a_{m-1} & \cdots & a_0 & \cdots & 0 \\
 \vdots & & \ddots & & & \ddots & \vdots \\
@@ -1642,24 +1642,24 @@ functions $p(x_1, \ldots, x_n) / q(x_1, \ldots, x_n)$ to lowest terms.
 ### 10.1 The Galois Correspondence
 
 For a polynomial $f(x) \in \mathbb{Q}[x]$, the **Galois group**
-$\operatorname{Gal}(f) = \operatorname{Gal}(L/\mathbb{Q})$ is the group
+$\mathrm{Gal}(f) = \mathrm{Gal}(L/\mathbb{Q})$ is the group
 of field automorphisms of the splitting field $L$ of $f$ that fix
 $\mathbb{Q}$. The Galois group acts faithfully on the roots of $f$,
 giving an embedding
-$\operatorname{Gal}(f) \hookrightarrow S_n$ (the symmetric group on $n$
+$\mathrm{Gal}(f) \hookrightarrow S_n$ (the symmetric group on $n$
 letters).
 
 The **Fundamental Theorem of Galois Theory** establishes a bijection
 between:
 
-- Subgroups $H \leq \operatorname{Gal}(L/\mathbb{Q})$, and
+- Subgroups $H \leq \mathrm{Gal}(L/\mathbb{Q})$, and
 - Intermediate fields $\mathbb{Q} \subseteq K \subseteq L$.
 
 Under this bijection:
 - $H$ corresponds to the fixed field $L^H = \{x \in L : \sigma(x) = x
   \text{ for all } \sigma \in H\}$.
 - $K$ corresponds to the stabiliser
-  $\operatorname{Gal}(L/K) = \{\sigma : \sigma|_K = \text{id}\}$.
+  $\mathrm{Gal}(L/K) = \{\sigma : \sigma|_K = \text{id}\}$.
 - Normal subgroups $H \trianglelefteq G$ correspond to Galois
   (normal) extensions $K/\mathbb{Q}$.
 - The degree $[L^H : \mathbb{Q}] = [G : H]$ (index of $H$ in $G$).
@@ -1669,7 +1669,7 @@ Under this bijection:
 **Theorem** (Galois). *A polynomial $f(x) \in \mathbb{Q}[x]$ is solvable
 by radicals---its roots can be expressed using $+, -, \times,
 \div, \sqrt[n]{\cdot}$ applied to rational numbers---if and only if its
-Galois group $\operatorname{Gal}(f)$ is a **solvable group**.*
+Galois group $\mathrm{Gal}(f)$ is a **solvable group**.*
 
 A finite group $G$ is **solvable** if it admits a **composition series**:
 
@@ -1735,7 +1735,7 @@ $$
 $$
 
 If $\Delta$ is a perfect square in $\mathbb{Q}$, then
-$\operatorname{Gal}(f) \leq A_5$ (even permutations only).
+$\mathrm{Gal}(f) \leq A_5$ (even permutations only).
 
 **Resolvent 2: Sextic resolvent.** The $F_{20}$-invariant
 
@@ -1747,7 +1747,7 @@ $$
 (indices mod 5) has stabiliser $F_{20}$ in $S_5$. Its orbit has
 $|S_5|/|F_{20}| = 120/20 = 6$ elements, giving a degree-6 resolvent
 $R_\theta(x) \in \mathbb{Q}[x]$. If $R_\theta$ has a rational root,
-then $\operatorname{Gal}(f) \leq F_{20}$.
+then $\mathrm{Gal}(f) \leq F_{20}$.
 
 **Decision table:**
 
@@ -2102,7 +2102,7 @@ $$
 \sqrt[n]{r\, e^{i\theta}} = r^{1/n}\, e^{i\theta/n}
 $$
 
-cannot be used directly, since computing $\theta = \operatorname{atan2}(y, x)$
+cannot be used directly, since computing $\theta = \mathrm{atan2}(y, x)$
 from the Cartesian form is not available in MPBall. Newton's method
 provides a purely algebraic alternative that avoids all trigonometric
 functions.
@@ -2205,7 +2205,7 @@ Set $A = B = I_n$ (identity matrices).
 
    d. Apply **integer reduction** (LLL-style): for each $i$ from $j+1$ to
       $n$, and for each $k$ from $j$ down to 1, subtract
-      $\operatorname{nint}(B_{ik}/B_{kk}) \cdot$ row $k$ from row $i$ of
+      $\mathrm{nint}(B_{ik}/B_{kk}) \cdot$ row $k$ from row $i$ of
       $B$ (and correspondingly update $A$ and $H$).
 
    e. **Termination check.** If the minimum of $|H_{jj}|$ is below a
