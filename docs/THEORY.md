@@ -1196,7 +1196,7 @@ $$
 V(a) - V(b),
 $$
 
-where $V(c) = \lvert\{i : \mathrm{sign}(f_i(c)) \neq \mathrm{sign}(f_{i+1}(c))\}\rvert$
+where $V(c) = \lvert\lbrace i : \mathrm{sign}(f_i(c)) \neq \mathrm{sign}(f_{i+1}(c))\rbrace\rvert$
 is the number of sign variations in the sequence evaluated at $c$.
 
 The library uses Sturm's theorem in `Surd.Algebraic.RootIsolation` for:
