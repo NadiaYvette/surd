@@ -33,7 +33,7 @@ The surd library addresses a cluster of interrelated problems in symbolic
 computation:
 
 1. **Radical simplification.** Given an expression built from rational
-   numbers, addition, multiplication, and $n$th roots, determine whether
+   numbers, addition, multiplication, and $n$-th roots, determine whether
    it can be written in a simpler form. For instance, is there a simpler
    way to write $\sqrt{3 + 2\sqrt{2}}$?
 
@@ -148,7 +148,7 @@ not simplified to `e`---that is the job of the normalization pipeline
 value in an algebraic closure of $k$:
 
 - $\text{Lit}(r)$ denotes $r \in k$.
-- $\text{Root}(n, e)$ denotes the *principal* $n$th root of the value of
+- $\text{Root}(n, e)$ denotes the *principal* $n$-th root of the value of
   $e$. For positive real radicands, this is the positive real root. For
   negative radicands under odd $n$, the real root. For complex radicands,
   the root with the smallest positive argument.
@@ -217,8 +217,8 @@ Besicovitch's theorem on the linear independence of radicals.
 
 **Theorem** [Besicovitch 1940]. *Let $n_1, \ldots, n_r$ be positive
 integers $\geq 2$ and let $a_1, \ldots, a_r$ be positive rationals such
-that for each $i$, no $n_i$th power of a rational (other than 1) divides
-$a_i$ (that is, $a_i$ is $n_i$th-power-free). If the radical monomials*
+that for each $i$, no $n_i$-th power of a rational (other than 1) divides
+$a_i$ (that is, $a_i$ is $n_i$-th-power-free). If the radical monomials*
 
 $$
 \prod_{i=1}^r a_i^{e_i / n_i}, \qquad 0 \leq e_i < n_i,
@@ -229,7 +229,7 @@ $$
 This theorem guarantees that the representation of an element of
 $\mathbb{Q}(\sqrt[n_1]{a_1}, \ldots, \sqrt[n_r]{a_r})$ as a
 $\mathbb{Q}$-linear combination of radical monomials is **unique**,
-provided the radicands are in $n_i$th-power-free form.
+provided the radicands are in $n_i$-th-power-free form.
 
 **Example.** The set $\{1, \sqrt{2}, \sqrt{3}, \sqrt{6}\}$ is linearly
 independent over $\mathbb{Q}$. Therefore, if
@@ -247,7 +247,7 @@ expression $E$ built from rationals using $+$, $-$, $\times$, $\div$,
 and $\sqrt[n]{\cdot}$, is $E = 0$?
 
 **Theorem** [Zippel 1985]. *The identity testing problem for expressions
-involving $+$, $-$, $\times$, $\div$, and $n$th roots of rationals is
+involving $+$, $-$, $\times$, $\div$, and $n$-th roots of rationals is
 decidable.*
 
 Zippel's proof is constructive: it provides an algorithm based on
@@ -270,11 +270,11 @@ three layers:
 
 **Atoms.** An atom is an irreducible radical building block:
 
-- $\text{RatRoot}(n, r)$: the $n$th root of a positive rational $r$,
-  where $r$ is $n$th-power-free.
+- $\text{RatRoot}(n, r)$: the $n$-th root of a positive rational $r$,
+  where $r$ is $n$-th-power-free.
 - $\text{ImagUnit}$: the imaginary unit $i = \sqrt{-1}$. Negative
   radicands are factored: $\sqrt{-r} = i \cdot \sqrt{r}$.
-- $\text{NestedRoot}(n, e)$: the $n$th root of a multi-term radical
+- $\text{NestedRoot}(n, e)$: the $n$-th root of a multi-term radical
   expression $e$ that cannot be decomposed into a product of simpler
   atoms. For example, $\sqrt{2 + \sqrt{3}}$ is a nested root because
   $2 + \sqrt{3}$ is a sum, not a product.
@@ -308,7 +308,7 @@ rational-coefficient radicand:
 
 1. Clear the LCD (least common denominator) of all coefficients.
 2. Extract the GCD content.
-3. Factor out perfect $n$th powers.
+3. Factor out perfect $n$-th powers.
 
 For example, $\sqrt[3]{-\tfrac{7}{432} + \tfrac{7}{144}\sqrt{3}}$ becomes
 $\tfrac{1}{12} \cdot \sqrt[3]{28} \cdot \sqrt[3]{-1 + 3\sqrt{3}}$, where
@@ -396,7 +396,7 @@ Also simplifies:
 - $\text{Inv}(\text{Lit}(r)) \to \text{Lit}(1/r)$ (for $r \neq 0$)
 - $\text{Pow}(\text{Lit}(r), n) \to \text{Lit}(r^n)$
 - $\text{Root}(n, \text{Lit}(r)) \to \text{Lit}(r^{1/n})$ when $r$ is a
-  perfect $n$th power
+  perfect $n$-th power
 
 **Pass 3: simplifyPowers.** Reduce powers of roots:
 
@@ -412,7 +412,7 @@ $$
 $$
 
 **Pass 4: extractPerfectPowers.** For $\text{Root}(n, e)$ where $e$ is a
-literal $r \in \mathbb{Q}$, extract perfect $n$th power factors from the
+literal $r \in \mathbb{Q}$, extract perfect $n$-th power factors from the
 numerator and denominator:
 
 $$
@@ -618,7 +618,7 @@ using radicals of lower nesting depth.
    factor the polynomial $x^n - a \in K[x]$.
 
 3. **Extract a root from a factor.** If $x^n - a$ has a factor of degree
-   $d < n$ over $K$, then $\sqrt[n]{a}$ can be expressed as a $d$th root
+   $d < n$ over $K$, then $\sqrt[n]{a}$ can be expressed as a $d$-th root
    of an element of $K$, plus lower-order terms.
 
 4. **Recursive denesting.** Apply the algorithm recursively to the result,
@@ -711,13 +711,13 @@ However, the surd library goes far beyond constructible angles.
 **Every** value $\cos(p\pi/q)$ with $p, q \in \mathbb{Z}$ can be
 expressed in radicals, because cyclotomic extensions have abelian
 (hence solvable) Galois groups. The resulting expressions may involve
-$n$th roots for $n > 2$ and may require complex intermediates (the
+$n$-th roots for $n > 2$ and may require complex intermediates (the
 casus irreducibilis).
 
 ### 5.2 Cyclotomic Field Theory
 
-The $n$th **cyclotomic field** $\mathbb{Q}(\zeta_n)$ is the splitting
-field of the $n$th cyclotomic polynomial
+The $n$-th **cyclotomic field** $\mathbb{Q}(\zeta_n)$ is the splitting
+field of the $n$-th cyclotomic polynomial
 
 $$
 \Phi_n(x) = \prod_{\substack{1 \leq k \leq n \\ \gcd(k,n) = 1}}
@@ -800,7 +800,7 @@ where $[H_{i+1} : H_i] = q_i$.
    of the sub-periods, expressible in terms of the already-computed
    parent periods).
 
-4. **Solve each period equation** by extracting $q_i$th roots via
+4. **Solve each period equation** by extracting $q_i$-th roots via
    Lagrange resolvents (Section 5.5).
 
 5. **At the bottom**, the periods are individual roots of unity $\zeta_n^k$.
@@ -813,7 +813,7 @@ sub-periods $\alpha_0, \ldots, \alpha_{q-1}$ that satisfy a known
 polynomial relation. The **Lagrange resolvent** provides the solution.
 
 **Definition.** Given $q$ values $\alpha_0, \ldots, \alpha_{q-1}$ and a
-primitive $q$th root of unity $\omega = e^{2\pi i/q}$, the Lagrange
+primitive $q$-th root of unity $\omega = e^{2\pi i/q}$, the Lagrange
 resolvents are:
 
 $$
@@ -823,7 +823,7 @@ $$
 **Key property.** $R_j^q$ is a symmetric function of the $\alpha_k$
 (invariant under the cyclic permutation $\alpha_k \mapsto \alpha_{k+1}$),
 and therefore lies in the base field. Computing $R_j^q$ and taking the
-$q$th root gives $R_j$, from which the $\alpha_k$ are recovered by the
+$q$-th root gives $R_j$, from which the $\alpha_k$ are recovered by the
 inverse DFT:
 
 $$
@@ -831,7 +831,7 @@ $$
 $$
 
 **Branch selection.** Computing $R_j$ from $R_j^q$ requires choosing the
-correct $q$th root branch. The principal $q$th root $\sqrt[q]{R_j^q}$ may
+correct $q$-th root branch. The principal $q$-th root $\sqrt[q]{R_j^q}$ may
 differ from the true $R_j$ by a power of $\omega$:
 
 $$
@@ -1568,7 +1568,7 @@ supports:
 
 ### 9.6 Cyclotomic Polynomials
 
-The $n$th **cyclotomic polynomial** is:
+The $n$-th **cyclotomic polynomial** is:
 
 $$
 \Phi_n(x) = \prod_{\substack{1 \leq k \leq n \\ \gcd(k, n) = 1}}
@@ -1681,7 +1681,7 @@ $$
 where each quotient $G_i / G_{i+1}$ is cyclic of prime order.
 
 **Connection to radical towers.** Each cyclic quotient of order $p$
-corresponds to adjoining a $p$th root. The composition series determines
+corresponds to adjoining a $p$-th root. The composition series determines
 the structure of the radical tower needed to express the roots:
 
 $$
@@ -2069,8 +2069,8 @@ that arise from Haskell's `Complex` division, which calls
 
 ### 12.3 Newton's Method for Complex Nth Roots
 
-Computing the $n$th root of a complex ball $z$ is not provided natively
-by aern2-mp (which has `sqrt` but not general $n$th roots). The library
+Computing the $n$-th root of a complex ball $z$ is not provided natively
+by aern2-mp (which has `sqrt` but not general $n$-th roots). The library
 uses **Newton's method**:
 
 $$
@@ -2096,7 +2096,7 @@ wrong root.
 ### 12.4 Why Atan Fails
 
 The aern2-mp package does not implement `atan` (the `Floating` instance
-stubs it with `error`). This means the polar form of complex $n$th roots:
+stubs it with `error`). This means the polar form of complex $n$-th roots:
 
 $$
 \sqrt[n]{r\, e^{i\theta}} = r^{1/n}\, e^{i\theta/n}
