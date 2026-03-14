@@ -1,8 +1,34 @@
 {-# LANGUAGE DataKinds #-}
 
--- | Numerical evaluation of radical expressions to arbitrary precision.
+-- |
+-- Module      : Surd.Radical.Eval
+-- Description : Numerical evaluation of radical expressions at various precisions
+-- Stability   : experimental
 --
--- Used for testing, equality verification, and ordering.
+-- Provides numerical evaluation of 'RadExpr' at several precision levels:
+--
+-- * 'eval' -- fast 'Double' evaluation (15 decimal digits)
+-- * 'evalComplex' -- 'Complex Double' with StableName memoization for DAG sharing
+-- * 'evalExact' -- ~60 decimal digits via lazy Cauchy sequences ('CReal')
+-- * 'evalComplexExact' -- exact complex evaluation
+-- * 'evalInterval' -- rigorous rational interval enclosures
+-- * 'evalComplexInterval' -- rigorous complex interval enclosures
+--
+-- === When to use each
+--
+-- * 'eval': fastest; good for sanity checks and testing. Returns NaN for
+--   even roots of negative numbers.
+-- * 'evalComplex': use when the expression passes through complex
+--   intermediates (e.g., @sqrt(-3)@ or casus irreducibilis Cardano forms).
+--   Memoizes via StableName to handle DAG-structured sharing efficiently.
+-- * 'evalExact': ~60 decimal digits; useful for high-precision comparison
+--   when the expression is purely real.
+-- * 'evalComplexExact': same precision as 'evalExact' but handles complex
+--   intermediates.
+-- * 'evalInterval': rigorous bounds via rational interval arithmetic.
+--   For purely real expressions.
+-- * 'evalComplexInterval': rigorous complex interval bounds. Handles
+--   complex intermediates but is slower for general complex nth roots.
 module Surd.Radical.Eval
   ( eval,
     evalComplex,
@@ -27,20 +53,23 @@ import System.IO.Unsafe (unsafePerformIO)
 import System.Mem.StableName (StableName, eqStableName, hashStableName, makeStableName)
 
 -- | Exact real type with ~60 decimal digits of precision.
+--
 -- Uses lazy Cauchy sequences internally; comparisons are reliable
--- as long as values differ by more than 2^{-200}.
+-- as long as values differ by more than @2^{-200}@.
 type ExactReal = CReal 200
 
--- | Exact complex type.
+-- | Exact complex type (pair of 'ExactReal').
 type ExactComplex = Complex ExactReal
 
 -- | Evaluate a radical expression to a 'Double'.
--- Uses floating-point arithmetic — fast but inexact.
--- Primarily useful for sanity checks and testing.
 --
--- Note: expressions involving even roots of negative numbers (e.g., √(-3))
--- will produce NaN. Use 'evalComplex' for expressions that pass through
--- complex intermediates.
+-- Uses floating-point arithmetic -- fast but inexact (about 15 significant
+-- decimal digits). Primarily useful for sanity checks, testing, and as
+-- a starting point for Newton refinement.
+--
+-- __Warning:__ expressions involving even roots of negative numbers
+-- (e.g., @sqrt(-3)@) will produce @NaN@. Use 'evalComplex' for
+-- expressions that pass through complex intermediates.
 eval :: RadExpr Rational -> Double
 eval (Lit r) = fromRational r
 eval (Neg a) = negate (eval a)
@@ -51,8 +80,14 @@ eval (Root n a) = eval a ** (1 / fromIntegral n)
 eval (Pow a n) = eval a ^^ n
 
 -- | Evaluate a radical expression to an 'ExactReal' (~60 decimal digits).
--- Unlike 'eval', handles even roots of negative numbers via the Floating
+--
+-- Unlike 'eval', handles even roots of negative numbers via the 'Floating'
 -- instance (which uses complex intermediates internally).
+--
+-- __Caveat:__ for expressions with genuinely complex intermediates
+-- (e.g., @sqrt(-3)@), the 'Floating' @(**)@ may not give the principal
+-- branch. Use 'evalComplexExact' and take 'Data.Complex.realPart' if
+-- precision is critical for such cases.
 evalExact :: RadExpr Rational -> ExactReal
 evalExact (Lit r) = fromRational r
 evalExact (Neg a) = negate (evalExact a)
@@ -65,7 +100,10 @@ evalExact (Pow a n)
   | otherwise = 1 / (evalExact a ^ negate n)
 
 -- | Evaluate a radical expression to an 'ExactComplex' (~60 decimal digits).
+--
 -- Handles expressions that pass through complex intermediates.
+-- Uses manual complex inverse to avoid CReal's unsupported 'RealFloat'
+-- operations (scaleFloat/exponent), which would crash at runtime.
 evalComplexExact :: RadExpr Rational -> ExactComplex
 evalComplexExact (Lit r) = fromRational r :+ 0
 evalComplexExact (Neg a) = negate (evalComplexExact a)
@@ -100,11 +138,12 @@ complexNthRootExact n (re :+ im) =
 -- such as those arising from the casus irreducibilis in the
 -- Gauss period descent for roots of unity.
 --
--- For example, @cos(2π\/7)@ is expressed using @√(-3)@ and cube roots
+-- For example, @cos(2*pi/7)@ is expressed using @sqrt(-3)@ and cube roots
 -- of complex numbers, but the final result is real.
 --
 -- Uses StableName-based memoization to handle DAG-structured expressions
--- efficiently (e.g., Chebyshev polynomial trees with shared sub-expressions).
+-- efficiently: when the same Haskell thunk (shared subexpression) is
+-- encountered multiple times, it is evaluated only once.
 evalComplex :: RadExpr Rational -> Complex Double
 evalComplex expr = unsafePerformIO $ do
   -- Cache: hash -> [(StableName, value)] for collision handling
@@ -139,7 +178,7 @@ evalComplex expr = unsafePerformIO $ do
   go expr
 
 -- | Principal nth root of a complex number.
--- Uses polar form: z = r·e^(iθ) → z^(1/n) = r^(1/n)·e^(iθ/n)
+-- Uses polar form: @z = r*exp(i*theta)@ gives @z^(1/n) = r^(1/n)*exp(i*theta/n)@.
 complexNthRoot :: Int -> Complex Double -> Complex Double
 complexNthRoot n z =
   let r = magnitude z
@@ -149,8 +188,14 @@ complexNthRoot n z =
     realPart (x :+ _) = x
     imagPart (_ :+ y) = y
 
--- | Evaluate a radical expression to an interval enclosure.
--- Repeatedly refining gives arbitrary precision.
+-- | Evaluate a radical expression to a rigorous rational 'Interval' enclosure.
+--
+-- Each operation widens the interval to account for rounding, so the
+-- true value is guaranteed to lie within the returned bounds.
+-- Useful for sign determination and rigorous equality testing.
+--
+-- __Note:__ only handles purely real expressions. For expressions with
+-- complex intermediates, use 'evalComplexInterval'.
 evalInterval :: RadExpr Rational -> Interval
 evalInterval (Lit r) = I.fromRational' r
 evalInterval (Neg a) =
@@ -162,9 +207,12 @@ evalInterval (Inv a) = I.iinv (evalInterval a)
 evalInterval (Root n a) = I.inth n (evalInterval a)
 evalInterval (Pow a n) = I.ipow (evalInterval a) n
 
--- | Evaluate a radical expression to a complex interval enclosure.
--- Handles expressions with complex intermediates (e.g., √(-3)).
--- For even roots of negative intervals, introduces the imaginary unit.
+-- | Evaluate a radical expression to a rigorous 'ComplexInterval' enclosure.
+--
+-- Handles expressions with complex intermediates (e.g., @sqrt(-3)@).
+-- For even roots of negative real intervals, introduces the imaginary unit
+-- automatically. General complex nth roots use rigorous interval polar
+-- decomposition.
 evalComplexInterval :: RadExpr Rational -> ComplexInterval
 evalComplexInterval (Lit r) = I.ciFromRational r
 evalComplexInterval (Neg a) = I.cineg (evalComplexInterval a)
@@ -193,7 +241,7 @@ evalComplexInterval (Root n a) =
                 && I.hi imPart <= 0
                 && I.hi rePart <= 0
                 && n == 2
-                then -- √(negative) = i·√(|x|)
+                then -- sqrt(negative) = i*sqrt(|x|)
                   let pos = I.isqrt (Interval (negate (I.hi rePart)) (negate (I.lo rePart)))
                    in ComplexInterval (I.fromRational' 0) pos
                 else -- General complex root: use rigorous interval nth root

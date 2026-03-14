@@ -10,32 +10,61 @@
 
 (** Output signature for polynomial operations. *)
 module type S = sig
+  (** The coefficient type. *)
   type scalar
+  (** The polynomial type. *)
   type t
 
+  (** The zero polynomial. *)
   val zero : t
+  (** The constant polynomial 1. *)
   val one : t
+  (** The indeterminate x. *)
   val x : t
+  (** Build a polynomial from a coefficient list (low-degree first). *)
   val of_coeffs : scalar list -> t
+  (** Extract the coefficient list (low-degree first). *)
   val to_coeffs : t -> scalar list
+  (** Embed a scalar as a constant polynomial. *)
   val of_scalar : scalar -> t
+  (** Degree of the polynomial; returns -1 for the zero polynomial. *)
   val degree : t -> int
+  (** Leading coefficient, or [None] for the zero polynomial. *)
   val lead_coeff : t -> scalar option
+  (** Evaluate the polynomial at a point (Horner's method). *)
   val eval : t -> scalar -> scalar
+  (** Multiply by a scalar. *)
   val scale : scalar -> t -> t
+  (** Polynomial addition. *)
   val add : t -> t -> t
+  (** Polynomial subtraction. *)
   val sub : t -> t -> t
+  (** Polynomial multiplication (schoolbook). *)
   val mul : t -> t -> t
+  (** Negate all coefficients. *)
   val neg : t -> t
+  (** Division with remainder: [div_mod f g = (q, r)] where [f = g*q + r]
+      and [degree r < degree g].
+      @raise Invalid_argument if [g] is the zero polynomial. *)
   val div_mod : t -> t -> t * t
+  (** Quotient of polynomial division. *)
   val div : t -> t -> t
+  (** Remainder of polynomial division. *)
   val modulo : t -> t -> t
+  (** Monic GCD via the Euclidean algorithm. *)
   val gcd : t -> t -> t
+  (** Make a polynomial monic (divide by the leading coefficient). *)
   val monic : t -> t
+  (** Formal derivative. *)
   val diff : t -> t
+  (** Composition: [compose f g] returns [f(g(x))]. *)
   val compose : t -> t -> t
+  (** Square-free factorisation via Yun's algorithm.
+      Returns [(factor, multiplicity)] pairs. *)
   val square_free : t -> (t * int) list
+  (** Structural equality of polynomials. *)
   val equal : t -> t -> bool
+  (** Pretty-print, given a printer for scalars. *)
   val to_string : (scalar -> string) -> t -> string
 end
 

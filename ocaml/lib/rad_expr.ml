@@ -55,22 +55,35 @@ let rec equal eq_k a b =
 
 (** {2 Construction helpers} *)
 
+(** Wrap a coefficient as a literal. *)
 let lit k = Lit k
+(** Negate an expression. *)
 let neg e = Neg e
+(** Sum of two expressions. *)
 let add a b = Add (a, b)
+(** Subtraction: [sub a b = Add (a, Neg b)]. *)
 let sub a b = Add (a, Neg b)
+(** Product of two expressions. *)
 let mul a b = Mul (a, b)
+(** Division: [div' a b = Mul (a, Inv b)]. *)
 let div' a b = Mul (a, Inv b)
+(** Multiplicative inverse. *)
 let inv e = Inv e
+(** Principal [n]-th root of [e] (n >= 2). *)
 let root n e = Root (n, e)
+(** Square root shorthand. *)
 let sqrt' e = Root (2, e)
+(** Integer power. *)
 let pow e n = Pow (e, n)
 
+(** Lift an integer into a radical expression over rationals. *)
 let of_int n = Lit (Rational.of_int n)
+(** Lift a rational into a radical expression. *)
 let of_rational r = Lit r
 
 (** {2 Functor map (fmap)} *)
 
+(** Map a function over all coefficients in the expression. *)
 let rec map f = function
   | Lit k -> Lit (f k)
   | Neg a -> Neg (map f a)
@@ -82,6 +95,7 @@ let rec map f = function
 
 (** {2 Structural queries} *)
 
+(** Nesting depth of the expression tree.  Literals have depth 0. *)
 let rec depth = function
   | Lit _ -> 0
   | Neg a -> depth a
@@ -91,6 +105,7 @@ let rec depth = function
   | Root (_, a) -> 1 + depth a
   | Pow (a, _) -> 1 + depth a
 
+(** Number of nodes in the expression tree. *)
 let rec size = function
   | Lit _ -> 1
   | Neg a -> 1 + size a

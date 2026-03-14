@@ -28,13 +28,34 @@
 :- func normalize_once(rad_expr(rational)) = rad_expr(rational).
 
     % Individual passes (exported for selective use).
+
+    % Flatten nested Add/Mul and cancel double negations/inversions.
     %
 :- func flatten_arith(rad_expr(K)) = rad_expr(K).
+
+    % Evaluate pure-literal subtrees to rational constants.
+    %
 :- func fold_constants(rad_expr(rational)) = rad_expr(rational).
+
+    % Simplify power expressions: (sqrt(a))^2 -> a, nested roots, etc.
+    %
 :- func simplify_powers(rad_expr(rational)) = rad_expr(rational).
+
+    % Extract perfect nth powers from under radicals: sqrt(12) -> 2*sqrt(3).
+    %
 :- func extract_perfect_powers(rad_expr(rational)) = rad_expr(rational).
+
+    % Merge all literal factors in products into a single coefficient.
+    %
 :- func collect_coefficients(rad_expr(rational)) = rad_expr(rational).
+
+    % Group like terms in sums and combine their rational coefficients.
+    %
 :- func collect_terms(rad_expr(rational)) = rad_expr(rational).
+
+    % Distribute scalar multiplication over addition:
+    % c * (a + b) -> c*a + c*b.
+    %
 :- func distribute(rad_expr(rational)) = rad_expr(rational).
 
 %---------------------------------------------------------------------------%

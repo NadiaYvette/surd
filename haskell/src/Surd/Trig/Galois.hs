@@ -36,10 +36,12 @@ import Surd.Radical.DAG (dagEvalComplex, dagFoldConstants, fromDAG, toDAG)
 import Surd.Radical.EvalMP (dagEvalComplexMP, dftCoeffsMP)
 import Surd.Types
 
--- | DAG-aware constant folding. Converts to explicit DAG (detecting thunk
--- sharing via StableName), folds constants in O(n) where n = unique nodes,
--- then reconstructs RadExpr preserving sharing.
--- Safe on exponentially-shared DAGs (unlike tree-walking foldConstants).
+-- | DAG-aware constant folding (internal helper).
+--
+-- Converts to explicit DAG (detecting thunk sharing via 'StableName'),
+-- folds constants in O(n) where n = unique nodes, then reconstructs
+-- 'RadExpr' preserving sharing. Safe on exponentially-shared DAGs
+-- (unlike tree-walking @foldConstants@).
 dagFold :: RadExpr Rational -> RadExpr Rational
 dagFold = fromDAG . dagFoldConstants . toDAG
 

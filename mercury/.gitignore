@@ -1,4 +1,5 @@
 Mercury/
 *.err
 *.mh
-test_poly
+test_*
+demo_*

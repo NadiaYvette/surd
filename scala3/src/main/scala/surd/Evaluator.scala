@@ -2,18 +2,31 @@ package surd
 
 import Eval.Complex
 
-/** Typeclass for evaluating radical expressions into a numeric type. */
+/** Typeclass for evaluating radical expressions into a numeric type.
+  *
+  * Implementations must provide conversions from rationals and all
+  * arithmetic operations needed to evaluate the RadExpr AST.
+  * Concrete instances are provided for Double and Complex.
+  */
 trait Evaluator[A]:
+  /** Convert a rational coefficient to the target type. */
   def fromRational(r: Rational): A
+  /** Addition in the target type. */
   def add(a: A, b: A): A
+  /** Multiplication in the target type. */
   def mul(a: A, b: A): A
+  /** Negation in the target type. */
   def neg(a: A): A
+  /** Multiplicative inverse in the target type. */
   def inv(a: A): A
+  /** Principal nth root in the target type. */
   def nthRoot(n: Int, a: A): A
+  /** Integer power in the target type. */
   def pow(a: A, n: Int): A
 
 object Evaluator:
 
+  /** Evaluator instance for Double (fast but inexact; NaN for even roots of negatives). */
   given Evaluator[Double] with
     def fromRational(r: Rational): Double = r.toDouble
     def add(a: Double, b: Double): Double = a + b
@@ -23,6 +36,7 @@ object Evaluator:
     def nthRoot(n: Int, a: Double): Double = Math.pow(a, 1.0 / n)
     def pow(a: Double, n: Int): Double = Math.pow(a, n)
 
+  /** Evaluator instance for Complex (handles complex intermediates from casus irreducibilis). */
   given Evaluator[Complex] with
     def fromRational(r: Rational): Complex = Complex.fromDouble(r.toDouble)
     def add(a: Complex, b: Complex): Complex = a + b

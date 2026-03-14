@@ -2,6 +2,19 @@
 --
 -- Uses Sturm's theorem with bisection to separate and refine roots
 -- of square-free polynomials.
+--
+-- == Sturm's theorem
+--
+-- Given a square-free polynomial \(p(x)\) and its Sturm chain
+-- \(p_0 = p, p_1 = p', p_{k+1} = -\mathrm{rem}(p_{k-1}, p_k)\),
+-- the number of real roots in the half-open interval \((a, b]\) equals
+-- \(V(a) - V(b)\) where \(V(c)\) is the number of sign changes in
+-- the sequence \(p_0(c), p_1(c), \ldots\) (ignoring zeros).
+--
+-- The isolating intervals are computed by recursive bisection:
+-- start with the Cauchy bound \([-B, B]\) containing all roots, then
+-- bisect intervals until each contains exactly one root (guaranteed
+-- by Sturm count = 1).
 module Surd.Algebraic.RootIsolation
   ( IsolatingInterval (..),
     isolateRealRoots,

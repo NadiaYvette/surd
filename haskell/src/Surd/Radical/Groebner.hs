@@ -1,32 +1,40 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
 
--- | Gröbner basis reduction for radical expressions.
+-- |
+-- Module      : Surd.Radical.Groebner
+-- Description : Groebner basis reduction for radical expressions
+-- Stability   : experimental
 --
 -- Converts a 'NormExpr' (polynomial in radical atoms over Q) into an
--- 'MPoly Rational', computes a Gröbner basis of the ideal of defining
+-- 'MPoly Rational', computes a Groebner basis of the ideal of defining
 -- relations between the atoms, and reduces the expression modulo that ideal.
 --
 -- This can simplify expressions that NormalForm alone cannot, by exploiting
--- polynomial relations between radical atoms — e.g., when atoms are
+-- polynomial relations between radical atoms -- e.g., when atoms are
 -- algebraic conjugates (as in Gauss period expressions for higher-degree
 -- cyclotomic fields).
 --
--- Three reduction strategies are provided:
+-- === Reduction strategies
 --
---   1. __Denominator clearing__ ('reduceCleared'): multiply through by atom
---      powers to eliminate negative exponents, then reduce the polynomial.
---      Simple but may inflate the expression.
+-- Three strategies are provided for handling Laurent monomials (negative
+-- exponents) and monomial ordering:
 --
---   2. __Inverse variables__ ('reduceInverse'): introduce auxiliary variables
---      @a_inv@ with @a · a_inv = 1@ for atoms appearing with negative exponents.
---      Preserves the Laurent structure more faithfully.
+--   1. __Denominator clearing__ ('ClearDenominators'): multiply through by
+--      atom powers to eliminate negative exponents, then reduce.
+--      Uses grevlex ordering. Simple but may inflate the expression.
 --
---   3. __Elimination ordering__ ('reduceElim'): use a block elimination order
---      that prioritises eliminating NestedRoot atoms (complex intermediates),
---      potentially expressing the result in terms of simpler atoms.
+--   2. __Inverse variables__ ('InverseVariables'): introduce auxiliary
+--      variables @a_inv@ with @a * a_inv = 1@ for atoms appearing with
+--      negative exponents. Preserves the Laurent structure more faithfully.
+--      Uses grevlex ordering.
 --
--- 'reduceRadExprAll' runs all three and returns the shortest result.
+--   3. __Elimination ordering__ ('EliminateNested'): use a block elimination
+--      order that prioritises eliminating 'NestedRoot' atoms (complex
+--      intermediates), potentially expressing the result in terms of simpler
+--      atoms.
+--
+-- 'reduceRadExprAll' runs all three strategies and returns the shortest result.
 module Surd.Radical.Groebner
   ( -- * Context
     GroebnerContext,
@@ -94,7 +102,7 @@ data Strategy
   = -- | Multiply through by atom powers to clear negative exponents.
     -- Uses grevlex ordering.
     ClearDenominators
-  | -- | Introduce inverse variables @a_inv@ with @a · a_inv = 1@.
+  | -- | Introduce inverse variables @a_inv@ with @a * a_inv = 1@.
     -- Negative exponents become positive exponents on the inverse variable.
     -- Uses grevlex ordering.
     InverseVariables
@@ -104,23 +112,27 @@ data Strategy
   deriving (Eq, Show)
 
 -- ---------------------------------------------------------------------------
--- Context: atom ↔ variable mapping + Gröbner basis of relations
+-- Context: atom <-> variable mapping + Groebner basis of relations
 -- ---------------------------------------------------------------------------
 
--- | A Gröbner context tracks the mapping between radical atoms and
--- polynomial variables, plus the Gröbner basis of their defining relations.
+-- | A Groebner context tracks the bijection between radical atoms and
+-- polynomial variables, plus the Groebner basis of their defining relations.
+--
+-- The context is built incrementally: 'contextFromAtoms' creates a fresh
+-- context, and 'extendContext' adds new atoms (and their defining
+-- relations) to an existing one.
 data GroebnerContext = GroebnerContext
-  { -- | Bijection: atom → variable (may include inverse-variable atoms)
+  { -- | Bijection: atom -> variable (may include inverse-variable atoms)
     ctxAtomToVar :: Map Atom Var,
-    -- | Inverse: variable → atom
+    -- | Inverse: variable -> atom
     ctxVarToAtom :: Map Var Atom,
     -- | Next fresh variable index
     ctxNextVar :: !Int,
-    -- | Gröbner basis of the ideal of defining relations
+    -- | Groebner basis of the ideal of defining relations
     ctxBasis :: GroebnerBasis Rational,
     -- | Monomial ordering used for the basis
     ctxOrd :: MonoOrd,
-    -- | For InverseVariables strategy: maps atom → its inverse-atom
+    -- | For InverseVariables strategy: maps atom -> its inverse-atom
     ctxInverseOf :: Map Atom Atom
   }
 
@@ -137,6 +149,10 @@ emptyContext =
     }
 
 -- | Create a context from a list of atoms using the given strategy.
+--
+-- Assigns a polynomial variable to each atom, generates the defining
+-- relations (e.g., @x^n - r = 0@ for @RatRoot n r@, @x^2 + 1 = 0@ for
+-- 'ImagUnit'), computes their Groebner basis, and returns the context.
 contextFromAtoms :: Strategy -> [Atom] -> GroebnerContext
 contextFromAtoms strat atoms =
   let ctx0 = emptyContext
@@ -163,6 +179,9 @@ contextFromAtoms strat atoms =
    in ctx3 {ctxBasis = basis}
 
 -- | Extend a context with new atoms and their relations.
+--
+-- New atoms are assigned fresh variables. Their defining relations are
+-- added to the existing Groebner basis via incremental basis extension.
 extendContext :: [Atom] -> GroebnerContext -> GroebnerContext
 extendContext newAtoms ctx =
   let (ctx', _) = foldl addAtom (ctx, []) newAtoms
@@ -186,7 +205,7 @@ addAtom (ctx, vars) atom =
        in (ctx', vars ++ [v])
 
 -- | For each atom in the list, add an inverse-variable atom and record
--- the @a · a_inv = 1@ relation (generated later by 'atomRelations').
+-- the @a * a_inv = 1@ relation (generated later by 'atomRelations').
 addInverseVars :: [Atom] -> GroebnerContext -> GroebnerContext
 addInverseVars atoms ctx = foldl addInv ctx atoms
   where
@@ -204,6 +223,11 @@ addInverseVars atoms ctx = foldl addInv ctx atoms
                     }
 
 -- | Generate the defining polynomial relations for an atom.
+--
+-- * @RatRoot n r@: @x^n - r = 0@
+-- * @ImagUnit@: @x^2 + 1 = 0@
+-- * @NestedRoot n e@: @x^n - (radicand as polynomial) = 0@
+-- * @InverseAtom a@: @a * a_inv - 1 = 0@
 atomRelations :: GroebnerContext -> Atom -> [MPoly Rational]
 atomRelations ctx atom =
   case Map.lookup atom (ctxAtomToVar ctx) of
@@ -213,7 +237,7 @@ atomRelations ctx atom =
        in case atom of
             -- InverseAtom must come before NestedRoot (it's encoded as NestedRoot 0)
             InverseAtom origAtom ->
-              -- a · a_inv = 1
+              -- a * a_inv = 1
               case Map.lookup origAtom (ctxAtomToVar ctx) of
                 Just origV ->
                   [mulPoly (varPoly origV) xv `subPoly` constPoly 1]
@@ -228,7 +252,7 @@ atomRelations ctx atom =
                in [powMPoly xv n `subPoly` radicandPoly]
 
 -- ---------------------------------------------------------------------------
--- Conversion: NormExpr ↔ MPoly Rational
+-- Conversion: NormExpr <-> MPoly Rational
 -- ---------------------------------------------------------------------------
 
 -- | Convert a NormExpr to MPoly, clearing denominators for negative exponents.
@@ -360,7 +384,11 @@ monoToMonomial ctx (Mono vars) =
 -- Reduction
 -- ---------------------------------------------------------------------------
 
--- | Reduce a NormExpr modulo the Gröbner basis using the given strategy.
+-- | Reduce a 'NormExpr' modulo the Groebner basis using the given strategy.
+--
+-- Converts the 'NormExpr' to a multivariate polynomial (handling negative
+-- exponents according to the strategy), reduces modulo the basis, and
+-- converts back.
 reduceNormExpr :: Strategy -> GroebnerContext -> NormExpr -> NormExpr
 reduceNormExpr strat ctx ne =
   let poly = case strat of
@@ -372,11 +400,15 @@ reduceNormExpr strat ctx ne =
         then normLit 0
         else mpolyToNormExpr ctx reduced
 
--- | Reduce a RadExpr using the default strategy (InverseVariables).
+-- | Reduce a 'RadExpr' using the default strategy ('InverseVariables').
+--
+-- Converts to normal form, builds a Groebner context from all atoms,
+-- reduces, and converts back.
 reduceRadExpr :: RadExpr Rational -> RadExpr Rational
 reduceRadExpr = snd . reduceRadExprWithCtx
 
--- | Like 'reduceRadExpr' but also returns the 'GroebnerContext'.
+-- | Like 'reduceRadExpr' but also returns the 'GroebnerContext' for
+-- further inspection or reuse.
 reduceRadExprWithCtx :: RadExpr Rational -> (GroebnerContext, RadExpr Rational)
 reduceRadExprWithCtx expr =
   let ne = toNormExpr expr
@@ -387,8 +419,11 @@ reduceRadExprWithCtx expr =
    in (ctx, fromNormExpr reduced)
 
 -- | Run all three strategies and return the results, sorted by term count
--- (fewest terms first).  Each result includes the strategy name, term count,
--- and the reduced expression.
+-- (fewest terms first).
+--
+-- Each result includes the strategy used, the term count, and the
+-- reduced expression. This allows the caller to choose the simplest
+-- representation.
 reduceRadExprAll :: RadExpr Rational -> [(Strategy, Int, RadExpr Rational)]
 reduceRadExprAll expr =
   let ne = toNormExpr expr
@@ -438,11 +473,11 @@ collectAtomsNE (NormExpr terms) =
 -- Queries
 -- ---------------------------------------------------------------------------
 
--- | All atoms in the context.
+-- | All atoms registered in the context (including inverse-variable atoms).
 contextAtoms :: GroebnerContext -> [Atom]
 contextAtoms = Map.keys . ctxAtomToVar
 
--- | The current Gröbner basis polynomials.
+-- | The current Groebner basis polynomials.
 contextBasis :: GroebnerContext -> [MPoly Rational]
 contextBasis = gbPolys . ctxBasis
 
@@ -451,34 +486,24 @@ contextBasis = gbPolys . ctxBasis
 -- ---------------------------------------------------------------------------
 
 -- | An inverse-variable atom.  Used internally to represent @1/a@ as a
--- polynomial variable with the relation @a · a_inv = 1@.
+-- polynomial variable with the relation @a * a_inv = 1@.
 --
--- This extends the 'Atom' type; we piggyback on the existing Atom by
--- adding a new constructor.  Since Atom is defined in NormalForm, we
--- use a newtype wrapper approach: InverseAtom is an Atom value that
--- compares distinctly from all other atoms.
-
--- NOTE: We need InverseAtom to be part of the Atom type.  Since we can't
--- modify NormalForm.hs's Atom type, we use a sentinel encoding:
--- InverseAtom a = NestedRoot 0 (fromNormExpr (normAtomToNE a))
--- where root index 0 is never used by real atoms (always >= 2).
-
--- Actually, the cleanest approach: use a separate map for inverse variables
--- that bypasses the Atom type entirely.  The ctxAtomToVar map can hold
--- "virtual" atoms that are only meaningful within the Groebner context.
-
--- For now, we define InverseAtom as a pattern using NestedRoot 0:
+-- Encoded as @NestedRoot 0 (encoded-original-atom)@ since root index 0
+-- is never used by real atoms (always >= 2), providing a distinct
+-- sentinel value in the 'Atom' ordering.
 
 pattern InverseAtom :: Atom -> Atom
 pattern InverseAtom a <- NestedRoot 0 (inverseAtomDecode -> Just a)
   where
     InverseAtom a = NestedRoot 0 (inverseAtomEncode a)
 
+-- | Encode an atom as a RadExpr for storage in the InverseAtom sentinel.
 inverseAtomEncode :: Atom -> RadExpr Rational
 inverseAtomEncode (RatRoot n r) = Root (fromIntegral n) (Lit r)
 inverseAtomEncode ImagUnit = Root 2 (Lit (-1))
 inverseAtomEncode (NestedRoot n e) = Root (fromIntegral n) e
 
+-- | Decode an atom from the InverseAtom sentinel encoding.
 inverseAtomDecode :: RadExpr Rational -> Maybe Atom
 inverseAtomDecode (Root n (Lit r))
   | n == 2 && r == -1 = Just ImagUnit
@@ -490,7 +515,7 @@ inverseAtomDecode _ = Nothing
 -- Helpers
 -- ---------------------------------------------------------------------------
 
--- | Raise an MPoly to a positive integer power.
+-- | Raise an MPoly to a positive integer power by repeated squaring.
 powMPoly :: (Eq k, Num k) => MPoly k -> Int -> MPoly k
 powMPoly _ 0 = constPoly 1
 powMPoly p 1 = p

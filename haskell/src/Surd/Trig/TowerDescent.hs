@@ -35,23 +35,39 @@ import Surd.Trig.Galois
 import Surd.Types (RadExpr (..))
 
 -- | Result of tower-based descent.
+--
+-- Contains both the tower-element representations (for exact arithmetic
+-- in subsequent computations) and the converted 'RadExpr' (for display).
 data TowerResult = TowerResult
-  { -- | cos(2π/n) as tower element
+  { -- | cos(2π\/n) as a tower element in the field tower built by the descent
     trCos :: !TowerElem,
-    -- | sin(2π/n) as tower element
+    -- | sin(2π\/n) as a tower element, computed as (ζ - ζ^{-1}) \/ (2i)
     trSin :: !TowerElem,
-    -- | ζ^k for each coprime k
+    -- | Map from exponent k to the tower element for ζ^k = e^{2πik\/n},
+    -- for all k coprime to n
     trPeriods :: !(Map.Map Int TowerElem),
-    -- | cos as RadExpr (for display)
+    -- | cos(2π\/n) converted to a 'RadExpr' for display and further symbolic manipulation
     trRadExpr :: !(RadExpr Rational)
   }
   deriving (Show)
 
--- | Compute cos(2π/n) via tower-based Gauss period descent.
+-- | Compute cos(2π\/n) via tower-based Gauss period descent.
+--
+-- Returns the cosine as a 'RadExpr' by converting the tower element
+-- from 'allPeriodsViaTower'. Returns 'Nothing' if n <= 2 or if
+-- (Z\/nZ)* is not cyclic (no primitive root exists).
 cosViaTower :: Int -> Maybe (RadExpr Rational)
 cosViaTower n = trRadExpr <$> allPeriodsViaTower n
 
--- | Tower-based descent producing all periods.
+-- | Full tower-based Gauss period descent producing all primitive nth
+-- roots of unity as tower elements.
+--
+-- Builds a dynamically-nested field tower by descending through the
+-- subgroup chain of (Z\/nZ)*, solving a period equation at each step.
+-- Each step introduces a new extension level in the tower (quadratic,
+-- cubic, or quintic depending on the prime factor).
+--
+-- Returns 'Nothing' if n <= 2 or (Z\/nZ)* has no primitive root.
 allPeriodsViaTower :: Int -> Maybe TowerResult
 allPeriodsViaTower n
   | n <= 2 = Nothing
@@ -592,8 +608,15 @@ assignTowerByValue exprs vals =
               (comparing (\(_, v) -> magnitude (v - target)))
               (e : es)
 
--- | Approximate numerical evaluation of a tower element.
--- Used only for branch selection / assignment matching.
+-- | Approximate numerical evaluation of a tower element as a 'Complex' 'Double'.
+--
+-- Recursively evaluates the tower structure: rational elements become
+-- real values, and extension generators are evaluated as principal
+-- nth roots of their radicands (via polar form). The @Integer@ argument
+-- is the modulus p used to evaluate roots of unity in the radicand chain.
+--
+-- Used internally for branch selection and assignment matching during
+-- the descent. Not suitable for high-precision computation.
 evalTowerApprox :: TowerElem -> Integer -> Complex Double
 evalTowerApprox (TRat r) _ = fromRational r :+ 0
 evalTowerApprox (TExt cs level) p =

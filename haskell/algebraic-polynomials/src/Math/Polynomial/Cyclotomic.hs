@@ -1,7 +1,14 @@
--- | Cyclotomic polynomials and related utilities.
+-- |
+-- Module      : Math.Polynomial.Cyclotomic
+-- Description : Cyclotomic polynomials and related number-theoretic functions
+-- Stability   : experimental
 --
--- The @n@th cyclotomic polynomial Φₙ(x) is the minimal polynomial of
--- primitive @n@th roots of unity over Q. It has degree φ(n) (Euler's totient).
+-- Computation of cyclotomic polynomials \(\Phi_n(x)\), Euler's totient
+-- function \(\varphi(n)\), and the Mobius function \(\mu(n)\).
+--
+-- The \(n\)th cyclotomic polynomial \(\Phi_n(x)\) is the minimal polynomial
+-- of primitive \(n\)th roots of unity over \(\mathbb{Q}\). It has degree
+-- \(\varphi(n)\) and integer coefficients.
 module Math.Polynomial.Cyclotomic
   ( cyclotomic
   , euler'sTotient
@@ -13,10 +20,12 @@ import Math.Polynomial.Univariate
 import Math.Internal.Positive (Positive)
 import Math.Internal.PrimeFactors (factorise)
 
--- | Compute the @n@th cyclotomic polynomial Φₙ(x) over Q.
+-- | Compute the \(n\)th cyclotomic polynomial \(\Phi_n(x)\) over \(\mathbb{Q}\).
 --
--- Uses the identity: x^n - 1 = ∏_{d|n} Φ_d(x)
--- So Φₙ(x) = (x^n - 1) / ∏_{d|n, d<n} Φ_d(x)
+-- Uses the identity \(x^n - 1 = \prod_{d \mid n} \Phi_d(x)\),
+-- so \(\Phi_n(x) = (x^n - 1) / \prod_{d \mid n, d < n} \Phi_d(x)\).
+--
+-- __Precondition:__ @n > 0@.
 --
 -- >>> unPoly (cyclotomic 1)
 -- [-1 % 1,1 % 1]
@@ -35,15 +44,23 @@ cyclotomic n
           (q, _) = divModPoly xnm1 denom
       in q
 
--- | x^n - 1
+-- | @x^n - 1@ as a polynomial.
 xToTheNMinus1 :: Int -> Poly Rational
 xToTheNMinus1 n = mkPoly $ (-1) : replicate (n - 1) 0 ++ [1]
 
--- | Proper divisors of n (all divisors except n itself).
+-- | Proper divisors of @n@ (all divisors except @n@ itself).
 properDivisors :: Int -> [Int]
 properDivisors n = [d | d <- [1..n-1], n `mod` d == 0]
 
--- | Euler's totient function φ(n).
+-- | Euler's totient function \(\varphi(n)\): the number of integers in
+-- \(\{1, \ldots, n\}\) that are coprime to \(n\).
+--
+-- Computed via the formula \(\varphi(n) = n \prod_{p \mid n} (1 - 1/p)\).
+--
+-- __Precondition:__ @n > 0@.
+--
+-- >>> euler'sTotient 12
+-- 4
 euler'sTotient :: Int -> Int
 euler'sTotient n
   | n <= 0    = error "euler'sTotient: non-positive argument"
@@ -52,7 +69,18 @@ euler'sTotient n
       let fs = factorise (fromIntegral n :: Positive)
       in product [fromIntegral (p - 1) * fromIntegral p ^ (e - 1) | (p, e) <- fs]
 
--- | Möbius function μ(n).
+-- | Mobius function \(\mu(n)\).
+--
+-- * \(\mu(1) = 1\)
+-- * \(\mu(n) = 0\) if \(n\) has a squared prime factor
+-- * \(\mu(n) = (-1)^k\) if \(n\) is a product of \(k\) distinct primes
+--
+-- __Precondition:__ @n > 0@.
+--
+-- >>> moebiusMu 6
+-- 1
+-- >>> moebiusMu 4
+-- 0
 moebiusMu :: Int -> Int
 moebiusMu n
   | n <= 0    = error "moebiusMu: non-positive argument"
@@ -63,9 +91,10 @@ moebiusMu n
          then 0
          else if even (length fs) then 1 else -1
 
--- | Compute all cyclotomic polynomials Φ₁ through Φₙ.
--- More efficient than calling 'cyclotomic' individually since
--- intermediate results are reused.
+-- | Compute all cyclotomic polynomials \(\Phi_1, \Phi_2, \ldots, \Phi_n\).
+--
+-- Slightly more efficient than calling 'cyclotomic' individually for each
+-- index, since intermediate results can be reused.
 allCyclotomic :: Int -> [Poly Rational]
 allCyclotomic n = map snd $ scanl step (1, cyclotomic 1) [2..n]
   where

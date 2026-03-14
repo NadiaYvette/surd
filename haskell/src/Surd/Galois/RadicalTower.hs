@@ -1,4 +1,9 @@
-{- | Radical tower construction for solvable polynomials.
+{- |
+Module      : Surd.Galois.RadicalTower
+Description : Radical tower construction for solvable polynomials via Lagrange resolvents
+Stability   : experimental
+
+Radical tower construction for solvable polynomials.
 
 Given an irreducible polynomial \(f(x) \in \mathbb{Q}[x]\) of degree \(n\) with
 solvable Galois group \(G\), construct radical expressions for its roots via
@@ -125,7 +130,10 @@ This determines which field the \(d_s\) live in:
   DOI: 10.1002\/9781118218457
 -}
 module Surd.Galois.RadicalTower (
+    -- * Entry point
     solveViaTower,
+
+    -- * Cyclic ordering
     findCyclicOrdering,
 )
 where
@@ -347,10 +355,13 @@ scoreOrdering roots ordering groupName =
                         + scoreRational e4
             _ -> 1e10 -- unsupported
 
--- | How close is a complex number to a rational?
+-- | How close is a complex number to a rational?  Returns the sum of the
+-- absolute imaginary part and the fractional part of the real part.
+-- A score near zero indicates the value is close to a real integer.
 scoreRational :: Complex Double -> Double
 scoreRational (re :+ im) = abs im + fracPart re
 
+-- | Fractional part of a 'Double': the distance from the nearest integer.
 fracPart :: Double -> Double
 fracPart x = abs (x - fromIntegral (round x :: Integer))
 

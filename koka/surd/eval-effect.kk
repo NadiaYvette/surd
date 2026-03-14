@@ -15,19 +15,30 @@ import surd/eval
 // Coefficient evaluation effect
 // ---------------------------------------------------------------
 
+// Effect operations for evaluating radical expressions into a target type v.
+// Handlers supply concrete implementations for float64, complex, etc.
 pub effect coeff-eval<v>
+  // Convert a rational coefficient to the target type.
   fun coeff-from-rational(r : rational) : v
+  // Addition in the target type.
   fun coeff-add(a : v, b : v) : v
+  // Multiplication in the target type.
   fun coeff-mul(a : v, b : v) : v
+  // Negation in the target type.
   fun coeff-neg(x : v) : v
+  // Multiplicative inverse in the target type.
   fun coeff-inv(x : v) : v
+  // Principal nth root in the target type.
   fun coeff-nthroot(n : int, x : v) : v
+  // Integer power in the target type.
   fun coeff-pow(x : v, n : int) : v
 
 // ---------------------------------------------------------------
 // Generic evaluation: one function, any target type
 // ---------------------------------------------------------------
 
+// Evaluate a radical expression generically. The coeff-eval<v> effect determines
+// the target type. Callers install a handler (e.g., with-double-eval) first.
 pub fun eval-expr(e : rad-expr<rational>) : <coeff-eval<v>,div> v
   match e
     Lit(r)     -> coeff-from-rational(r)
@@ -46,6 +57,7 @@ fun float64-pow-int(x : float64, n : int) : float64
   if n >= 0 then float64/pow(x, n.float64)
   else float64/(/)(1.0, float64/pow(x, (0 - n).float64))
 
+// Handler for float64 evaluation. Fast but inexact; even roots of negatives yield NaN.
 pub fun with-double-eval(action : () -> <coeff-eval<float64>|e> a) : e a
   with handler
     fun coeff-from-rational(r) r.num.float64 / r.den.float64
@@ -61,6 +73,8 @@ pub fun with-double-eval(action : () -> <coeff-eval<float64>|e> a) : e a
 // Handler: complex evaluation
 // ---------------------------------------------------------------
 
+// Handler for complex evaluation. Handles expressions with complex intermediates
+// (e.g., cube roots via the casus irreducibilis).
 pub fun with-complex-eval(action : () -> <coeff-eval<complex>|e> a) : e a
   with handler
     fun coeff-from-rational(r) complex-from-real(float64/(/)(r.num.float64, r.den.float64))

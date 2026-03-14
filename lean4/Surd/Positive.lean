@@ -1,5 +1,9 @@
 /-
   Surd.Positive — Strictly positive natural numbers.
+
+  A subtype of Nat with a proof that the value is > 0.
+  Used for root indices (the n in nth root) and prime factorisation
+  inputs, eliminating non-positive error cases at the type level.
 -/
 namespace Surd
 

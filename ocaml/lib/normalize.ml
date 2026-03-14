@@ -144,19 +144,25 @@ let rec extract_perfect_powers : R.t t -> R.t t = function
   | Pow (a, n) -> Pow (extract_perfect_powers a, n)
   | e -> e
 
+(** Flatten an [Add] tree into a list of summands. *)
 let rec flatten_add = function
   | Add (a, b) -> flatten_add a @ flatten_add b
   | e -> [e]
 
+(** Flatten a [Mul] tree into a list of factors. *)
 let rec flatten_mul = function
   | Mul (a, b) -> flatten_mul a @ flatten_mul b
   | e -> [e]
 
+(** Rebuild an [Add] tree from a list (left-associated).
+    Returns [Lit 0] for the empty list. *)
 let build_add = function
   | [] -> Lit R.zero
   | [x] -> x
   | x :: xs -> List.fold_left (fun acc e -> Add (acc, e)) x xs
 
+(** Rebuild a [Mul] tree from a list (left-associated).
+    Returns [Lit 1] for the empty list. *)
 let build_mul = function
   | [] -> Lit R.one
   | [x] -> x

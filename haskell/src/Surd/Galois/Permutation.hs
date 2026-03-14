@@ -1,6 +1,7 @@
 {- |
 Module      : Surd.Galois.Permutation
-Description : Permutation groups on finite sets with Schreier–Sims machinery
+Description : Permutation groups on finite sets with Schreier--Sims machinery
+Stability   : experimental
 License     : BSD-3-Clause
 
 Permutations acting on the set \(\{0, 1, \ldots, n-1\}\), stored internally
@@ -48,21 +49,34 @@ membership testing reduces to sifting through the chain.
     Pergamon.
 -}
 module Surd.Galois.Permutation (
+    -- * Permutation type
     Perm,
     permN,
+
+    -- * Point application and composition
     permApply,
     permCompose,
     permInverse,
-    permOrder,
     permId,
+    permIsId,
+
+    -- * Structural queries
+    permOrder,
     permCycles,
     permSign,
-    permIsId,
+
+    -- * Construction
     fromCycles,
     fromMapping,
+
+    -- * Orbits
     orbit,
+
+    -- * Schreier--Sims algorithm
     BSGS (..),
     schreierSims,
+
+    -- * Group operations via BSGS
     groupOrder,
     groupContains,
     groupElements,

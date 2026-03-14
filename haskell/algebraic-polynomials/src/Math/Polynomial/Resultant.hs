@@ -1,10 +1,15 @@
--- | Resultant computation, Lagrange interpolation, and composed-sum/product
--- polynomials, generalized to work over any field @k@ with
--- @(Eq k, Fractional k)@ constraints.
+-- |
+-- Module      : Math.Polynomial.Resultant
+-- Description : Resultant computation, Lagrange interpolation, and composed polynomials
+-- Stability   : experimental
 --
--- These are canonical implementations that replace duplicated versions
--- previously scattered across MinimalPoly, MinimalPolyTower, and
--- TragerFactoring.
+-- Canonical implementations of the polynomial resultant (via the Euclidean
+-- algorithm), Lagrange interpolation, and composed-sum\/composed-product
+-- polynomials. These are generalized to work over any field @k@ with
+-- @('Eq' k, 'Fractional' k)@ constraints.
+--
+-- The composed-sum and composed-product operations are used for computing
+-- minimal polynomials of sums and products of algebraic numbers.
 module Math.Polynomial.Resultant
   ( polyResultant
   , lagrangeInterpolate
@@ -19,6 +24,13 @@ module Math.Polynomial.Resultant
 import Math.Polynomial.Univariate
 
 -- | Resultant of two univariate polynomials via the Euclidean algorithm.
+--
+-- The resultant \(\text{Res}(f, g)\) is a scalar in the coefficient field
+-- that is zero if and only if \(f\) and \(g\) share a common root (over
+-- the algebraic closure).
+--
+-- Complexity: \(O(n \cdot m)\) where \(n = \deg f\) and \(m = \deg g\),
+-- via the Euclidean pseudo-remainder sequence.
 polyResultant :: (Eq k, Fractional k) => Poly k -> Poly k -> k
 polyResultant f g
   | degree f < 0 || degree g < 0 = 0
@@ -36,8 +48,13 @@ polyResultant f g
          then 0
          else sign * (lg ^ (df - dr)) * polyResultant g r
 
--- | Lagrange interpolation: given points (x_i, y_i), compute the unique
--- polynomial of degree <= n passing through all points.
+-- | Lagrange interpolation: given a list of points \((x_i, y_i)\),
+-- compute the unique polynomial of degree \(\leq n\) passing through
+-- all \(n + 1\) points.
+--
+-- __Precondition:__ the \(x_i\) values must be distinct.
+--
+-- Complexity: \(O(n^2)\) in the number of points.
 lagrangeInterpolate :: (Eq k, Fractional k) => [(k, k)] -> Poly k
 lagrangeInterpolate points = foldl addPoly zeroPoly terms
   where
@@ -47,12 +64,14 @@ lagrangeInterpolate points = foldl addPoly zeroPoly terms
       in foldl mulPoly (constPoly 1)
            [scalePoly (recip (xi - xj)) (mkPoly [-xj, 1]) | xj <- others]
 
--- | Compute the composed sum polynomial.
--- If p has roots alpha_i and q has roots beta_j, the composed sum has
--- roots alpha_i + beta_j.
+-- | Composed sum polynomial.
 --
--- Uses evaluation and interpolation: evaluate Res_y(p(y), q(x0 - y))
--- at enough points x0, then interpolate.
+-- If \(p\) has roots \(\alpha_i\) and \(q\) has roots \(\beta_j\), the
+-- composed sum has roots \(\alpha_i + \beta_j\). The result has degree
+-- \(\deg p \cdot \deg q\).
+--
+-- Computed via evaluation and interpolation of
+-- \(\text{Res}_y(p(y), q(x - y))\) at sufficiently many points.
 composedSum :: (Eq k, Fractional k) => Poly k -> Poly k -> Poly k
 composedSum p q =
   let dp = degree p
@@ -62,22 +81,28 @@ composedSum p q =
       values = [resultantSumAt p q x | x <- points]
   in lagrangeInterpolate (zip points values)
 
--- | Compute Res_y(p(y), q(x0 - y)) for a specific x0.
+-- | Compute \(\text{Res}_y(p(y), q(x_0 - y))\) for a specific \(x_0\).
 resultantSumAt :: (Eq k, Fractional k) => Poly k -> Poly k -> k -> k
 resultantSumAt p q x0 =
   let qShifted = substituteLinear q x0 (-1)  -- q(x0 + (-1)*y)
   in polyResultant p qShifted
 
--- | Substitute (a + b*y) for x in polynomial p.
--- p(a + b*y) = sum_i c_i * (a + b*y)^i
+-- | Substitute \(a + b \cdot y\) for \(x\) in polynomial \(p\): computes
+-- \(p(a + b y)\).
 substituteLinear :: (Eq k, Fractional k) => Poly k -> k -> k -> Poly k
 substituteLinear (Poly []) _ _ = zeroPoly
 substituteLinear (Poly cs) a b =
   let binomial = mkPoly [a, b]  -- a + b*y
   in foldr (\c acc -> addPoly (constPoly c) (mulPoly binomial acc)) zeroPoly cs
 
--- | Composed product: if p has roots alpha_i and q has roots beta_j,
--- result has roots alpha_i * beta_j.
+-- | Composed product polynomial.
+--
+-- If \(p\) has roots \(\alpha_i\) and \(q\) has roots \(\beta_j\), the
+-- result has roots \(\alpha_i \cdot \beta_j\). The result has degree
+-- \(\deg p \cdot \deg q\).
+--
+-- Uses evaluation and interpolation of
+-- \(\text{Res}_y(y^{\deg q} \cdot p(x_0/y), q(y))\).
 composedProduct :: (Eq k, Fractional k) => Poly k -> Poly k -> Poly k
 composedProduct p q =
   let dp = degree p
@@ -87,32 +112,40 @@ composedProduct p q =
       values = [productResultantAt p q x | x <- points]
   in lagrangeInterpolate (zip points values)
 
--- | Compute Res_y(p(y), y^dq * q(x0/y)) for a specific x0.
+-- | Compute \(\text{Res}_y(y^n \cdot p(x_0/y), q(y))\) for a specific \(x_0\).
 productResultantAt :: (Eq k, Fractional k) => Poly k -> Poly k -> k -> k
 productResultantAt p q x0 =
   let pRev = scaledReciprocalAt p x0
   in polyResultant pRev q
 
--- | Compute y^n * p(x0/y) as a polynomial in y.
--- If p = c0 + c1*x + ... + cn*x^n, then
--- y^n * p(x0/y) = c0*y^n + c1*x0*y^(n-1) + ... + cn*x0^n
+-- | Compute \(y^n \cdot p(x_0/y)\) as a polynomial in \(y\).
+--
+-- If \(p = c_0 + c_1 x + \cdots + c_n x^n\), then
+-- \(y^n \cdot p(x_0/y) = c_0 y^n + c_1 x_0 y^{n-1} + \cdots + c_n x_0^n\).
 scaledReciprocalAt :: (Eq k, Num k) => Poly k -> k -> Poly k
 scaledReciprocalAt (Poly cs) x0 =
   let n = length cs - 1
       newCs = [c * x0 ^ (n - k) | (k, c) <- zip [0..] (reverse cs)]
   in mkPoly newCs
 
--- | p(-x): negate odd-degree coefficients.
+-- | Negate the variable: compute \(p(-x)\) by negating odd-degree coefficients.
+--
+-- >>> negateVar (mkPoly [1, 2, 3] :: Poly Rational)
+-- Poly [1 % 1,(-2) % 1,3 % 1]
 negateVar :: (Eq k, Num k) => Poly k -> Poly k
 negateVar (Poly cs) = mkPoly $ zipWith (\i c -> if odd (i :: Int) then negate c else c) [0..] cs
 
--- | Reciprocal polynomial: x^n * p(1/x), i.e. reverse the coefficient list.
+-- | Reciprocal polynomial: \(x^n \cdot p(1/x)\), computed by reversing
+-- the coefficient list.
+--
+-- If \(r\) is a root of \(p\), then \(1/r\) is a root of the reciprocal.
 reciprocalPoly :: (Eq k, Num k) => Poly k -> Poly k
 reciprocalPoly (Poly cs) = mkPoly (reverse cs)
 
--- | Substitute x^n for x in p: p(x^n).
--- p(x^n) where p = c0 + c1*x + ... + cd*x^d
--- = c0 + c1*x^n + c2*x^(2n) + ... + cd*x^(dn)
+-- | Substitute \(x^n\) for \(x\) in \(p\): compute \(p(x^n)\).
+--
+-- If \(p = c_0 + c_1 x + c_2 x^2 + \cdots\), then
+-- \(p(x^n) = c_0 + c_1 x^n + c_2 x^{2n} + \cdots\).
 substituteXN :: (Eq k, Num k) => Int -> Poly k -> Poly k
 substituteXN n (Poly cs) =
   let indexed = zip [0 :: Int ..] cs
@@ -123,7 +156,10 @@ substituteXN n (Poly cs) =
         in take pos xs ++ [c] ++ drop (pos + 1) xs
   in mkPoly $ foldl set' result indexed
 
--- | Shift a polynomial: f(x + a) where a is in the coefficient field.
+-- | Shift a polynomial: compute \(f(x + a)\) where \(a\) is in the
+-- coefficient field.
+--
+-- Uses Horner's method for composition with the linear polynomial \(x + a\).
 shiftPoly :: (Eq k, Fractional k) => Poly k -> k -> Poly k
 shiftPoly (Poly []) _ = zeroPoly
 shiftPoly (Poly cs) a =

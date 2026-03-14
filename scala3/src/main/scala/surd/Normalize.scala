@@ -36,6 +36,7 @@ object Normalize:
   // flattenArith: cancel double negations and double inverses
   // ---------------------------------------------------------------
 
+  /** Flatten nested structure and cancel double negations / double inverses. */
   def flattenArith[K](expr: RadExpr[K]): RadExpr[K] =
     RadExpr.transform[K] {
       case Neg(Neg(a)) => a
@@ -47,6 +48,7 @@ object Normalize:
   // foldConstants: evaluate pure-literal subtrees
   // ---------------------------------------------------------------
 
+  /** Fold constant subexpressions: evaluate pure-literal subtrees to rationals. */
   def foldConstants(expr: RadExpr[Rational]): RadExpr[Rational] = expr match
     case Lit(_) => expr
     case Neg(a) =>
@@ -93,6 +95,7 @@ object Normalize:
   // simplifyPowers
   // ---------------------------------------------------------------
 
+  /** Simplify power expressions: (sqrt(a))^2 -> a, nested roots, etc. */
   def simplifyPowers(expr: RadExpr[Rational]): RadExpr[Rational] =
     RadExpr.transform[Rational] {
       case Mul(Root(2, a), Root(2, b)) if a == b => a
@@ -107,6 +110,7 @@ object Normalize:
   // extractPerfectPowers
   // ---------------------------------------------------------------
 
+  /** Extract perfect nth powers from under radicals: sqrt(12) -> 2*sqrt(3). */
   def extractPerfectPowers(expr: RadExpr[Rational]): RadExpr[Rational] = expr match
     case Root(n, Lit(r)) if r > Rational.zero =>
       val numAbs = r.num.abs
@@ -154,6 +158,7 @@ object Normalize:
   // sortCommutative: canonical ordering of Add/Mul children
   // ---------------------------------------------------------------
 
+  /** Sort children of commutative operators (Add, Mul) into canonical order. */
   def sortCommutative(expr: RadExpr[Rational]): RadExpr[Rational] = expr match
     case _: Add[_] =>
       val terms = flattenAddList(expr).map(sortCommutative)
@@ -173,6 +178,7 @@ object Normalize:
   // distribute: scalar multiplication over addition
   // ---------------------------------------------------------------
 
+  /** Distribute scalar multiplication over addition: c*(a+b) -> c*a + c*b. */
   def distribute(expr: RadExpr[Rational]): RadExpr[Rational] = expr match
     // Lit * (sum) => distribute
     case Mul(Lit(c), r) if isSum(r) =>
@@ -218,6 +224,7 @@ object Normalize:
   // collectCoefficients: merge Lit factors in products
   // ---------------------------------------------------------------
 
+  /** Collect rational coefficients in products: merge all Lit factors into one. */
   def collectCoefficients(expr: RadExpr[Rational]): RadExpr[Rational] =
     def go(e: RadExpr[Rational]): RadExpr[Rational] = e match
       case _: Mul[_] =>
@@ -260,6 +267,7 @@ object Normalize:
   // collectTerms: group like terms in sums
   // ---------------------------------------------------------------
 
+  /** Collect like terms in sums: 3*sqrt(5) + 2*sqrt(5) -> 5*sqrt(5). */
   def collectTerms(expr: RadExpr[Rational]): RadExpr[Rational] =
     given Ordering[RadExpr[Rational]] = radExprOrdering[Rational]
 

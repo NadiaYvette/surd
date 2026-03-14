@@ -1,3 +1,9 @@
+||| Algebraic field extensions K(alpha) where alpha is a root of an
+||| irreducible polynomial over K.
+|||
+||| Elements of K(alpha) are represented as polynomials in alpha of
+||| degree < deg(minPoly), with arithmetic modulo the minimal polynomial.
+||| Multiplicative inverse is computed via the extended Euclidean algorithm.
 module Surd.Extension
 
 import Surd.Rational

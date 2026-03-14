@@ -1,7 +1,23 @@
--- | LaTeX rendering of radical expressions.
+-- |
+-- Module      : Surd.Radical.LaTeX
+-- Description : LaTeX math-mode rendering of radical expressions
+-- Stability   : experimental
+--
+-- Renders 'RadExpr' values as LaTeX math-mode strings suitable for
+-- inclusion in documents. Supports both direct tree rendering and
+-- DAG-based rendering with named shared subexpressions.
+--
+-- * 'latex' / 'latexPrec' -- direct rendering with precedence-based
+--   parenthesization (using @\\left(@ / @\\right)@).
+-- * 'latexDAG' -- for large expressions, converts to an explicit DAG
+--   and names multiply-referenced subexpressions as @x_{n}@ variables,
+--   returning a list of definitions and a root expression.
 module Surd.Radical.LaTeX
-  ( latex,
+  ( -- * Direct rendering
+    latex,
     latexPrec,
+
+    -- * DAG-based rendering
     latexDAG,
   )
 where
@@ -14,15 +30,25 @@ import Surd.Radical.DAG (NodeId, RadDAG (..), RadNodeOp (..), dagSize, toDAG)
 import Surd.Types
 
 -- | Render a radical expression as a LaTeX math-mode string.
+--
+-- Produces output like @\\sqrt{5}@, @\\frac{1}{2}@,
+-- @\\sqrt[3]{7}@, @\\mathrm{i}@, etc.
 latex :: RadExpr Rational -> String
 latex = latexPrec 0
 
+-- | Precedence levels for LaTeX rendering.
 precAdd, precMul, precNeg, precPow :: Int
 precAdd = 1
 precMul = 2
 precNeg = 3
 precPow = 4
 
+-- | Render a radical expression as LaTeX with a given surrounding
+-- precedence level.
+--
+-- Inserts @\\left(@ / @\\right)@ delimiters when the current
+-- expression's precedence is lower than the surrounding context.
+-- Pass @0@ for the outermost call.
 latexPrec :: Int -> RadExpr Rational -> String
 latexPrec _ (Lit r) = latexRat r
 latexPrec p (Neg e) = case e of
@@ -45,7 +71,7 @@ latexPrec p e@(Add _ _) =
 -- a / b
 latexPrec p (Mul a (Inv b)) =
   parensIf (p > precMul) $ "\\frac{" ++ latexPrec 0 a ++ "}{" ++ latexPrec 0 b ++ "}"
--- (1/a) * b  →  b/a
+-- (1/a) * b  ->  b/a
 latexPrec p (Mul (Inv a) b) =
   parensIf (p > precMul) $ "\\frac{" ++ latexPrec 0 b ++ "}{" ++ latexPrec 0 a ++ "}"
 latexPrec p (Inv e) =
@@ -71,7 +97,7 @@ latexBase e@(Neg _) = "\\left(" ++ latexPrec 0 e ++ "\\right)"
 latexBase e@(Inv _) = "\\left(" ++ latexPrec 0 e ++ "\\right)"
 latexBase e = latexPrec precPow e
 
--- | Render a radicand (inside \\sqrt{...}).
+-- | Render a radicand (inside @\\sqrt{...}@).
 -- No outer parens needed since braces provide grouping.
 latexRadicand :: RadExpr Rational -> String
 latexRadicand (Lit r)
@@ -86,10 +112,13 @@ latexRadicand e = latexPrec 0 e
 -- Helpers
 -- --------------------------------------------------------------------------
 
+-- | Wrap a LaTeX string in @\\left(@ / @\\right)@ delimiters if the condition is true.
 parensIf :: Bool -> String -> String
 parensIf True s = "\\left(" ++ s ++ "\\right)"
 parensIf False s = s
 
+-- | Render a rational number as LaTeX. Integers render as plain numbers;
+-- fractions use @\\frac{n}{d}@.
 latexRat :: Rational -> String
 latexRat r
   | d == 1 = show n'
@@ -99,6 +128,9 @@ latexRat r
     n' = numerator r
     d = denominator r
 
+-- | Flatten an additive chain into a list of @(positive?, term)@ pairs.
+-- Negated terms are recorded with 'False' so that the renderer can emit
+-- @-@ signs between terms instead of wrapping in parentheses.
 flattenAdd :: RadExpr Rational -> [(Bool, RadExpr Rational)]
 flattenAdd (Add a b) = flattenAdd a ++ flattenAdd b
 flattenAdd (Neg e) = map (Bifunctor.first not) (flattenAdd e)
@@ -109,11 +141,13 @@ flattenAdd e@(Mul _ _) = case flattenMul e of
   _ -> [(True, e)]
 flattenAdd e = [(True, e)]
 
+-- | Rebuild a left-associated 'Mul' chain from a list of factors.
 rebuildMul :: [RadExpr Rational] -> RadExpr Rational
 rebuildMul [] = Lit 1
 rebuildMul [x] = x
 rebuildMul (x : xs) = foldl Mul x xs
 
+-- | Render a list of signed terms as a LaTeX addition/subtraction chain.
 renderTerms :: [(Bool, RadExpr Rational)] -> String
 renderTerms [] = "0"
 renderTerms ((s, t) : rest) =
@@ -125,10 +159,13 @@ renderTerms ((s, t) : rest) =
     -- Render at multiplication level without adding parens for products/atoms
     latexMulOrAtom = latexPrec precMul
 
+-- | Flatten a multiplicative chain into a list of factors.
 flattenMul :: RadExpr Rational -> [RadExpr Rational]
 flattenMul (Mul a b) = flattenMul a ++ flattenMul b
 flattenMul e = [e]
 
+-- | Render a list of factors as a LaTeX product, using @\\cdot@ as separator.
+-- A leading literal coefficient of @1@ is elided; @-1@ renders as a prefix @-@.
 renderFactors :: [RadExpr Rational] -> String
 renderFactors [] = "1"
 renderFactors [x] = latexPrec precMul x
@@ -138,6 +175,7 @@ renderFactors (Lit c : rest)
   | otherwise = latexRat c ++ " \\cdot " ++ joinMul (map (latexPrec precPow) rest)
 renderFactors fs = joinMul (map (latexPrec precPow) fs)
 
+-- | Join a list of LaTeX strings with @\\cdot@ separators.
 joinMul :: [String] -> String
 joinMul [] = ""
 joinMul [x] = x
@@ -148,10 +186,16 @@ joinMul (x : xs) = x ++ concatMap (" \\cdot " ++) xs
 -- --------------------------------------------------------------------------
 
 -- | Render a radical expression via its DAG, naming shared subexpressions.
--- For small expressions (DAG size ≤ threshold), falls back to tree rendering.
--- For large expressions, returns @(definitions, expression)@ where definitions
--- is a list of @(name, body)@ pairs for multiply-referenced subexpressions,
--- and expression is the root formula referencing those names.
+--
+-- For small expressions (DAG size <= 40 nodes), falls back to direct
+-- tree rendering via 'latex', returning an empty definitions list.
+--
+-- For large expressions, converts to 'RadDAG', identifies
+-- multiply-referenced non-trivial nodes, assigns them names (@x_{0}@,
+-- @x_{1}@, ...), and returns:
+--
+-- * A list of @(name, body)@ pairs defining the shared subexpressions.
+-- * The root expression formula referencing those names.
 latexDAG :: RadExpr Rational -> ([(String, String)], String)
 latexDAG e =
   let dag = toDAG e
@@ -159,6 +203,7 @@ latexDAG e =
         then ([], latex e)
         else renderDAG dag
 
+-- | Render a DAG as LaTeX with named shared subexpressions.
 renderDAG :: RadDAG Rational -> ([(String, String)], String)
 renderDAG dag =
   let nodes = IntMap.toAscList (dagNodes dag)
@@ -182,7 +227,8 @@ renderDAG dag =
           | otherwise -> renderOp dag needsName (dagRoot dag) op
    in (defs, rootExpr)
 
--- | Render a single DAG node operation.
+-- | Render a single DAG node operation as LaTeX.  Named nodes are
+-- referenced by their variable name; unnamed nodes are rendered inline.
 renderOp :: RadDAG Rational -> (NodeId -> Bool) -> NodeId -> RadNodeOp Rational -> String
 renderOp dag needsName _ op =
   let ref nid = case dagNodes dag IntMap.! nid of
@@ -220,7 +266,7 @@ renderOp dag needsName _ op =
           | n < 0 -> "\\frac{1}{" ++ refAtom a ++ "^{" ++ show (negate n) ++ "}}"
           | otherwise -> refAtom a ++ "^{" ++ show n ++ "}"
 
--- | Generate a variable name for a DAG node: x_1, x_2, etc.
+-- | Generate a LaTeX variable name for a DAG node: @x_{1}@, @x_{2}@, etc.
 nodeVar :: NodeId -> String
 nodeVar nid = "x_{" ++ show nid ++ "}"
 
@@ -237,6 +283,7 @@ countRefs dag = IntMap.foldl' addRefs IntMap.empty (dagNodes dag)
     children (NRoot _ a) = [a]
     children (NPow a _) = [a]
 
+-- | Test whether a DAG node is a literal (used to skip naming trivial nodes).
 isLit :: RadNodeOp k -> Bool
 isLit (NLit _) = True
 isLit _ = False

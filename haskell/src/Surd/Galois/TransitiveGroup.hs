@@ -1,6 +1,7 @@
 {- |
 Module      : Surd.Galois.TransitiveGroup
-Description : Database of transitive subgroups of \(S_n\) for small \(n\).
+Description : Database of transitive subgroups of \(S_n\) for small \(n\)
+Stability   : experimental
 License     : BSD-3-Clause
 
 = Background
@@ -67,10 +68,17 @@ a \(p\)-th root.  For degree 5, the groups \(C_5\), \(D_5\), and
   DOI: 10.1002\/9781118218457
 -}
 module Surd.Galois.TransitiveGroup (
+    -- * Transitive group type
     TransitiveGroup (..),
+
+    -- * Database queries
     transGroupsOfDegree,
     transGroupByOrder,
+
+    -- * Solvability
     isSolvable,
+
+    -- * Composition series
     compositionSeries,
 )
 where

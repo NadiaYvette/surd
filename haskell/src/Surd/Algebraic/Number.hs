@@ -1,14 +1,25 @@
 -- | Canonical representation of real algebraic numbers.
 --
--- An algebraic number is represented as a pair (minimal polynomial, isolating interval).
+-- An algebraic number is represented as a pair @(minimalPolynomial, isolatingInterval)@.
 -- Two algebraic numbers are equal iff they have the same minimal polynomial
--- and their isolating intervals overlap (after refinement).
+-- and their isolating intervals overlap (after sufficient refinement).
+--
+-- == Arithmetic
 --
 -- Arithmetic is done via resultant-based composed polynomials:
--- given α with minpoly p and β with minpoly q,
---   α + β has annihilating poly ComposedSum(p, q)
---   α · β has annihilating poly ComposedProduct(p, q)
--- which are then factored to find the true minimal polynomial.
+-- given \(\alpha\) with minimal polynomial \(p\) and \(\beta\) with minimal polynomial \(q\),
+--
+--   * \(\alpha + \beta\) has annihilating polynomial @ComposedSum(p, q)@
+--   * \(\alpha \cdot \beta\) has annihilating polynomial @ComposedProduct(p, q)@
+--
+-- which are then factored over \(\mathbb{Q}\) to find the true minimal polynomial,
+-- with the correct root identified by numerical approximation.
+--
+-- == Instances
+--
+-- 'AlgNum' has 'Eq', 'Ord', 'Num', and 'Fractional' instances, making it
+-- a fully usable exact real arithmetic type (though operations are expensive
+-- due to resultant computation and factoring).
 module Surd.Algebraic.Number
   ( AlgNum (..),
     algFromRational,
@@ -55,17 +66,27 @@ algFromRational r =
 
 -- | Construct an algebraic number from a polynomial and an approximate
 -- real value (used to pick the right root).
+--
+-- Factors the polynomial into irreducible factors, isolates the real
+-- roots of each factor, and selects the root closest to the given
+-- approximation. Returns 'Nothing' if the polynomial has no real root
+-- near the approximation.
 algFromPoly :: Poly Rational -> Double -> Maybe AlgNum
 algFromPoly p approx =
   let mp = monicPoly p
       factors = factorSquareFree mp
    in pickBestRoot factors approx
 
--- | The minimal polynomial.
+-- | The minimal polynomial of the algebraic number: the unique monic
+-- irreducible polynomial in \(\mathbb{Q}[x]\) of which this number is a root.
 algMinPoly :: AlgNum -> Poly Rational
 algMinPoly = anMinPoly
 
 -- | Approximate the algebraic number as a rational to within epsilon.
+--
+-- Refines the isolating interval by bisection until its width is less
+-- than @eps@, then returns the midpoint. Guaranteed to be within @eps@
+-- of the true value.
 algApprox :: Rational -> AlgNum -> Rational
 algApprox eps (AlgNum p iv) =
   let Interval l h = iiInterval $ refineRoot eps (IsolatingInterval p iv)
@@ -124,8 +145,10 @@ algPow a n
   | even n = let half = algPow a (n `div` 2) in algMul half half
   | otherwise = algMul a (algPow a (n - 1))
 
--- | nth root of a positive algebraic number.
--- The annihilating polynomial is p(x^n).
+-- | The nth root of a positive algebraic number.
+--
+-- If \(\alpha\) is a root of \(p(x)\), then \(\alpha^{1/n}\) is a root
+-- of \(p(x^n)\). The correct root is identified by numerical approximation.
 algRoot :: Int -> AlgNum -> AlgNum
 algRoot n (AlgNum p (Interval l h)) =
   let ann = substituteXN n p
@@ -176,7 +199,8 @@ separateAndCompare a b =
           ii2' = refineRoot eps2 ii2
        in go ii1' ii2' (n - 1)
 
--- | Display as "root of <poly> near <approx>".
+-- | Display as @\"AlgNum(\<poly\> ~ \<approx\>)\"@, showing the minimal
+-- polynomial and an approximate decimal value.
 algShow :: AlgNum -> String
 algShow a =
   let approx = fromRational (algApprox (1 / 1000) a) :: Double

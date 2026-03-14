@@ -1,4 +1,9 @@
-{- | Top-level interface for solving polynomials via Galois group computation.
+{- |
+Module      : Surd.Galois.Solve
+Description : Top-level polynomial solving interface via Galois group computation
+Stability   : experimental
+
+Top-level interface for solving polynomials via Galois group computation.
 
 = Position in the library
 
@@ -64,7 +69,10 @@ groups \(A_5\) and \(S_5\) yield polynomials with no radical solution.
     générale du cinquième degré.\" (Historical reference)
 -}
 module Surd.Galois.Solve (
+    -- * Algebraic number interface
     solveAlgNum,
+
+    -- * Polynomial interface
     solvePoly,
     identifyAndSolve,
 )

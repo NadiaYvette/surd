@@ -35,6 +35,7 @@ library
   hs-source-dirs:   src
   default-language: GHC2021
   ghc-options:      -Wall -Wcompat -Wno-pattern-namespace-specifier
+  haddock-options:  --hyperlinked-source
   exposed-modules:
     Surd.Types
     Surd.Polynomial.MinimalPoly

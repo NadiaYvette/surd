@@ -33,40 +33,56 @@ import Surd.Radical.Normalize (normalize)
 import Surd.Radical.LaTeX (latex)
 import Surd.Radical.Pretty (pretty)
 
--- | Symbolic expression for an antiderivative (function of x).
+-- | Symbolic expression tree for an antiderivative (a function of @x@).
+--
+-- This is a small expression language sufficient to represent the
+-- antiderivatives that arise from Euler substitution and rational
+-- function integration: rational constants, radical constants, the
+-- integration variable, arithmetic operations, logarithms, and
+-- inverse trigonometric\/hyperbolic functions.
 data SymExpr
-  = SRat !Rational               -- ^ rational constant
-  | SRad !(RadExpr Rational)     -- ^ constant radical expression
-  | SVar                         -- ^ integration variable x
-  | SSurd !Rational !Rational !Rational  -- ^ √(ax²+bx+c)
-  | SNeg !SymExpr
-  | SAdd !SymExpr !SymExpr
-  | SMul !SymExpr !SymExpr
-  | SDiv !SymExpr !SymExpr
-  | SPow !SymExpr !Int
-  | SLn  !SymExpr                -- ^ ln|...|
-  | SArcTan !SymExpr             -- ^ arctan(...)
-  | SArcSin !SymExpr             -- ^ arcsin(...)
-  | SArsinh !SymExpr             -- ^ arsinh(...)
-  | SArcosh !SymExpr             -- ^ arcosh(...)
+  = SRat !Rational               -- ^ Rational constant \(r \in \mathbb{Q}\)
+  | SRad !(RadExpr Rational)     -- ^ Constant radical expression (no @x@ dependency)
+  | SVar                         -- ^ The integration variable \(x\)
+  | SSurd !Rational !Rational !Rational  -- ^ \(\sqrt{ax^2 + bx + c}\), stored as @(a, b, c)@
+  | SNeg !SymExpr                -- ^ Negation
+  | SAdd !SymExpr !SymExpr       -- ^ Addition
+  | SMul !SymExpr !SymExpr       -- ^ Multiplication
+  | SDiv !SymExpr !SymExpr       -- ^ Division
+  | SPow !SymExpr !Int           -- ^ Integer power
+  | SLn  !SymExpr                -- ^ Natural logarithm: \(\ln|{\cdot}|\)
+  | SArcTan !SymExpr             -- ^ Inverse tangent: \(\arctan(\cdot)\)
+  | SArcSin !SymExpr             -- ^ Inverse sine: \(\arcsin(\cdot)\)
+  | SArsinh !SymExpr             -- ^ Inverse hyperbolic sine: \(\operatorname{arsinh}(\cdot)\)
+  | SArcosh !SymExpr             -- ^ Inverse hyperbolic cosine: \(\operatorname{arcosh}(\cdot)\)
   deriving (Show)
 
 -- | Result of Euler substitution integration.
+--
+-- Contains the antiderivative as a 'SymExpr' together with the
+-- quadratic surd parameters \(a, b, c\) from the original integrand's
+-- \(\sqrt{ax^2 + bx + c}\). These are retained so renderers can
+-- reconstruct the original problem statement.
 data IntegralResult = IntegralResult
-  { irExpr :: !SymExpr           -- ^ the antiderivative
-  , irA    :: !Rational          -- ^ a in √(ax²+bx+c)
-  , irB    :: !Rational          -- ^ b
-  , irC    :: !Rational          -- ^ c
+  { irExpr :: !SymExpr           -- ^ The antiderivative expression (function of @x@)
+  , irA    :: !Rational          -- ^ Coefficient \(a\) in \(\sqrt{ax^2 + bx + c}\)
+  , irB    :: !Rational          -- ^ Coefficient \(b\)
+  , irC    :: !Rational          -- ^ Constant term \(c\)
   } deriving (Show)
 
--- | An integrand P(x)/Q(x) · (√(ax²+bx+c))^n.
+-- | Specification of an integrand of the form
+-- \(\frac{P(x)}{Q(x)} \cdot \bigl(\sqrt{ax^2 + bx + c}\bigr)^n\).
+--
+-- The surd power @eiSqrtPow@ is typically @+1@ (integrand includes
+-- the square root in the numerator) or @-1@ (square root in the
+-- denominator, as in \(\int dx / \sqrt{\cdot}\)).
 data EulerIntegrand = EulerIntegrand
-  { eiP       :: !(Poly Rational)  -- ^ P(x) numerator polynomial
-  , eiQ       :: !(Poly Rational)  -- ^ Q(x) denominator polynomial
-  , eiSqrtPow :: !Int              -- ^ power of √(ax²+bx+c): typically ±1
-  , eiA       :: !Rational
-  , eiB       :: !Rational
-  , eiC       :: !Rational
+  { eiP       :: !(Poly Rational)  -- ^ Numerator polynomial \(P(x)\)
+  , eiQ       :: !(Poly Rational)  -- ^ Denominator polynomial \(Q(x)\)
+  , eiSqrtPow :: !Int              -- ^ Power \(n\) of the surd factor
+  , eiA       :: !Rational         -- ^ Coefficient \(a\) in the surd
+  , eiB       :: !Rational         -- ^ Coefficient \(b\)
+  , eiC       :: !Rational         -- ^ Constant term \(c\)
   } deriving (Show)
 
 data EulerSub = Euler1 !Rational    -- ^ √a is rational, stored here
@@ -313,8 +329,17 @@ polyPow p k
 -- Rational function integration
 --------------------------------------------------------------------------------
 
--- | Integrate a rational function N(t)/D(t) dt.
--- Returns a SymExpr in terms of the variable (SVar represents t).
+-- | Integrate a rational function \(N(t)/D(t) \, dt\).
+--
+-- Performs polynomial long division, factors the denominator, computes
+-- a partial fraction decomposition, and integrates each term:
+--
+--   * Linear factors produce logarithms or negative powers.
+--   * Irreducible quadratic factors produce logarithms and arctangent
+--     (complex roots) or logarithmic ratios (real irrational roots).
+--
+-- The result is a 'SymExpr' where 'SVar' represents the integration
+-- variable.
 integrateRational :: Poly Rational -> Poly Rational -> SymExpr
 integrateRational num den
   | unPoly den == [] = error "integrateRational: zero denominator"
@@ -434,7 +459,17 @@ polyToSym (Poly cs) =
 -- Main integration entry point
 --------------------------------------------------------------------------------
 
--- | Integrate P(x)/Q(x) · (√(ax²+bx+c))^n dx via Euler substitution.
+-- | Integrate \(\frac{P(x)}{Q(x)} \cdot \bigl(\sqrt{ax^2+bx+c}\bigr)^n \, dx\)
+-- via Euler substitution.
+--
+-- Selects the appropriate Euler substitution (1, 2, or 3) based on
+-- the coefficients, transforms the integrand into a rational function
+-- of an auxiliary variable \(t\), integrates the rational function via
+-- partial fractions, and back-substitutes to express the result in
+-- terms of \(x\) and \(\sqrt{ax^2+bx+c}\).
+--
+-- Returns 'Nothing' if none of the three Euler substitutions applies
+-- (i.e., \(a < 0\), \(c < 0\), and \(\Delta < 0\)).
 eulerIntegrate :: EulerIntegrand -> Maybe IntegralResult
 eulerIntegrate ei = do
   sub <- chooseEuler (eiA ei) (eiB ei) (eiC ei)
@@ -570,6 +605,10 @@ detectInverseTrig = go
 -- Rendering: pretty-print (text)
 --------------------------------------------------------------------------------
 
+-- | Render a 'SymExpr' as a human-readable plain text string.
+--
+-- Uses Unicode symbols for roots and multiplication dots, and
+-- precedence-aware parenthesisation to minimise brackets.
 prettySymExpr :: SymExpr -> String
 prettySymExpr = prettyPrec 0
 
@@ -624,6 +663,11 @@ parensIf False s = s
 -- Rendering: LaTeX
 --------------------------------------------------------------------------------
 
+-- | Render a 'SymExpr' as a LaTeX math expression.
+--
+-- Fractions use @\\frac@, logarithms use @\\ln@, and inverse
+-- trig\/hyperbolic functions use their standard LaTeX commands.
+-- Delimiters are sized with @\\left@ / @\\right@.
 latexSymExpr :: SymExpr -> String
 latexSymExpr = latexPrec_ 0
 

@@ -1,22 +1,32 @@
--- | General nth-root denesting.
+-- |
+-- Module      : Surd.Radical.Denest.NthRoot
+-- Description : General nth-root denesting and cube root denesting
+-- Stability   : experimental
 --
--- For the case where we have ⁿ√(a + b·ⁿ√r) and similar nested
--- radical expressions with arbitrary root indices.
+-- Denesting of general nth-root expressions. Currently implements:
 --
--- The general approach follows Landau (1992) / Zippel (1985):
--- given a nested radical, compute its minimal polynomial, analyse
--- the Galois group of the splitting field, and determine whether
--- a simpler radical representation exists.
+-- 1. __Perfect power extraction__: @nth-root(a^n * b) = a * nth-root(b)@
+-- 2. __Root-index reduction__: @nth-root(x^k)@ simplification
+-- 3. __Nested root collapse__: @mth-root(nth-root x) = (m*n)th-root x@
+-- 4. __Cube root denesting__: @cbrt(a + b*sqrt c) = p + q*sqrt c@
 --
--- This module currently implements:
--- 1. Simple nth-root simplification: ⁿ√(aⁿ·b) = a·ⁿ√b
--- 2. Root-index reduction: ⁿ√(x^k) simplification
--- 3. Nested root collapse: ᵐ√(ⁿ√x) = ᵐⁿ√x
--- 4. Cube root denesting for the form ³√(a + b√c)
+-- === Cube root denesting criterion
 --
--- More general Galois-theoretic denesting is planned for a future phase.
+-- For @cbrt(a + b*sqrt c)@ to denest into @p + q*sqrt c@ with @p, q@
+-- rational, we need:
+--
+-- * The norm @a^2 - b^2*c@ must be a perfect cube.
+-- * The depressed cubic @4p^3 - 3*(cbrt(a^2 - b^2*c))*p - a = 0@
+--   must have a rational root.
+-- * @(p^2 - cbrt(a^2 - b^2*c)) / c@ must be a perfect square (giving @q^2@).
+--
+-- More general Galois-theoretic denesting is provided by
+-- "Surd.Radical.Denest.Landau".
 module Surd.Radical.Denest.NthRoot
-  ( denestNthRoot,
+  ( -- * Top-level denesting
+    denestNthRoot,
+
+    -- * Cube root algorithm
     tryCubeRootDenest,
   )
 where
@@ -29,10 +39,17 @@ import Surd.Radical.Eval (evalExact)
 import Surd.Types
 
 -- | Attempt to denest an nth root expression.
+--
+-- Tries, in order:
+--
+-- 1. Nested root collapse: @mth-root(nth-root a)@ -> @(m*n)th-root a@
+-- 2. Perfect power extraction for literal radicands
+-- 3. Cube root denesting for @cbrt(a + b*sqrt c)@
+-- 4. Recursive denesting of sub-expressions
 denestNthRoot :: RadExpr Rational -> RadExpr Rational
 denestNthRoot expr = case expr of
   Root n (Root m a) ->
-    -- ᵐ√(ⁿ√a) = ᵐⁿ√a
+    -- mth-root(nth-root a) = (m*n)th-root a
     denestNthRoot (Root (m * n) (denestNthRoot (Root 1 a)))
   Root n (Lit r)
     | r == 0 -> Lit 0
@@ -41,8 +58,8 @@ denestNthRoot expr = case expr of
     | odd n -> Neg (denestNthRoot (Root n (Lit (negate r))))
     | otherwise -> Root n (Lit r)
   Root 3 inner ->
-    -- Try cube root denesting: ³√(a + b√c) = p + q√c
-    -- where p³ + 3pq²c = a and 3p²q + q³c = b
+    -- Try cube root denesting: cbrt(a + b*sqrt c) = p + q*sqrt c
+    -- where p^3 + 3*p*q^2*c = a and 3*p^2*q + q^3*c = b
     case matchSqrtNested3 inner of
       Just (a, b, c) ->
         case tryCubeRootDenest a b c of
@@ -61,7 +78,10 @@ denestNthRoot expr = case expr of
       Pow a n -> Pow (denestNthRoot' a) n
       other -> other
 
--- | Simplify ⁿ√r for rational r by extracting perfect nth powers.
+-- | Simplify @nth-root(r)@ for rational @r@ by extracting perfect nth powers.
+--
+-- Factors @r = (numOut/denOut)^n * (numRem/denRem)@ and returns
+-- @(numOut/denOut) * nth-root(numRem/denRem)@.
 simplifyRootOfRational :: Int -> Rational -> RadExpr Rational
 simplifyRootOfRational n r =
   let num = numerator r
@@ -75,8 +95,9 @@ simplifyRootOfRational n r =
             (Lit (fromInteger numOut / fromInteger denOut))
             (Root n (Lit (fromInteger numRem / fromInteger denRem)))
 
--- | Extract the largest perfect nth power factor.
--- Returns (extracted, remainder) such that m = extracted^n * remainder.
+-- | Extract the largest perfect nth power factor from an integer.
+--
+-- Returns @(extracted, remainder)@ such that @m = extracted^n * remainder@.
 extractPower :: Int -> Integer -> (Integer, Integer)
 extractPower n m =
   let fs = factorise (fromInteger (abs m) :: Positive)
@@ -85,7 +106,8 @@ extractPower n m =
       sign = if m < 0 then -1 else 1
    in (extracted, sign * remainder)
 
--- | Match the pattern a + b√c in an expression (for cube root denesting).
+-- | Match the pattern @a + b*sqrt c@ in an expression (for cube root denesting).
+-- Handles several syntactic variants.
 matchSqrtNested3 :: RadExpr Rational -> Maybe (Rational, Rational, Rational)
 matchSqrtNested3 (Add (Lit a) (Mul (Lit b) (Root 2 (Lit c)))) = Just (a, b, c)
 matchSqrtNested3 (Add (Mul (Lit b) (Root 2 (Lit c))) (Lit a)) = Just (a, b, c)
@@ -95,39 +117,37 @@ matchSqrtNested3 (Add (Lit a) (Neg (Mul (Lit b) (Root 2 (Lit c))))) = Just (a, n
 matchSqrtNested3 (Add (Lit a) (Neg (Root 2 (Lit c)))) = Just (a, -1, c)
 matchSqrtNested3 _ = Nothing
 
--- | Try to denest ³√(a + b√c) into the form p + q√c
--- where p, q are rational numbers satisfying:
---   p³ + 3pq²c = a
---   3p²q + q³c = b
+-- | Try to denest @cbrt(a + b*sqrt c)@ into the form @p + q*sqrt c@
+-- where @p, q@ are rational numbers satisfying:
 --
--- We can also try the form ³√(a + b√c) = ³√s + ³√t
--- where s + t = a and s*t = -(b²c)/... but the first form is simpler.
+-- @
+-- p^3 + 3*p*q^2*c = a
+-- 3*p^2*q + q^3*c = b
+-- @
 --
--- Approach: if ³√(a + b√c) = p + q√c, then
---   (p + q√c)³ = p³ + 3p²q√c + 3pq²c + q³c√c
---              = (p³ + 3pq²c) + (3p²q + q³c)√c
---   So: a = p³ + 3pq²c, b = 3p²q + q³c = q(3p² + q²c)
+-- The algorithm:
 --
--- Also: (a + b√c)(a - b√c) = a² - b²c = N (the norm)
--- And ³√N = (p + q√c)(p - q√c) ... wait, that's p² - q²c.
--- So p² - q²c = ³√(a² - b²c).
---
--- For this to work with p,q rational, we need a² - b²c to be a perfect cube.
+-- 1. Compute the norm @N = a^2 - b^2*c@. If @N@ is not a perfect cube, fail.
+-- 2. From @p^2 - q^2*c = cbrt N@, substitute into the first equation to get
+--    the depressed cubic @4*p^3 - 3*cbrt(N)*p - a = 0@.
+-- 3. Find rational roots of this cubic (rational root theorem).
+-- 4. Compute @q^2 = (p^2 - cbrt N) / c@ and check it is a perfect square.
+-- 5. Verify the result via exact real evaluation.
 tryCubeRootDenest :: Rational -> Rational -> Rational -> Maybe (RadExpr Rational)
 tryCubeRootDenest a b c =
   let norm = a * a - b * b * c
    in case isRationalCubeRoot norm of
         Nothing -> Nothing
         Just cbrtNorm ->
-          -- p² - q²c = cbrtNorm
-          -- p³ + 3pq²c = a
-          -- From p² - q²c = cbrtNorm: q² = (p² - cbrtNorm) / c
-          -- Substitute into p³ + 3pq²c = a:
-          --   p³ + 3p(p² - cbrtNorm)/c * c = a
-          --   p³ + 3p(p² - cbrtNorm) = a
-          --   p³ + 3p³ - 3p*cbrtNorm = a
-          --   4p³ - 3p*cbrtNorm = a
-          -- So p is a rational root of 4x³ - 3*cbrtNorm*x - a = 0.
+          -- p^2 - q^2*c = cbrtNorm
+          -- p^3 + 3*p*q^2*c = a
+          -- From p^2 - q^2*c = cbrtNorm: q^2 = (p^2 - cbrtNorm) / c
+          -- Substitute into p^3 + 3*p*q^2*c = a:
+          --   p^3 + 3*p*(p^2 - cbrtNorm)/c * c = a
+          --   p^3 + 3*p*(p^2 - cbrtNorm) = a
+          --   p^3 + 3*p^3 - 3*p*cbrtNorm = a
+          --   4*p^3 - 3*p*cbrtNorm = a
+          -- So p is a rational root of 4*x^3 - 3*cbrtNorm*x - a = 0.
           let candidates = rationalCubeEqRoots 4 (-3 * cbrtNorm) (-a)
            in case candidates of
                 [] -> Nothing
@@ -150,6 +170,7 @@ tryCubeRootDenest a b c =
                                 else Nothing
 
 -- | Check if a rational is a perfect cube.
+-- Returns @Just (cbrt q)@ if @q@ is a perfect cube, @Nothing@ otherwise.
 isRationalCubeRoot :: Rational -> Maybe Rational
 isRationalCubeRoot q
   | q == 0 = Just 0
@@ -159,6 +180,7 @@ isRationalCubeRoot q
       Just (fromInteger (signum (numerator q) * sn) / fromInteger sd)
 
 -- | Check if a rational is a perfect square.
+-- Returns @Just (sqrt q)@ if @q >= 0@ is a perfect square, @Nothing@ otherwise.
 isRationalSqrt :: Rational -> Maybe Rational
 isRationalSqrt q
   | q < 0 = Nothing
@@ -168,18 +190,19 @@ isRationalSqrt q
       sd <- exactSquareRoot (denominator q)
       Just (fromInteger sn / fromInteger sd)
 
--- | Find rational roots of ax³ + bx + c = 0 (no x² term).
--- By rational root theorem, candidates are ±(divisor of c)/(divisor of a).
+-- | Find rational roots of @a*x^3 + b*x + c = 0@ (no @x^2@ term).
+--
+-- Uses the rational root theorem: candidates are @+/-(divisor of c) / (divisor of a)@.
 rationalCubeEqRoots :: Rational -> Rational -> Rational -> [Rational]
 rationalCubeEqRoots a b c =
-  let -- Evaluate ax³ + bx + c at x
+  let -- Evaluate a*x^3 + b*x + c at x
       f x = a * x * x * x + b * x + c
       -- Generate candidates from rational root theorem
       numC = abs (numerator c)
       denC = denominator c
       numA = abs (numerator a)
       denA = denominator a
-      -- Candidates: ±(divisors of c * denA) / (divisors of a * denC)
+      -- Candidates: +/-(divisors of c * denA) / (divisors of a * denC)
       -- Simplified: we try small rationals
       candidates =
         [ fromInteger p / fromInteger q

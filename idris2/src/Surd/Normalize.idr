@@ -1,3 +1,12 @@
+||| Normalization passes for radical expressions over Q.
+|||
+||| These are explicit transformations the user applies as needed.
+||| They do NOT denest -- see Denest for that.
+|||
+||| The pipeline is:
+|||   normalize = fixN 10 (collectTerms . collectCoefficients . distribute .
+|||     sortCommutative . extractPerfectPowers . simplifyPowers .
+|||     foldConstants . flattenArith)
 module Surd.Normalize
 
 import Surd.Rational

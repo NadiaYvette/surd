@@ -35,15 +35,17 @@ data TowerElem
   | TExt ![TowerElem] !TowerLevel
   deriving (Show)
 
--- | One level of the field tower.
+-- | One level of the field tower, describing a single simple radical
+-- extension \(K(\alpha)\) where \(\alpha^n = r\) for some element
+-- \(r\) of the base field \(K\).
 data TowerLevel = TowerLevel
-  { -- | Unique level identifier
+  { -- | Unique level identifier (assigned by caller)
     tlId :: !Int,
-    -- | Extension degree
+    -- | Extension degree (= @tlRootDeg@ for radical extensions)
     tlDegree :: !Int,
-    -- | n: generator satisfies α^n = radicand
+    -- | Root degree \(n\): the generator satisfies \(\alpha^n = r\)
     tlRootDeg :: !Int,
-    -- | r: generator = ⁿ√r
+    -- | Radicand \(r\): the generator is \(\sqrt[n]{r}\)
     tlRadicand :: !TowerElem
   }
   deriving (Show)
@@ -55,10 +57,18 @@ instance Eq TowerLevel where
 -- Zero checking and level inspection
 -- ---------------------------------------------------------------------------
 
+-- | Test whether a tower element is zero.
+--
+-- For rational elements, checks @r == 0@. For extension elements,
+-- checks that all coefficients are recursively zero. This is needed
+-- for coefficient trimming, equality testing, and zero-divisor checks
+-- in the extended GCD inversion algorithm.
 tIsZero :: TowerElem -> Bool
 tIsZero (TRat r) = r == 0
 tIsZero (TExt cs _) = all tIsZero cs
 
+-- | Get the outermost extension level of a tower element, or
+-- 'Nothing' for a rational element (which lives in the base field Q).
 tLevel :: TowerElem -> Maybe TowerLevel
 tLevel (TRat _) = Nothing
 tLevel (TExt _ l) = Just l
@@ -94,8 +104,13 @@ trimTE = reverse . dropWhile tIsZero . reverse
 -- Num instance
 -- ---------------------------------------------------------------------------
 
--- | Promote a tower element to a given level by embedding as constant.
--- Only works when the element is at a strictly lower level than the target.
+-- | Promote a tower element to a given level by embedding as the
+-- constant coefficient in the higher extension.
+--
+-- If element @e@ lives in field @K@, then @promoteTo lvl e@ embeds it
+-- as @e + 0*α + 0*α² + ...@ in @K(α)@ where @α@ is the generator
+-- of @lvl@. Errors if the element already lives at a /higher/ level
+-- than the target (demotion is not supported).
 promoteTo :: TowerLevel -> TowerElem -> TowerElem
 promoteTo lvl e@(TRat _) = TExt (e : replicate (tlDegree lvl - 1) (TRat 0)) lvl
 promoteTo lvl e@(TExt _ l)
@@ -103,7 +118,11 @@ promoteTo lvl e@(TExt _ l)
   | tlId l < tlId lvl = TExt (e : replicate (tlDegree lvl - 1) (TRat 0)) lvl
   | otherwise = error $ "promoteTo: cannot demote level " ++ show (tlId l) ++ " to " ++ show (tlId lvl)
 
--- | Get the outermost level ID, or -1 for TRat.
+-- | Get the outermost level ID, or @-1@ for 'TRat' (base field Q).
+--
+-- Level IDs are assigned by the caller of 'adjoinTowerRoot' and should
+-- be globally unique within a tower construction. Higher IDs correspond
+-- to later (outer) extensions.
 levelId :: TowerElem -> Int
 levelId (TRat _) = -1
 levelId (TExt _ l) = tlId l
@@ -288,10 +307,13 @@ polySub (a : as) (b : bs) = (a - b) : polySub as bs
 -- Tower construction
 -- ---------------------------------------------------------------------------
 
--- | Adjoin an nth root to the tower: create a new level where α^n = r.
--- Returns the new level and the generator α.
+-- | Adjoin an \(n\)th root to the tower: create a new extension level
+-- where the generator \(\alpha\) satisfies \(\alpha^n = r\).
 --
--- The level ID should be globally unique (caller provides it).
+-- Returns the new 'TowerLevel' and the generator element \(\alpha\),
+-- represented as @[0, 1, 0, ..., 0]@ (the polynomial \(\alpha\)) in
+-- the new extension. The level ID must be globally unique within the
+-- tower being constructed (the caller is responsible for this).
 adjoinTowerRoot ::
   -- | Level ID (unique)
   Int ->
@@ -316,10 +338,17 @@ adjoinTowerRoot lvlId n r =
 -- Conversion to RadExpr
 -- ---------------------------------------------------------------------------
 
--- | Convert a tower element to a radical expression.
+-- | Convert a tower element to a radical expression ('RadExpr').
 --
--- Each tower level's generator α at level l is converted to
--- Root (tlRootDeg l) (towerToRadExpr (tlRadicand l)).
+-- Recursively expands each extension level's generator \(\alpha\) as
+-- @'Root' n (towerToRadExpr r)@ where \(\alpha^n = r\), and
+-- reconstructs the polynomial expression
+-- \(c_0 + c_1 \alpha + \cdots + c_{d-1} \alpha^{d-1}\).
+--
+-- Warning: the resulting expression may be exponentially large for deep
+-- towers, since each level's generator is expanded independently. For
+-- display purposes, prefer the structured rendering in
+-- "Surd.Field.DynTower.Display".
 towerToRadExpr :: TowerElem -> RadExpr Rational
 towerToRadExpr (TRat r) = Lit r
 towerToRadExpr (TExt cs level) =

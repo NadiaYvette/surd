@@ -1,3 +1,12 @@
+||| Dense univariate polynomial arithmetic over rings and fields.
+|||
+||| Polynomials are stored as coefficient lists, low-degree first.
+||| Invariant: trailing zeros are stripped (leading coefficient is nonzero),
+||| except for the zero polynomial which is [].
+|||
+||| Includes Ring/Field interfaces for coefficient abstraction,
+||| plus Euclidean division, GCD, square-free factorisation (Yun),
+||| and composition.
 module Surd.Poly
 
 import Data.List

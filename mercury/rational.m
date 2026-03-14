@@ -23,48 +23,90 @@
 
 %---------------------------------------------------------------------------%
 
+    % An exact rational number p/q in lowest terms with positive denominator.
+    %
 :- type rational.
 
+    % Extract the numerator.
+    %
 :- func numer(rational) = integer.
 
+    % Extract the denominator (always positive).
+    %
 :- func denom(rational) = integer.
 
+    % The rational number 0/1.
+    %
 :- func zero = rational.
 
+    % The rational number 1/1.
+    %
 :- func one = rational.
 
+    % Strict less-than comparison.
+    %
 :- pred '<'(rational::in, rational::in) is semidet.
 
+    % Strict greater-than comparison.
+    %
 :- pred '>'(rational::in, rational::in) is semidet.
 
+    % Less-than-or-equal comparison.
+    %
 :- pred '=<'(rational::in, rational::in) is semidet.
 
+    % Greater-than-or-equal comparison.
+    %
 :- pred '>='(rational::in, rational::in) is semidet.
 
+    % Construct a rational from a machine integer.
+    %
 :- func rational(int) = rational.
 
+    % Construct a rational from a numerator/denominator pair of machine integers.
+    %
 :- func rational(int, int) = rational.
 
+    % Construct a rational from an arbitrary-precision integer.
+    %
 :- func from_integer(integer) = rational.
 
+    % Construct a rational from an arbitrary-precision numerator and denominator.
+    %
 :- func from_integers(integer, integer) = rational.
 
 % :- func float(rational) = float.
 
+    % Unary plus (identity).
+    %
 :- func '+'(rational) = rational.
 
+    % Unary minus (negation).
+    %
 :- func '-'(rational) = rational.
 
+    % Addition.
+    %
 :- func rational + rational = rational.
 
+    % Subtraction.
+    %
 :- func rational - rational = rational.
 
+    % Multiplication.
+    %
 :- func rational * rational = rational.
 
+    % Division. Throws an exception if the divisor is zero.
+    %
 :- func rational / rational = rational.
 
+    % Reciprocal (1/x). Throws an exception if x is zero.
+    %
 :- func reciprocal(rational) = rational.
 
+    % Absolute value.
+    %
 :- func abs(rational) = rational.
 
 %---------------------------------------------------------------------------%

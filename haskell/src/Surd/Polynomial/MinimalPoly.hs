@@ -1,8 +1,21 @@
 -- | Compute the minimal polynomial of a radical expression over Q.
 --
--- The basic approach: given a radical expression α, build a polynomial
--- that α satisfies, then factor it to find the irreducible factor
--- that α is actually a root of (verified by numerical evaluation).
+-- The basic approach: given a radical expression \(\alpha\), build a polynomial
+-- that \(\alpha\) satisfies (an /annihilating polynomial/), then factor it
+-- over \(\mathbb{Q}\) to find the irreducible factor that \(\alpha\) is
+-- actually a root of (verified by numerical evaluation).
+--
+-- The annihilating polynomial is constructed recursively using resultants:
+--
+--   * @Lit r@: annihilated by @x - r@
+--   * @a + b@: use the composed sum @Res_y(p_a(y), p_b(x - y))@
+--   * @a * b@: use the composed product @Res_y(y^d * p_a(x\/y), p_b(y))@
+--   * @Root n a@: if @p(x)@ annihilates @a@, then @p(x^n)@ annihilates @a^{1\/n}@
+--   * @Inv a@: reciprocal polynomial @x^d * p(1\/x)@
+--
+-- This per-node approach can cause exponential blowup when radicals are
+-- shared. For expressions with many shared radicals, use the tower-based
+-- approach in "Surd.Polynomial.MinimalPolyTower" instead.
 module Surd.Polynomial.MinimalPoly
   ( minimalPoly,
     annihilatingPoly,
@@ -40,8 +53,15 @@ minimalPoly expr =
         (f : fs) -> monicPoly $ pickClosest v (f :| fs)
 
 -- | Compute an annihilating polynomial (not necessarily minimal) for
--- a radical expression. The expression is guaranteed to be a root of
--- this polynomial, but it may be reducible.
+-- a radical expression.
+--
+-- The expression is guaranteed to be a root of the returned polynomial,
+-- but the polynomial may be reducible (i.e., not the minimal polynomial).
+-- Use 'minimalPoly' to obtain the irreducible factor.
+--
+-- Built recursively using resultant-based composition operations:
+-- composed sum for addition, composed product for multiplication,
+-- @x^n@-substitution for nth roots, and reciprocal polynomial for inversion.
 annihilatingPoly :: RadExpr Rational -> Poly Rational
 annihilatingPoly (Lit r) =
   -- Minimal poly of r ∈ Q is (x - r)

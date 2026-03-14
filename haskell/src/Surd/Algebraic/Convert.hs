@@ -35,7 +35,17 @@ import Surd.Types
 -- | Convert a radical expression to its canonical algebraic number form.
 --
 -- Computes the minimal polynomial and isolates the correct root using
--- numerical evaluation to pick the right factor.
+-- numerical evaluation to pick the right factor. Tries three approaches
+-- in order of preference:
+--
+--   1. Tower-based minimal polynomial ('minimalPolyTower') -- fast for
+--      expressions with shared radicals.
+--   2. Resultant-based minimal polynomial ('minimalPoly') -- always
+--      correct but may produce large intermediate polynomials.
+--   3. Raw annihilating polynomial ('annihilatingPoly') -- may be
+--      reducible but guaranteed to have the value as a root.
+--
+-- Falls back to a crude interval if all factoring/isolation attempts fail.
 radExprToAlgNum :: RadExpr Rational -> AlgNum
 radExprToAlgNum expr =
   let -- Try tower-based approach first (fast for shared radicals)
@@ -91,16 +101,31 @@ solveQuintic a =
     Just e -> Just e
     Nothing -> Nothing  -- not solvable or numerical matching failed
 
--- | Simplify a radical expression by converting to canonical form
--- and back. If the algebraic number has a simpler radical representation,
--- return it; otherwise return the original.
+-- | Simplify a radical expression by round-tripping through the
+-- algebraic number representation.
+--
+-- Converts the expression to an 'AlgNum' (computing its minimal
+-- polynomial), then attempts to convert back to a radical expression
+-- via 'algNumToRadExpr'. If the back-conversion succeeds and produces
+-- a simpler form, returns it; otherwise returns the original expression
+-- unchanged.
+--
+-- This is the primary simplification strategy for expressions like
+-- @cos(2π\/7)@, where the Gauss period output has many radicals but
+-- the minimal polynomial is only degree 3, yielding a compact Cardano
+-- form.
 simplifyViaCanonical :: RadExpr Rational -> RadExpr Rational
 simplifyViaCanonical expr =
   let algNum = radExprToAlgNum expr
    in maybe expr normalize (algNumToRadExpr algNum)
 
 -- | Get a human-readable summary of the algebraic number form
--- of a radical expression: minimal polynomial, degree, approximate value.
+-- of a radical expression.
+--
+-- Shows the minimal polynomial, its degree, an approximate decimal
+-- value, and (if degree \(\le 5\)) the radical form with its LaTeX
+-- rendering. Useful for debugging and inspecting the canonical form
+-- of a radical expression.
 algNumInfo :: RadExpr Rational -> String
 algNumInfo expr =
   let algNum = radExprToAlgNum expr

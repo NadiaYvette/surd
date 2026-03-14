@@ -46,42 +46,58 @@ import Surd.Types (RadExpr(..), pattern Sqrt, ratE)
 -- Types
 --------------------------------------------------------------------------------
 
--- | An elliptic integrand: R(x) dx / √P(x), where R(x) = num/den.
+-- | An elliptic integrand of the form \(\int R(x) \, dx / \sqrt{P(x)}\),
+-- where \(R(x) = \text{num}/\text{den}\) is a rational function and
+-- \(P(x)\) is a polynomial of degree 3 or 4 with all real roots.
 data EllipticIntegrand = EllipticIntegrand
-  { eiNum      :: !(Poly Rational)  -- ^ R(x) numerator
-  , eiDen      :: !(Poly Rational)  -- ^ R(x) denominator
-  , eiRadicand :: !(Poly Rational)  -- ^ P(x), degree 3 or 4
+  { eiNum      :: !(Poly Rational)  -- ^ Numerator of \(R(x)\)
+  , eiDen      :: !(Poly Rational)  -- ^ Denominator of \(R(x)\)
+  , eiRadicand :: !(Poly Rational)  -- ^ Radicand polynomial \(P(x)\), degree 3 or 4
   } deriving (Show)
 
--- | Which kind of Legendre elliptic integral.
+-- | Which of the three standard Legendre elliptic integral forms.
+--
+--   * 'FirstKind' \(F(\varphi, k)\) -- integrates \(1/\sqrt{1 - k^2 \sin^2\varphi}\)
+--   * 'SecondKind' \(E(\varphi, k)\) -- integrates \(\sqrt{1 - k^2 \sin^2\varphi}\)
+--   * 'ThirdKind' \(\Pi(\varphi, n, k)\) -- includes an additional pole parameter \(n\)
 data LegendreKind = FirstKind | SecondKind | ThirdKind
   deriving (Show, Eq)
 
--- | A single Legendre form term: coeff · F/E/Π(φ, [n,] k).
+-- | A single Legendre normal form term: \(c \cdot F(\varphi, k)\),
+-- \(c \cdot E(\varphi, k)\), or \(c \cdot \Pi(\varphi, n, k)\).
+--
+-- The modulus \(k\) and coefficient \(c\) are exact radical expressions
+-- computed from the cross-ratio of the roots of the radicand polynomial.
 data LegendreForm = LegendreForm
-  { lfKind      :: !LegendreKind
-  , lfCoeff     :: !(RadExpr Rational)     -- ^ scaling coefficient
-  , lfAmplitude :: !AmplitudeExpr          -- ^ φ(x)
-  , lfParameter :: !(Maybe (RadExpr Rational))  -- ^ n for Π, Nothing for F/E
-  , lfModulus   :: !(RadExpr Rational)     -- ^ modulus k
+  { lfKind      :: !LegendreKind           -- ^ Which Legendre form (F, E, or Pi)
+  , lfCoeff     :: !(RadExpr Rational)     -- ^ Scaling coefficient \(c\)
+  , lfAmplitude :: !AmplitudeExpr          -- ^ Amplitude \(\varphi(x)\)
+  , lfParameter :: !(Maybe (RadExpr Rational))  -- ^ Characteristic \(n\) for \(\Pi\), 'Nothing' for F\/E
+  , lfModulus   :: !(RadExpr Rational)     -- ^ Elliptic modulus \(k\)
   } deriving (Show)
 
--- | Expression for the amplitude φ = arcsin(g(x)).
--- g(x) = √((x - a) / (b - a)) for cubic/quartic reductions.
+-- | Expression for the Legendre amplitude
+-- \(\varphi = \arcsin\sqrt{(x - a) / (b - a)}\),
+-- parametrised by the shift \(a\) (a root of \(P\)) and a scale
+-- factor \(1/(b - a)\) where \(b\) is an adjacent root.
 data AmplitudeExpr = AmplitudeExpr
-  { aeShift :: !(RadExpr Rational)    -- ^ a (subtracted from x)
-  , aeScale :: !(RadExpr Rational)    -- ^ 1/(b-a) (inside the sqrt)
+  { aeShift :: !(RadExpr Rational)    -- ^ Root \(a\) subtracted from \(x\)
+  , aeScale :: !(RadExpr Rational)    -- ^ Scale factor \(1/(b - a)\) inside the square root
   } deriving (Show)
 
--- | Result of elliptic reduction.
+-- | Result of reducing an elliptic integral to Legendre normal forms.
+--
+-- Contains the sum of Legendre form terms, the exact radical expressions
+-- for the modulus \(k\) and \(k^2\), the roots of the radicand polynomial
+-- in descending order, and metadata about the original integrand.
 data EllipticResult = EllipticResult
-  { erTerms     :: ![LegendreForm]         -- ^ sum of Legendre forms
-  , erModulus   :: !(RadExpr Rational)      -- ^ modulus k
-  , erModulusSq :: !(RadExpr Rational)      -- ^ k²
-  , erRoots     :: ![RadExpr Rational]      -- ^ roots of P(x), descending
-  , erLeadCoeff :: !Rational               -- ^ leading coefficient of P(x)
-  , erDegree    :: !Int                     -- ^ degree of P(x)
-  , erJacobi    :: !Bool                    -- ^ if True, show Jacobi form
+  { erTerms     :: ![LegendreForm]         -- ^ Sum of Legendre form terms
+  , erModulus   :: !(RadExpr Rational)      -- ^ Elliptic modulus \(k\) as a radical
+  , erModulusSq :: !(RadExpr Rational)      -- ^ \(k^2\) as a radical
+  , erRoots     :: ![RadExpr Rational]      -- ^ Roots of \(P(x)\) in descending order
+  , erLeadCoeff :: !Rational               -- ^ Leading coefficient of \(P(x)\)
+  , erDegree    :: !Int                     -- ^ Degree of \(P(x)\) (3 or 4)
+  , erJacobi    :: !Bool                    -- ^ If 'True', render using inverse Jacobi notation
   } deriving (Show)
 
 --------------------------------------------------------------------------------
@@ -174,7 +190,21 @@ simplifyRad = simplifyViaCanonical . normalize . fromNormExpr . toNormExpr
 -- Reduction to Legendre forms
 --------------------------------------------------------------------------------
 
--- | Main entry point: reduce an elliptic integral to Legendre forms.
+-- | Reduce an elliptic integral to a sum of Legendre normal forms.
+--
+-- Given an integrand \(\int R(x) \, dx / \sqrt{P(x)}\) where \(P(x)\)
+-- has degree 3 or 4 with all real roots, computes:
+--
+--   1. The real roots of \(P(x)\) as exact radical expressions.
+--   2. The elliptic modulus \(k\) from the cross-ratio of the roots.
+--   3. A sum of Legendre forms \(F(\varphi, k)\), \(E(\varphi, k)\),
+--      and\/or \(\Pi(\varphi, n, k)\) equivalent to the original integral.
+--
+-- The @jacobi@ flag controls whether first-kind integrals are rendered
+-- as \(F(\varphi, k)\) or as \(\operatorname{sn}^{-1}(\sin\varphi, k)\).
+--
+-- Returns 'Nothing' if \(P(x)\) has complex roots, degree is not 3 or 4,
+-- or the integrand form is not supported.
 reduceElliptic :: Bool -> EllipticIntegrand -> Maybe EllipticResult
 reduceElliptic jacobi ei = do
   let p = eiRadicand ei
@@ -377,6 +407,10 @@ reducePiTerm c pole roots lc d _k2rad kRad = case d of
 -- Rendering: text
 --------------------------------------------------------------------------------
 
+-- | Render an elliptic reduction result as plain text.
+--
+-- Shows the roots of \(P(x)\), the modulus \(k\) and \(k^2\), and each
+-- Legendre form term with its coefficient and arguments.
 prettyEllipticResult :: EllipticResult -> String
 prettyEllipticResult er = unlines $
   [ "Roots of P(x) (descending): " ++ prettyRootList (erRoots er)
@@ -446,6 +480,11 @@ prettyAmpInner ae =
 -- Rendering: LaTeX
 --------------------------------------------------------------------------------
 
+-- | Render an elliptic reduction result as LaTeX math.
+--
+-- Uses standard notation: \(F(\varphi, k)\), \(E(\varphi, k)\),
+-- \(\Pi(\varphi, n, k)\), with @\\arcsin@ for amplitudes and
+-- radical expressions for the modulus and coefficients.
 latexEllipticResult :: EllipticResult -> String
 latexEllipticResult er = unlines $
   [ "\\text{Roots of } P(x) \\text{ (descending): } " ++ latexRootList (erRoots er)

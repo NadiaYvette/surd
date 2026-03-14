@@ -27,31 +27,42 @@
 
 %---------------------------------------------------------------------------%
 
+    % Result of a trig evaluation: either a closed-form radical
+    % expression, or the minimal polynomial when radicals are not
+    % available (or too complex).
+    %
 :- type trig_result
     --->    radical(rad_expr(rational))
     ;       min_poly(poly(rational)).
 
-    % Compute cos(pπ/q) exactly.
+    % Compute cos(pπ/q) exactly as a radical expression.
+    % The arguments are the numerator p and denominator q (q > 0).
+    % Reduces the angle to the first period before computing.
     %
 :- func cos_exact(integer, integer) = trig_result.
 
-    % Compute sin(pπ/q) exactly.
+    % Compute sin(pπ/q) exactly as a radical expression.
+    % Uses direct period lookup when possible, otherwise derives
+    % from cos via sqrt(1 - cos^2) with sign correction.
     %
 :- func sin_exact(integer, integer) = trig_result.
 
-    % Compute tan(pπ/q) exactly, as sin/cos.
+    % Compute tan(pπ/q) exactly as sin/cos.
+    % Returns no if either sin or cos is not expressible as a radical.
     %
 :- func tan_exact(integer, integer) = maybe(trig_result).
 
-    % Return the minimal polynomial of cos(2π/n) (actually Φₙ).
+    % Return the nth cyclotomic polynomial (minimal polynomial of cos(2π/n)).
     %
 :- func cos_min_poly(int) = poly(rational).
 
-    % Simplify a trig result for display.
+    % Simplify a trig result for display via canonical simplification
+    % and NormalForm round-trip.
     %
 :- func simplify_trig_result(trig_result) = trig_result.
 
-    % Compute simplified sin from simplified cos for display.
+    % Compute simplified sin from a simplified cos result.
+    % Applies sign correction based on the quadrant of pπ/q.
     %
 :- func simplified_sin(integer, integer, trig_result) = trig_result.
 

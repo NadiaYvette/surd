@@ -41,8 +41,23 @@ import Surd.Radical.Expr qualified as Expr
 import Surd.Radical.Normalize (normalize)
 import Surd.Types
 
--- | Compute the minimal polynomial of a radical expression over Q,
+-- | Compute the minimal polynomial of a radical expression over \(\mathbb{Q}\),
 -- using the extension tower approach.
+--
+-- This is the preferred method for expressions with shared radicals.
+-- The algorithm:
+--
+--   1. Collects distinct radicals (topologically sorted, leaves first)
+--   2. Builds an extension tower \(\mathbb{Q}(\alpha_1)(\alpha_2)\cdots\)
+--   3. Evaluates the expression in the tower (exact arithmetic)
+--   4. Computes the annihilating polynomial via iterated norms
+--      (one resultant per tower level)
+--   5. Factors over \(\mathbb{Q}\) and selects the irreducible factor
+--      whose root is closest to the numerical value
+--
+-- For expressions with more than 3 radicals, tries the PSLQ numerical
+-- approach first (via 'findMinPoly'), which is much faster than the
+-- tower computation for deep towers.
 minimalPolyTower :: RadExpr Rational -> Poly Rational
 minimalPolyTower expr =
   let ann = annihilatingPolyTower expr
@@ -54,6 +69,10 @@ minimalPolyTower expr =
 
 -- | Compute an annihilating polynomial (not necessarily minimal) via
 -- the extension tower approach.
+--
+-- Normalizes the expression, collects distinct radicals, then either
+-- evaluates in a tower of field extensions (for <= 6 radicals) or
+-- falls back to the per-node resultant approach.
 annihilatingPolyTower :: RadExpr Rational -> Poly Rational
 annihilatingPolyTower expr =
   let expr' = normalize expr
@@ -68,10 +87,15 @@ annihilatingPolyTower expr =
           -- Build tower and compute
           computeViaTower expr' radicals
 
--- | Collect all distinct radical subexpressions, ordered leaves-first.
--- Each entry is (root degree, radicand expression).
--- Uses structural equality to identify shared radicals.
--- Radicands are normalized to improve sharing.
+-- | Collect all distinct radical subexpressions, ordered leaves-first
+-- (topological order).
+--
+-- Each entry is @(rootDegree, radicandExpression)@. For example,
+-- @sqrt(2 + sqrt(3))@ yields @[(2, Lit 3), (2, Add (Lit 2) (Root 2 (Lit 3)))]@.
+--
+-- Uses structural equality (after normalization) to identify shared radicals.
+-- The ordering ensures that each radical's radicand only references
+-- radicals earlier in the list, which is required for correct tower construction.
 collectRadicals :: RadExpr Rational -> [(Int, RadExpr Rational)]
 collectRadicals = Expr.collectRadicals . normalize
 

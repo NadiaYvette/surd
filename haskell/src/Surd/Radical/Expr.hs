@@ -1,6 +1,10 @@
--- | Convenience operations on radical expressions.
+-- |
+-- Module      : Surd.Radical.Expr
+-- Description : Smart constructors and structural queries for radical expressions
+-- Stability   : experimental
 --
--- These do NOT normalise — they just build the AST.
+-- Convenience operations for building and inspecting 'RadExpr' trees.
+-- These functions do /not/ normalize -- they just construct the AST nodes.
 -- Use "Surd.Radical.Normalize" for simplification.
 module Surd.Radical.Expr
   ( -- * Construction helpers
@@ -34,44 +38,61 @@ import Data.List (nub)
 import Surd.Types
 import Prelude hiding (div, sqrt)
 
--- | Literal coefficient.
+-- | Build a coefficient literal node.
 lit :: k -> RadExpr k
 lit = Lit
 
+-- | Build a negation node.
 neg :: RadExpr k -> RadExpr k
 neg = Neg
 
+-- | Build an addition node.
 add :: RadExpr k -> RadExpr k -> RadExpr k
 add = Add
 
+-- | Build a subtraction node: @sub a b = Add a (Neg b)@.
 sub :: RadExpr k -> RadExpr k -> RadExpr k
 sub a b = Add a (Neg b)
 
+-- | Build a multiplication node.
 mul :: RadExpr k -> RadExpr k -> RadExpr k
 mul = Mul
 
+-- | Build a division node: @div' a b = Mul a (Inv b)@.
+--
+-- Named @div'@ to avoid clashing with 'Prelude.div'.
 div' :: RadExpr k -> RadExpr k -> RadExpr k
 div' a b = Mul a (Inv b)
 
+-- | Build a multiplicative inverse node.
 inv :: RadExpr k -> RadExpr k
 inv = Inv
 
+-- | Build an @n@th root node: @root n x@ represents @x^(1/n)@.
 root :: Int -> RadExpr k -> RadExpr k
 root = Root
 
+-- | Build a square root node: @sqrt' x = Root 2 x@.
+--
+-- Named @sqrt'@ to avoid clashing with 'Prelude.sqrt'.
 sqrt' :: RadExpr k -> RadExpr k
 sqrt' = Root 2
 
+-- | Build an integer power node: @pow e n@ represents @e^n@.
 pow :: RadExpr k -> Int -> RadExpr k
 pow = Pow
 
+-- | Lift an 'Integer' into a @RadExpr Rational@.
 fromInteger' :: Integer -> RadExpr Rational
 fromInteger' = Lit . fromInteger
 
+-- | Lift a 'Rational' into a @RadExpr Rational@.
 fromRational' :: Rational -> RadExpr Rational
 fromRational' = Lit
 
 -- | Nesting depth of the expression tree.
+--
+-- Leaves ('Lit') have depth 0. Each unary or binary node adds 1.
 depth :: RadExpr k -> Int
 depth (Lit _) = 0
 depth (Neg a) = depth a
@@ -81,7 +102,7 @@ depth (Inv a) = 1 + depth a
 depth (Root _ a) = 1 + depth a
 depth (Pow a _) = 1 + depth a
 
--- | Number of nodes in the expression tree.
+-- | Number of nodes in the expression tree (including leaves).
 size :: RadExpr k -> Int
 size (Lit _) = 1
 size (Neg a) = 1 + size a
@@ -91,7 +112,11 @@ size (Inv a) = 1 + size a
 size (Root _ a) = 1 + size a
 size (Pow a _) = 1 + size a
 
--- | Check if the expression contains no occurrences of 'Root'.
+-- | Test whether all coefficients in the expression satisfy a predicate.
+--
+-- This traverses the entire tree, returning 'True' only if the predicate
+-- holds for every 'Lit' coefficient. Despite the name, it does not
+-- specifically check for 'Root' nodes.
 freeOf :: (k -> Bool) -> RadExpr k -> Bool
 freeOf p (Lit k) = p k
 freeOf p (Neg a) = freeOf p a
@@ -101,12 +126,16 @@ freeOf p (Inv a) = freeOf p a
 freeOf p (Root _ a) = freeOf p a
 freeOf p (Pow a _) = freeOf p a
 
--- | Map a function over the coefficients (same as 'fmap' but with
--- a more descriptive name for the domain).
+-- | Map a function over the coefficients. Same as 'fmap' but with
+-- a more descriptive name for the radical expression domain.
 mapCoeffs :: (a -> b) -> RadExpr a -> RadExpr b
 mapCoeffs = fmap
 
 -- | Collect distinct @(rootIndex, radicand)@ pairs from an expression.
+--
+-- Traverses the tree, collecting every 'Root' occurrence as a pair
+-- @(n, radicand)@. Duplicates are removed (preserving first-occurrence
+-- order via 'nub').
 collectRadicals :: (Eq k) => RadExpr k -> [(Int, RadExpr k)]
 collectRadicals = nub . go
   where
@@ -120,8 +149,10 @@ collectRadicals = nub . go
 
 -- | Topologically sort radicals so that radicals with rational radicands
 -- come first, followed by radicals whose radicands depend only on
--- earlier radicals. Unresolvable radicals (cyclic dependencies) are
--- appended at the end.
+-- earlier radicals.
+--
+-- If cyclic dependencies exist (which should not happen for well-formed
+-- radical expressions), unresolvable radicals are appended at the end.
 topoSortRadicals :: (Eq k) => [(Int, RadExpr k)] -> [(Int, RadExpr k)]
 topoSortRadicals = go []
   where
@@ -134,7 +165,8 @@ topoSortRadicals = go []
             else go (sorted ++ ready) remaining'
 
 -- | Check whether all 'Root' subexpressions in a radicand are present
--- in the resolved set.
+-- in the resolved set. Used by 'topoSortRadicals' to determine which
+-- radicals are ready to be processed next.
 allRootsResolved :: (Eq k) => [(Int, RadExpr k)] -> RadExpr k -> Bool
 allRootsResolved _ (Lit _) = True
 allRootsResolved resolved (Neg a) = allRootsResolved resolved a

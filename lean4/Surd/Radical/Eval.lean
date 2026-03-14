@@ -1,5 +1,10 @@
 /-
   Surd.Radical.Eval — Numerical evaluation of radical expressions.
+
+  Provides `eval` (Float), `evalComplex` (Complex Float), and
+  `evalInterval` / `evalComplexInterval` for rigorous interval
+  enclosures.  Complex evaluation handles expressions with complex
+  intermediates (e.g., cube roots via the casus irreducibilis).
 -/
 import Surd.Radical.Expr
 import Surd.Interval

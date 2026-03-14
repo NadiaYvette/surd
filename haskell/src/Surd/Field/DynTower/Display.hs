@@ -36,36 +36,51 @@ import Surd.Field.DynTower (TowerElem (..), TowerLevel (..), tIsZero)
 -- Tower structure extraction
 -- ---------------------------------------------------------------------------
 
--- | A single extension step in the tower.
+-- | A single extension step in the tower, associating a human-readable
+-- name with the generator of that extension level.
+--
+-- For example, in the tower \(\mathbb{Q} \subset \mathbb{Q}(\alpha)
+-- \subset \mathbb{Q}(\alpha)(\beta)\), there would be two steps:
+-- one for \(\alpha\) (e.g., a square root) and one for \(\beta\).
 data ExtensionStep = ExtensionStep
-  { -- | The tower level
+  { -- | The underlying tower level
     esLevel :: !TowerLevel,
-    -- | Human-readable name for the generator (α₁, α₂, ...)
+    -- | Human-readable name for the generator (e.g., "α", "β", "γ")
     esName :: !String,
-    -- | LaTeX name for the generator
+    -- | LaTeX name for the generator (e.g., "\\alpha", "\\beta")
     esLatexName :: !String,
-    -- | Degree of the extension
+    -- | Degree of the extension (\(\alpha^n = r\))
     esDegree :: !Int,
-    -- | Minimal polynomial description: αⁿ = radicand
+    -- | Radicand: the element \(r\) such that the generator satisfies \(\alpha^n = r\)
     esRadicand :: !TowerElem
   }
   deriving (Show)
 
--- | Complete tower display data.
+-- | Complete tower display data: the sequence of extension steps plus
+-- the element to be rendered and a label string.
+--
+-- Produced by 'extractTower' and consumed by 'latexTower' or 'prettyTower'.
 data TowerDisplay = TowerDisplay
-  { -- | Extension steps, from bottom (closest to Q) to top
+  { -- | Extension steps, ordered from bottom (closest to \(\mathbb{Q}\)) to top
     tdSteps :: ![ExtensionStep],
-    -- | The element being displayed, expressed in terms of the tower
+    -- | The element being displayed, expressed in terms of the tower generators
     tdElement :: !TowerElem,
-    -- | Label for the element (e.g. "cos(2π/11)")
+    -- | Label for the element (e.g., @\"cos(2π\/11)\"@)
     tdLabel :: !String
   }
   deriving (Show)
 
--- | Extract the tower structure from a TowerElem.
--- Collects all distinct tower levels referenced (transitively),
--- merges levels with the same degree and radicand (e.g., two √(-3)
--- extensions created for different periods), and orders from bottom to top.
+-- | Extract the tower structure from a 'TowerElem'.
+--
+-- Traverses the element recursively to collect all distinct tower levels
+-- referenced (including those in radicands of other levels). Levels with
+-- the same degree and structurally equivalent radicand are merged (e.g.,
+-- two independent \(\sqrt{-3}\) extensions get a single name). The
+-- resulting steps are ordered from bottom (closest to \(\mathbb{Q}\))
+-- to top.
+--
+-- The @label@ argument is used as a display label for the element
+-- (e.g., @\"cos(2π\/11)\"@).
 extractTower :: String -> TowerElem -> TowerDisplay
 extractTower label e =
   let levels = collectLevels e
@@ -195,11 +210,13 @@ buildNameMap td =
 -- LaTeX rendering
 -- ---------------------------------------------------------------------------
 
--- | Render a tower element as a complete LaTeX display.
--- Shows the tower of field extensions and the element's expression.
--- Uses @alignat*@ with two column pairs: the first for the name and @=@,
--- the second for the expression.  This separates the alignment of @=@
--- from the start of potentially long right-hand sides.
+-- | Render a complete tower display as LaTeX, showing both the tower
+-- of field extensions and the final element expression.
+--
+-- Each extension step is shown as \(\alpha^n = r\) with a bracketed
+-- notation \([\alpha = \sqrt[n]{r}]\). The output is wrapped in an
+-- @alignat*@ environment. Long radicands are automatically split
+-- across multiple alignment rows for readability.
 latexTower :: TowerDisplay -> String
 latexTower td =
   let nm = buildNameMap td
@@ -288,7 +305,10 @@ splitAtTerms = finish . go (0 :: Int) (0 :: Int) (0 :: Int) ""
 
     finish = filter (not . null)
 
--- | Render a TowerElem as LaTeX, using named generators.
+-- | Render a single 'TowerElem' as a LaTeX expression, using the
+-- named generators from the given 'TowerDisplay'. The element is
+-- expressed as a polynomial in the generators (e.g.,
+-- @\\alpha^2 + 3\\beta@).
 latexTowerElem :: TowerDisplay -> TowerElem -> String
 latexTowerElem td = latexTE (buildNameMap td)
 
@@ -362,7 +382,12 @@ latexRat r
 -- Text rendering
 -- ---------------------------------------------------------------------------
 
--- | Render a tower element as a complete text display.
+-- | Render a complete tower display as plain text, showing the tower
+-- of extensions and the final element expression.
+--
+-- Each extension step is shown with Unicode root symbols (e.g.,
+-- @α^2 = -3    [α = √(-3)]@). The final element is expressed as
+-- a polynomial in the named generators.
 prettyTower :: TowerDisplay -> String
 prettyTower td =
   let nm = buildNameMap td
@@ -386,7 +411,8 @@ prettyStep nm step =
     rootStr 3 = "∛"
     rootStr deg = show deg ++ "√"
 
--- | Render a TowerElem as text, using named generators.
+-- | Render a single 'TowerElem' as a plain text expression, using the
+-- named generators from the given 'TowerDisplay'.
 prettyTowerElem :: TowerDisplay -> TowerElem -> String
 prettyTowerElem td = prettyTE (buildNameMap td)
 

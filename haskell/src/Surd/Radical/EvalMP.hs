@@ -1,19 +1,38 @@
--- | Arbitrary-precision complex evaluation of radical DAGs using MPBall
--- (multi-precision ball arithmetic from aern2-mp).
+-- |
+-- Module      : Surd.Radical.EvalMP
+-- Description : Arbitrary-precision DAG evaluation via MPBall (aern2-mp)
+-- Stability   : experimental
 --
--- This replaces both:
--- - dagEvalComplex (Complex Double) — which loses precision at depth > 50
--- - dagEvalComplexInterval (rational intervals) — which is impractically
---   slow for complex nth roots (rational atan2/cos/sin via Taylor series)
+-- Provides arbitrary-precision complex evaluation of radical DAGs using
+-- multi-precision ball arithmetic from the @aern2-mp@ package. This
+-- replaces both:
 --
--- MPBall provides native sqrt as a ball operation. For general complex
--- nth roots we use Newton's method: w_{k+1} = ((n-1)·w_k + z/w_k^(n-1))/n
--- starting from a Complex Double estimate, converging quadratically.
+-- * 'Surd.Radical.DAG.dagEvalComplex' ('Complex Double') -- which loses
+--   precision at depth > 50
+-- * 'Surd.Radical.DAG.dagEvalComplexInterval' (rational intervals) --
+--   which is impractically slow for complex nth roots (rational
+--   atan2\/cos\/sin via Taylor series)
+--
+-- MPBall provides native @sqrt@ as a ball operation. For general complex
+-- nth roots, Newton's method is used:
+--
+-- @
+-- w_{k+1} = ((n-1) * w_k + z / w_k^(n-1)) / n
+-- @
+--
+-- Starting from a 'Complex Double' estimate (computed from the MPBall
+-- midpoint, not the raw Double evaluation chain, to avoid phase errors
+-- for near-zero values), this converges quadratically in 20 iterations.
 module Surd.Radical.EvalMP
-  ( dagEvalComplexMP,
+  ( -- * DAG evaluation
+    dagEvalComplexMP,
     dagEvalRealMP,
+
+    -- * Conversion utilities
     mpBallToInterval,
     complexMPToComplexInterval,
+
+    -- * DFT coefficients at high precision
     dftCoeffsMP,
   )
 where
@@ -37,11 +56,14 @@ zeroBall p = mpBallP p (0 :: Integer)
 oneBall :: Precision -> MPBall
 oneBall p = mpBallP p (1 :: Integer)
 
--- | Evaluate a DAG to a complex MPBall result at the given precision (in bits).
+-- | Evaluate a DAG to a complex result at the given precision (in bits).
 --
--- Each node is evaluated exactly once (O(n) in DAG size).
--- Precision is specified in bits — 200 gives ~60 decimal digits,
--- which is more than enough for depth-85 expressions.
+-- Each node is evaluated exactly once (O(n) in DAG size). The result is
+-- returned as a 'ComplexInterval' (rational endpoint pairs).
+--
+-- Precision is specified in bits: 200 gives ~60 decimal digits, 500
+-- gives ~150 decimal digits. 200 bits is typically more than enough
+-- for expressions of depth up to 85.
 dagEvalComplexMP :: Int -> RadDAG Rational -> ComplexInterval
 dagEvalComplexMP bits dag =
   let p = prec (fromIntegral bits)
@@ -49,19 +71,22 @@ dagEvalComplexMP bits dag =
    in complexMPToComplexInterval result
 
 -- | Evaluate a DAG and return just the real-part interval.
+--
+-- Convenience wrapper around 'dagEvalComplexMP' for expressions known
+-- to be real-valued.
 dagEvalRealMP :: Int -> RadDAG Rational -> Interval
 dagEvalRealMP bits dag =
   let p = prec (fromIntegral bits)
       ComplexMP re _ = evalDAG p dag
    in mpBallToInterval re
 
--- | Convert an MPBall to our Interval type (rational endpoints).
+-- | Convert an 'MPBall' to a rational 'Interval' (extracting endpoints).
 mpBallToInterval :: MPBall -> Interval
 mpBallToInterval ball =
   let (l, h) = endpoints ball
    in Interval (toRational l) (toRational h)
 
--- | Convert a ComplexMP to our ComplexInterval type.
+-- | Convert a 'ComplexMP' to a 'ComplexInterval'.
 complexMPToComplexInterval :: ComplexMP -> ComplexInterval
 complexMPToComplexInterval (ComplexMP re im) =
   ComplexInterval (mpBallToInterval re) (mpBallToInterval im)
@@ -133,8 +158,19 @@ cpow p z n
   | otherwise = cmul z (cpow p z (n - 1))
 
 -- | Complex nth root via Newton's method.
--- w_{k+1} = ((n-1)·w_k + z/w_k^(n-1)) / n
--- Starting from Complex Double estimate, converges quadratically.
+--
+-- Uses the iteration @w_{k+1} = ((n-1)*w_k + z/w_k^(n-1)) / n@
+-- starting from a 'Complex Double' estimate derived from the MPBall
+-- midpoint (using 'complexMPToDouble'). Converges quadratically;
+-- 20 iterations suffice for any practical precision.
+--
+-- __Important:__ the starting point must come from the MPBall midpoint
+-- (not the raw Double evaluation chain), because for near-zero
+-- resolvent values @R_j^q@, Double's phase can be garbage, causing
+-- Newton to converge to the wrong root.
+--
+-- Special cases (real non-negative, real negative odd, sqrt of negative)
+-- are handled directly without Newton iteration.
 cnthroot :: Precision -> Int -> ComplexMP -> Complex Double -> ComplexMP
 cnthroot p n z _z0Dbl
   -- Real non-negative: use real nth root
@@ -143,7 +179,7 @@ cnthroot p n z _z0Dbl
   -- Real negative, odd n: negate and root
   | isNegReal && odd n =
       ComplexMP (negate (nthRootMP p n (negate re))) (zeroBall p)
-  -- Real negative, n=2: √(-x) = i·√x
+  -- Real negative, n=2: sqrt(-x) = i*sqrt(x)
   | isNegReal && n == 2 =
       ComplexMP (zeroBall p) (sqrt (negate re))
   -- General complex root via Newton
@@ -183,11 +219,12 @@ cdiv :: Precision -> ComplexMP -> ComplexMP -> ComplexMP
 cdiv p a b = cmul a (cinv p b)
 
 -- | Compute the real nth root of a non-negative MPBall.
+-- Uses native @sqrt@ for @n=2@, Newton's method for general @n@.
 nthRootMP :: Precision -> Int -> MPBall -> MPBall
 nthRootMP _ 2 x = sqrt x
 nthRootMP p n x = newtonNthRoot p n x
 
--- | Newton's method for real nth root.
+-- | Newton's method for real nth root of a non-negative MPBall.
 newtonNthRoot :: Precision -> Int -> MPBall -> MPBall
 newtonNthRoot p n x
   | isZeroBall x = zeroBall p
@@ -218,22 +255,26 @@ isNegBall b =
   let (_, h) = endpoints b
    in toRational h < 0
 
--- | Compute d_s DFT coefficients at high precision.
+-- | Compute DFT coefficients @d_s@ at high precision (1000-bit MPBall).
 --
--- Given q sub-periods (as lists of exponents of ζ = e^{2πi/p}), computes:
--- 1. η_k = Σ ζ^{elem}  (sub-period values at 1000-bit precision)
--- 2. R_j = Σ ω_q^{jk} · η_k  (resolvents)
--- 3. R_j^q                     (q-th powers)
--- 4. d_s = (1/q) Σ ω_q^{-js} · R_j^q  (inverse DFT)
+-- Given @q@ sub-periods (as lists of exponents of @zeta = e^{2*pi*i/p}@),
+-- computes:
 --
--- Also computes period values for any additional element lists (periodElemLists),
--- using the same ζ powers. This ensures precision-consistent matching of d_s to
--- linear combinations of period values.
+-- 1. @eta_k = sum(zeta^elem)@ for each sub-period (period values at 1000-bit precision)
+-- 2. @R_j = sum(omega_q^{j*k} * eta_k)@ (Lagrange resolvents)
+-- 3. @R_j^q@ (qth powers of resolvents)
+-- 4. @d_s = (1/q) * sum(omega_q^{-j*s} * R_j^q)@ (inverse DFT)
 --
--- d_s and period values are returned as (Rational, Rational) pairs (real, imaginary
--- midpoints from 1000-bit MPBall) to preserve full precision for integer coefficient
--- matching. For p=89/q=11, d_s ~ 10^8 and coefficients ~ 10^7, requiring > 15 digits.
--- R_j values are returned as Complex Double (sufficient for branch selection).
+-- Also computes period values for additional element lists (@periodElemLists@),
+-- using the same @zeta@ powers for precision consistency.
+--
+-- @d_s@ and period values are returned as @(Rational, Rational)@ pairs
+-- (real, imaginary midpoints) to preserve full precision for integer
+-- coefficient matching. For @p=89, q=11@, @d_s ~ 10^8@ and coefficients
+-- @~ 10^7@, requiring > 15 significant digits (beyond Double's capacity).
+--
+-- @R_j@ values are returned as 'Complex Double' (sufficient for branch
+-- selection during Lagrange resolvent construction).
 dftCoeffsMP ::
   Int ->
   Integer ->
@@ -242,34 +283,34 @@ dftCoeffsMP ::
   ([(Rational, Rational)], [Complex Double], [Complex Double], [(Rational, Rational)])
 dftCoeffsMP q p subPeriodElems periodElemLists =
   let pr = prec 1000
-      -- ζ = e^{2πi/p} at high precision
+      -- zeta = e^{2*pi*i/p} at high precision
       twoPiOverP = mpBallP pr (2 :: Integer) * piMP pr / mpBallP pr (fromIntegral p :: Integer)
       zetaRe = cos twoPiOverP
       zetaIm = sin twoPiOverP
       zeta = ComplexMP zetaRe zetaIm
       oneC = ComplexMP (oneBall pr) (zeroBall pr)
-      -- ζ^k computed via repeated multiplication
-      -- Pre-compute all needed powers of ζ
+      -- zeta^k computed via repeated multiplication
+      -- Pre-compute all needed powers of zeta
       zetaPow :: Integer -> ComplexMP
       zetaPow k =
         let k' = k `mod` p
          in cpow pr oneC 0 `seq` zetaPows !! fromIntegral k'
       zetaPows = take (fromIntegral p) $ iterate (cmul zeta) oneC
-      -- Sub-period values: η_k = Σ ζ^{elem}
+      -- Sub-period values: eta_k = sum(zeta^elem)
       valsMP =
         [ foldl1 cadd [zetaPow e | e <- elems]
           | elems <- subPeriodElems
         ]
-      -- Period values using the same ζ powers (precision-consistent)
+      -- Period values using the same zeta powers (precision-consistent)
       periodVals =
         [ complexMPToRatPair (foldl1 cadd [zetaPow e | e <- elems])
           | elems <- periodElemLists
         ]
-      -- ω_q = e^{2πi/q} at high precision
+      -- omega_q = e^{2*pi*i/q} at high precision
       twoPiOverQ = mpBallP pr (2 :: Integer) * piMP pr / mpBallP pr (fromIntegral q :: Integer)
       omegaQ = ComplexMP (cos twoPiOverQ) (sin twoPiOverQ)
       omegaPowsMP = take q $ iterate (cmul omegaQ) oneC
-      -- R_j = Σ_{k=0}^{q-1} ω_q^{jk} · η_k
+      -- R_j = sum_{k=0}^{q-1} omega_q^{j*k} * eta_k
       resolventMP j =
         foldl1
           cadd
@@ -279,7 +320,7 @@ dftCoeffsMP q p subPeriodElems periodElemLists =
       resolventsMP = [resolventMP j | j <- [0 .. q - 1]]
       -- R_j^q
       resolventPowsMP = map (cpowMP pr q) resolventsMP
-      -- d_s = (1/q) Σ_j ω_q^{-js} · R_j^q
+      -- d_s = (1/q) sum_j omega_q^{-j*s} * R_j^q
       recipQ = ComplexMP (mpBallP pr (recip (fromIntegral q) :: Rational)) (zeroBall pr)
       dCoeffMP s =
         cmul recipQ $
@@ -303,10 +344,11 @@ complexMPToRatPair (ComplexMP re im) =
          in (toRational l + toRational h) / 2
    in (mid re, mid im)
 
--- | π as an MPBall at given precision.
--- Computed via Newton refinement of sin(x)=0 starting from Double π.
--- f(x) = sin(x), f'(x) = cos(x), so x_{n+1} = x_n - sin(x_n)/cos(x_n).
--- Quadratic convergence: 53 bits → 106 → 212 → ... exceeds any precision in ~15 iterations.
+-- | Compute pi as an MPBall at given precision.
+-- Uses Newton refinement of @sin(x) = 0@ starting from Double pi:
+-- @x_{n+1} = x_n - sin(x_n)/cos(x_n) = x_n - tan(x_n)@.
+-- Quadratic convergence: 53 bits -> 106 -> 212 -> ... exceeds any
+-- practical precision in ~15 iterations.
 piMP :: Precision -> MPBall
 piMP p =
   let x0 = mpBallP p (toRational (pi :: Double))
@@ -317,7 +359,11 @@ piMP p =
 cpowMP :: Precision -> Int -> ComplexMP -> ComplexMP
 cpowMP p n z = cpow p z n
 
--- | Convert ComplexMP to Complex Double (midpoints).
+-- | Convert a 'ComplexMP' to 'Complex Double' (using midpoints of the balls).
+--
+-- This extracts the centre of each MPBall as a Double, discarding the
+-- error bounds. Used primarily as a starting point for Newton iteration
+-- or for branch selection in Lagrange resolvents.
 complexMPToDouble :: ComplexMP -> Complex Double
 complexMPToDouble (ComplexMP re im) =
   let mid b =

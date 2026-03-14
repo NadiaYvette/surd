@@ -1,3 +1,10 @@
+||| Numerical evaluation of radical expressions.
+|||
+||| Provides three evaluation strategies:
+|||   - `eval` : fast Double evaluation (NaN for even roots of negatives)
+|||   - `evalComplex` : Complex (Double, Double) evaluation, handles complex
+|||     intermediates arising from the casus irreducibilis
+|||   - `evalReal` / `evalImag` : extract real/imaginary parts of complex eval
 module Surd.Eval
 
 import Surd.Rational

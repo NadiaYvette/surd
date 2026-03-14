@@ -1,3 +1,7 @@
+||| Exact rational arithmetic with GCD normalization and DecEq.
+|||
+||| Invariant: den > 0 and gcd(|num|, den) = 1.
+||| Implements Num, Neg, Abs, Fractional, Ord, and DecEq.
 module Surd.Rational
 
 import Surd.GCD

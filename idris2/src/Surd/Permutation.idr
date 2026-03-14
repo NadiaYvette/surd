@@ -1,3 +1,8 @@
+||| Permutations on {0, ..., n-1} using Fin-indexed Vect.
+|||
+||| Idris 2's dependent types ensure permutation indices are always
+||| in bounds. Operations include composition, inversion, cycle
+||| decomposition, and order computation.
 module Surd.Permutation
 
 import Data.Fin

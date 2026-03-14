@@ -1,6 +1,7 @@
 {- |
 Module      : Surd.Galois.Resolvent
 Description : Resolvent polynomials for Galois group computation
+Stability   : experimental
 License     : BSD-3-Clause
 
 Resolvent polynomials are the primary tool for computing Galois groups of
@@ -59,11 +60,16 @@ rational approximation.
   DOI: [10.1016\/0022-314X(85)90022-8](https://doi.org/10.1016/0022-314X(85)90022-8)
 -}
 module Surd.Galois.Resolvent (
+    -- * Root finding
     complexRootsOf,
+
+    -- * Resolvent construction
     resolventFromRoots,
-    hasRationalRoot,
-    isSquareRational,
+
+    -- * Discriminant and rationality tests
     discriminantOf,
+    isSquareRational,
+    hasRationalRoot,
 )
 where
 

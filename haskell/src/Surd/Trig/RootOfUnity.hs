@@ -81,7 +81,11 @@ cosOfUnity n
   -- General composite: decompose via CRT / product formulas
   | otherwise = cosOfUnityComposite n
 
--- | Compute sin(2π/n) as a radical expression.
+-- | Compute sin(2π\/n) as a radical expression.
+--
+-- For small n, returns hand-optimised closed-form expressions.
+-- For general n, computes @sin = sqrt(1 - cos^2)@ from 'cosOfUnity'.
+-- The result is always non-negative (sin(2π\/n) >= 0 for n >= 3).
 sinOfUnity :: Int -> Maybe (RadExpr Rational)
 sinOfUnity n
   | n <= 0 = Nothing

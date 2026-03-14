@@ -1,16 +1,19 @@
--- | Gröbner basis computation for multivariate polynomial ideals.
+-- |
+-- Module      : Math.Polynomial.Groebner
+-- Description : Groebner basis computation for multivariate polynomial ideals
+-- Stability   : experimental
 --
--- Implements Buchberger's algorithm with the standard optimisations:
+-- Implements Buchberger's algorithm with the following optimisations:
 --
---   * Buchberger's first criterion (coprime leading monomials → skip)
+--   * Buchberger's first criterion (coprime leading monomials are skipped)
 --   * Sugar strategy for pair selection (graded order on S-polynomials)
 --   * Inter-reduction of the final basis
 --
 -- The basis is parameterised by a monomial ordering, which determines
 -- leading terms and hence the resulting normal forms.
 --
--- Designed for incremental use: 'extendBasis' adds new generators to an
--- existing basis without recomputing from scratch, supporting layer-by-layer
+-- Supports incremental construction: 'extendBasis' adds new generators to an
+-- existing basis without recomputing from scratch, enabling layer-by-layer
 -- construction (e.g., each Gauss period descent step).
 module Math.Polynomial.Groebner
   ( -- * Monomial orderings
@@ -19,7 +22,7 @@ module Math.Polynomial.Groebner
   , grlex
   , lexOrd
   , elimOrd
-    -- * Gröbner basis
+    -- * Groebner basis
   , GroebnerBasis
   , gbPolys
   , gbOrd
@@ -41,15 +44,26 @@ import Math.Polynomial.Multivariate
 -- ---------------------------------------------------------------------------
 
 -- | A total order on monomials, satisfying the well-ordering and
--- compatibility properties required for Gröbner basis computation.
+-- compatibility properties required for Groebner basis computation.
+--
+-- Compatibility means: if \(m_1 > m_2\) then \(m \cdot m_1 > m \cdot m_2\)
+-- for all monomials \(m\).
 type MonoOrd = Mono -> Mono -> Ordering
 
--- | Graded reverse lexicographic order.
--- Most efficient for Buchberger in practice.
+-- | Graded reverse lexicographic order (grevlex).
+--
+-- Compares by total degree first; among monomials of the same total degree,
+-- the monomial with a /smaller/ exponent on the highest-index differing
+-- variable is considered /greater/.
+--
+-- This is the most efficient ordering for Buchberger's algorithm in practice.
 grevlex :: MonoOrd
 grevlex = compareGrevlex
 
--- | Graded lexicographic order.
+-- | Graded lexicographic order (grlex).
+--
+-- Compares by total degree first, then by lexicographic order on variable
+-- exponents.
 grlex :: MonoOrd
 grlex a b =
   case compare (monoDegree a) (monoDegree b) of
@@ -57,16 +71,17 @@ grlex a b =
     c  -> c
 
 -- | Pure lexicographic order.
+--
+-- Compares variable exponents from the highest-index variable downward.
+-- Useful for elimination but slower for Buchberger's algorithm.
 lexOrd :: MonoOrd
 lexOrd = compareLex
 
--- | Elimination order: variables in the first set are more expensive
--- than all variables in the second set.  Within each block, grevlex.
+-- | Elimination order: variables in the given set are more expensive
+-- than all other variables. Within each block, grevlex is used.
 --
 -- This is useful for computing with ideals where some variables should
--- be eliminated (e.g., the defining relations of radical atoms, where
--- the atoms are "variables" and the original field elements are
--- "coefficients").
+-- be eliminated (e.g., the defining relations of radical atoms).
 elimOrd :: Set.Set Var -> MonoOrd
 elimOrd elims a b =
   let (ae, ar) = splitMono elims a
@@ -98,6 +113,7 @@ compareLex (Mono a) (Mono b) =
 -- ---------------------------------------------------------------------------
 
 -- | Leading term of a polynomial under the given ordering.
+-- Returns @Nothing@ for the zero polynomial.
 leadTerm :: MonoOrd -> MPoly k -> Maybe (Mono, k)
 leadTerm _ (MPoly m) | Map.null m = Nothing
 leadTerm cmp (MPoly m) =
@@ -108,11 +124,11 @@ leadTerm cmp (MPoly m) =
         GT -> cur
         _  -> best
 
--- | Leading monomial.
+-- | Leading monomial under the given ordering.
 leadMono :: MonoOrd -> MPoly k -> Maybe Mono
 leadMono cmp p = fst <$> leadTerm cmp p
 
--- | Leading coefficient.
+-- | Leading coefficient under the given ordering.
 leadCoeffM :: MonoOrd -> MPoly k -> Maybe k
 leadCoeffM cmp p = snd <$> leadTerm cmp p
 
@@ -120,10 +136,14 @@ leadCoeffM cmp p = snd <$> leadTerm cmp p
 -- Multivariate polynomial division
 -- ---------------------------------------------------------------------------
 
--- | Divide a polynomial by a list of divisors under the given ordering.
--- Returns @(quotients, remainder)@ such that
--- @f = sum (zipWith mulPoly quotients divisors) + remainder@
--- and no term of the remainder is divisible by any leading term of the divisors.
+-- | Multivariate polynomial division by a list of divisors.
+--
+-- @divModMPoly ord f [g1, ..., gn]@ returns @(quotients, remainder)@ such that:
+--
+-- \[f = \sum_i q_i \cdot g_i + r\]
+--
+-- and no term of the remainder \(r\) is divisible by the leading term of
+-- any divisor. The result depends on the monomial ordering.
 divModMPoly :: (Eq k, Fractional k)
             => MonoOrd -> MPoly k -> [MPoly k] -> ([MPoly k], MPoly k)
 divModMPoly cmp f divisors = go f (replicate n zeroPoly) zeroPoly
@@ -160,8 +180,10 @@ divModMPoly cmp f divisors = go f (replicate n zeroPoly) zeroPoly
     updateAt 0 f' (x:xs) = f' x : xs
     updateAt i' f' (x:xs) = x : updateAt (i' - 1) f' xs
 
--- | Reduce a polynomial to normal form modulo a basis.
--- Equivalent to @snd (divModMPoly ...)@ but avoids tracking quotients.
+-- | Reduce a polynomial to normal form modulo a list of divisors.
+--
+-- Equivalent to @snd ('divModMPoly' ...)@ but avoids tracking quotients
+-- for better performance.
 reducePoly :: (Eq k, Fractional k)
            => MonoOrd -> MPoly k -> [MPoly k] -> MPoly k
 reducePoly cmp f divisors = go f zeroPoly
@@ -196,7 +218,10 @@ reducePoly cmp f divisors = go f zeroPoly
 -- S-polynomials
 -- ---------------------------------------------------------------------------
 
--- | S-polynomial of two polynomials.
+-- | S-polynomial of two polynomials under the given monomial ordering.
+--
+-- \[S(f, g) = \frac{\text{lcm}(\text{LM}(f), \text{LM}(g))}{\text{LT}(f)} \cdot f
+--           - \frac{\text{lcm}(\text{LM}(f), \text{LM}(g))}{\text{LT}(g)} \cdot g\]
 sPolynomial :: (Eq k, Fractional k)
             => MonoOrd -> MPoly k -> MPoly k -> MPoly k
 sPolynomial cmp f g =
@@ -210,7 +235,8 @@ sPolynomial cmp f g =
       in subPoly tf tg
     _ -> zeroPoly
 
--- | Multiply a polynomial by a monomial.
+-- | Multiply a polynomial by a monomial (more efficient than full
+-- polynomial multiplication).
 mulByMono :: (Num k) => Mono -> MPoly k -> MPoly k
 mulByMono m (MPoly p) =
   MPoly (Map.mapKeys (monoMul m) p)
@@ -219,13 +245,19 @@ mulByMono m (MPoly p) =
 -- Buchberger's algorithm
 -- ---------------------------------------------------------------------------
 
--- | A Gröbner basis together with its monomial ordering.
+-- | A Groebner basis together with its monomial ordering.
 data GroebnerBasis k = GroebnerBasis
   { gbOrd    :: MonoOrd
+    -- ^ The monomial ordering used for this basis.
   , gbPolys  :: [MPoly k]
+    -- ^ The basis polynomials (inter-reduced and monic).
   }
 
--- | Compute a Gröbner basis for the ideal generated by the given polynomials.
+-- | Compute a Groebner basis for the ideal generated by the given polynomials.
+--
+-- Uses Buchberger's algorithm with the first criterion optimisation
+-- (coprime leading monomials). The result is inter-reduced: each
+-- polynomial is reduced modulo all others, and all polynomials are monic.
 groebnerBasis :: (Eq k, Fractional k)
               => MonoOrd -> [MPoly k] -> GroebnerBasis k
 groebnerBasis cmp gens =
@@ -234,16 +266,18 @@ groebnerBasis cmp gens =
       reduced = interReduce cmp basis
   in GroebnerBasis cmp reduced
 
--- | Extend an existing Gröbner basis with new generators.
+-- | Extend an existing Groebner basis with new generators.
+--
 -- Only processes S-pairs involving the new generators against the existing
--- basis, avoiding redundant recomputation.
+-- basis, avoiding redundant recomputation. Useful for incremental
+-- construction (e.g., adding one Gauss period descent step at a time).
 extendBasis :: (Eq k, Fractional k)
             => [MPoly k] -> GroebnerBasis k -> GroebnerBasis k
 extendBasis newGens (GroebnerBasis cmp existing) =
   let nonzero = filter (not . isZero) newGens
       -- Reduce new generators against existing basis first
       reduced = [r | g <- nonzero, let r = reducePoly cmp g existing, not (isZero r)]
-      -- Run Buchberger with only cross-pairs (new × old) and (new × new)
+      -- Run Buchberger with only cross-pairs (new x old) and (new x new)
       combined = existing ++ reduced
       newPairs = [(i, j) | (i, _) <- zip [0..] combined
                           , (j, _) <- zip [0..] combined
@@ -253,11 +287,16 @@ extendBasis newGens (GroebnerBasis cmp existing) =
       final = interReduce cmp basis
   in GroebnerBasis cmp final
 
--- | Reduce a polynomial modulo the Gröbner basis.
+-- | Reduce a polynomial modulo a Groebner basis.
+--
+-- The result is the unique normal form of the polynomial with respect to
+-- the basis and its monomial ordering.
 reduce :: (Eq k, Fractional k) => GroebnerBasis k -> MPoly k -> MPoly k
 reduce (GroebnerBasis cmp basis) f = reducePoly cmp f basis
 
 -- | Reduce a polynomial completely, making the result monic if nonzero.
+--
+-- Equivalent to 'reduce' followed by dividing by the leading coefficient.
 reduceCompletely :: (Eq k, Fractional k) => GroebnerBasis k -> MPoly k -> MPoly k
 reduceCompletely gb f =
   let r = reduce gb f
@@ -294,7 +333,7 @@ buchbergerWithPairs cmp initialBasis initialPairs =
              in go basis' (pairs ++ newPairs)
 
 -- | Buchberger's first criterion: if the leading monomials are coprime
--- (their GCD is 1), the S-polynomial reduces to zero.
+-- (their GCD is 1), the S-polynomial reduces to zero and can be skipped.
 buchbergerCriterion1 :: MonoOrd -> MPoly k -> MPoly k -> Bool
 buchbergerCriterion1 cmp f g =
   case (leadMono cmp f, leadMono cmp g) of
@@ -302,7 +341,7 @@ buchbergerCriterion1 cmp f g =
     _ -> True
 
 -- | Inter-reduce a basis: make each element reduced with respect to
--- all others, and remove redundant elements.
+-- all others, remove redundant elements, and make each polynomial monic.
 interReduce :: (Eq k, Fractional k) => MonoOrd -> [MPoly k] -> [MPoly k]
 interReduce cmp = go []
   where

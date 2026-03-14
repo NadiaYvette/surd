@@ -37,10 +37,24 @@
 % Construction helpers
 %---------------------------------------------------------------------------%
 
+    % Subtraction: re_sub(A, B) = re_add(A, re_neg(B)).
+    %
 :- func re_sub(rad_expr(K), rad_expr(K)) = rad_expr(K).
+
+    % Division: re_div(A, B) = re_mul(A, re_inv(B)).
+    %
 :- func re_div(rad_expr(K), rad_expr(K)) = rad_expr(K).
+
+    % Square root shorthand: re_sqrt(X) = re_root(2, X).
+    %
 :- func re_sqrt(rad_expr(K)) = rad_expr(K).
+
+    % Lift a rational number into a radical expression.
+    %
 :- func rat_e(rational) = rad_expr(rational).
+
+    % Lift a machine integer into a radical expression over rationals.
+    %
 :- func int_e(int) = rad_expr(rational).
 
 %---------------------------------------------------------------------------%

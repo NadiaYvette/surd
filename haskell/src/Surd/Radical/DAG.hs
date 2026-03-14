@@ -1,29 +1,48 @@
--- | Explicit DAG (directed acyclic graph) representation for radical expressions.
+-- |
+-- Module      : Surd.Radical.DAG
+-- Description : Explicit DAG representation for radical expressions with sharing detection
+-- Stability   : experimental
 --
--- RadExpr is a tree ADT, but Haskell's lazy evaluation creates DAG-shaped
+-- 'RadExpr' is a tree ADT, but Haskell's lazy evaluation creates DAG-shaped
 -- expressions through thunk sharing (e.g., Gauss period descent reuses
 -- sub-expressions across Chebyshev polynomials and period equations).
--- Tree-walking functions (foldConstants, normalize, exprMetrics) visit
+-- Tree-walking functions ('foldConstants', 'normalize', metrics) visit
 -- shared nodes multiple times, causing exponential blowup and OOM.
 --
--- This module converts between RadExpr (with invisible thunk sharing)
--- and RadDAG (with explicit sharing via IntMap). Algorithms on RadDAG
+-- This module converts between 'RadExpr' (with invisible thunk sharing)
+-- and 'RadDAG' (with explicit sharing via 'IntMap'). Algorithms on 'RadDAG'
 -- process each unique node exactly once, in O(n) time where n is the
 -- number of unique nodes (not the exponentially larger tree size).
 --
--- The conversion 'toDAG' uses StableName to detect Haskell thunk sharing.
--- The conversion 'fromDAG' reconstructs RadExpr with sharing preserved
--- via IntMap lookup (same key → same thunk).
+-- === StableName technique
+--
+-- The conversion 'toDAG' uses 'System.Mem.StableName.StableName' to detect
+-- Haskell thunk sharing: when the same thunk is encountered twice during
+-- traversal, it maps to the same 'NodeId'. Each node is forced (via pattern
+-- matching) during traversal, giving it a stable heap address. Children are
+-- processed before parents, so 'NodeId's are in topological order.
+--
+-- The reconstruction 'fromDAG' uses lazy 'IntMap' lookup to preserve sharing:
+-- the same 'NodeId' always returns the same Haskell thunk.
 module Surd.Radical.DAG
-  ( RadDAG (..),
+  ( -- * Types
+    RadDAG (..),
     RadNodeOp (..),
     NodeId,
+
+    -- * Conversion
     toDAG,
     fromDAG,
+
+    -- * Metrics
     dagSize,
     dagDepth,
+
+    -- * DAG-native simplification
     dagFoldConstants,
     dagNormalize,
+
+    -- * Evaluation
     dagEvalComplex,
     dagEvalComplexInterval,
   )
@@ -46,41 +65,54 @@ import Surd.Types
 import System.IO.Unsafe (unsafePerformIO)
 import System.Mem.StableName (StableName, eqStableName, hashStableName, makeStableName)
 
+-- | Unique identifier for a node in the DAG.
 type NodeId = Int
 
--- | A node operation in the DAG. Children are referenced by NodeId.
+-- | A node operation in the DAG. Children are referenced by 'NodeId'
+-- rather than by direct pointers, making sharing explicit.
 data RadNodeOp k
-  = NLit !k
-  | NNeg !NodeId
-  | NAdd !NodeId !NodeId
-  | NMul !NodeId !NodeId
-  | NInv !NodeId
-  | NRoot !Int !NodeId
-  | NPow !NodeId !Int
+  = -- | Literal coefficient.
+    NLit !k
+  | -- | Negation of node @a@.
+    NNeg !NodeId
+  | -- | Sum of nodes @a@ and @b@.
+    NAdd !NodeId !NodeId
+  | -- | Product of nodes @a@ and @b@.
+    NMul !NodeId !NodeId
+  | -- | Multiplicative inverse of node @a@.
+    NInv !NodeId
+  | -- | Principal @n@th root of node @a@.
+    NRoot !Int !NodeId
+  | -- | Integer power of node @a@ raised to @n@.
+    NPow !NodeId !Int
   deriving (Eq, Ord, Show)
 
--- | An explicit DAG of radical expression nodes.
--- Nodes are stored in an IntMap indexed by NodeId.
--- Children always have lower NodeIds than their parents (topological order).
+-- | An explicit DAG (directed acyclic graph) of radical expression nodes.
+--
+-- Nodes are stored in an 'IntMap' indexed by 'NodeId'. Children always
+-- have lower 'NodeId's than their parents (topological order), enabling
+-- single-pass bottom-up algorithms.
 data RadDAG k = RadDAG
-  { dagNodes :: !(IntMap (RadNodeOp k)),
+  { -- | All nodes in the DAG, indexed by 'NodeId'.
+    dagNodes :: !(IntMap (RadNodeOp k)),
+    -- | The 'NodeId' of the root (top-level) expression.
     dagRoot :: !NodeId
   }
   deriving (Show)
 
--- | Convert a RadExpr (with thunk sharing) to an explicit DAG.
+-- | Convert a 'RadExpr' (with thunk sharing) to an explicit 'RadDAG'.
 --
--- Uses StableName-based traversal: when the same thunk is encountered
--- twice, it maps to the same NodeId. This detects sharing that is
+-- Uses 'StableName'-based traversal: when the same thunk is encountered
+-- twice, it maps to the same 'NodeId'. This detects sharing that is
 -- invisible at the type level.
 --
--- Each node is forced (via pattern matching in 'case') during traversal,
--- giving it a stable heap address for StableName. Children are processed
--- before parents, so NodeIds are in topological order.
+-- Each node is forced (via pattern matching in @case@) during traversal,
+-- giving it a stable heap address for 'StableName'. Children are processed
+-- before parents, so 'NodeId's are in topological order.
 toDAG :: RadExpr k -> RadDAG k
 toDAG expr = unsafePerformIO $ do
   nextRef <- newIORef (0 :: NodeId)
-  -- StableName cache: hash → [(StableName, NodeId)]
+  -- StableName cache: hash -> [(StableName, NodeId)]
   cacheRef <- newIORef (IntMap.empty :: IntMap [(StableName (RadExpr k), NodeId)])
   nodesRef <- newIORef (IntMap.empty :: IntMap (RadNodeOp k))
 
@@ -122,11 +154,11 @@ toDAG expr = unsafePerformIO $ do
       | eqStableName sn sn' = Just v
       | otherwise = lookupSN sn rest
 
--- | Convert a DAG back to RadExpr, preserving sharing.
+-- | Convert a 'RadDAG' back to 'RadExpr', preserving sharing.
 --
--- Uses IntMap.map to build all nodes lazily. Looking up the same NodeId
--- always returns the same Haskell thunk, so sub-expression sharing is
--- preserved in the resulting RadExpr.
+-- Uses lazy 'IntMap.Lazy.map' to build all nodes. Looking up the same
+-- 'NodeId' always returns the same Haskell thunk, so sub-expression
+-- sharing is preserved in the resulting 'RadExpr'.
 fromDAG :: RadDAG k -> RadExpr k
 fromDAG (RadDAG nodes rootId) = memo IntMap.! rootId
   where
@@ -142,12 +174,13 @@ fromDAG (RadDAG nodes rootId) = memo IntMap.! rootId
     build (NRoot n a) = Root n (memo IntMap.! a)
     build (NPow a n) = Pow (memo IntMap.! a) n
 
--- | Number of unique nodes in the DAG.
+-- | Number of unique nodes in the DAG. O(1).
 dagSize :: RadDAG k -> Int
 dagSize = IntMap.size . dagNodes
 
--- | Depth of the DAG (longest path from root to leaf).
--- O(n) since each node is visited once.
+-- | Depth of the DAG (longest path from root to any leaf).
+--
+-- O(n) since each node is visited once via lazy knot-tied 'IntMap'.
 dagDepth :: RadDAG k -> Int
 dagDepth (RadDAG nodes rootId) = depths IntMap.! rootId
   where
@@ -161,20 +194,16 @@ dagDepth (RadDAG nodes rootId) = depths IntMap.! rootId
     computeDepth _ (NRoot _ a) = 1 + depths IntMap.! a
     computeDepth _ (NPow a _) = 1 + depths IntMap.! a
 
--- | DAG simplification pass. Each node is processed exactly once in O(n).
+-- | DAG-native constant folding and simplification pass.
 --
--- Performs constant folding, power simplification, and perfect power extraction:
--- - Lit r op Lit s → Lit (r op s)
--- - Add (Lit 0) x, Add x (Lit 0) → x
--- - Mul (Lit 0) _, Mul _ (Lit 0) → Lit 0
--- - Mul (Lit 1) x, Mul x (Lit 1) → x
--- - Neg (Neg x) → x, Inv (Inv x) → x
--- - Neg (Lit r) → Lit (negate r), Inv (Lit r) → Lit (1/r)
--- - Pow (Root n a) n → a, Root n (Pow a n) → a
--- - Pow (Pow a m) n → Pow a (m*n)
--- - Root m (Root n a) → Root (m*n) a
--- - Mul (Root 2 a) (Root 2 a) → a  (same node: √x·√x = x)
--- - Root n (Lit r) → Lit coeff * Root n (Lit inner) (perfect power extraction)
+-- Each node is processed exactly once in O(n). Performs:
+--
+-- * Constant folding: @Lit r `op` Lit s@ evaluates to @Lit (r `op` s)@
+-- * Identity elimination: @Add (Lit 0) x@, @Mul (Lit 1) x@, etc.
+-- * Double-negation/inversion cancellation: @Neg (Neg x)@, @Inv (Inv x)@
+-- * Power simplification: @Pow (Root n a) n@ cancels, @Root m (Root n a)@ composes
+-- * Perfect power extraction: @Root n (Lit r)@ extracts nth power factors
+-- * Same-node root squaring: @Mul (Root 2 a) (Root 2 a)@ when @a@ is the same node
 --
 -- Returns a new DAG with the same or fewer nodes.
 dagFoldConstants :: RadDAG Rational -> RadDAG Rational
@@ -231,7 +260,7 @@ dagFoldConstants (RadDAG nodes rootId) =
       (_, NLit 1) -> Left a
       (NLit (-1), _) -> Right [NNeg b]
       (_, NLit (-1)) -> Right [NNeg a]
-      -- √a · √a = a (same node)
+      -- sqrt(a) * sqrt(a) = a (same node)
       (NRoot 2 ra, NRoot 2 rb) | ra == rb -> Left ra
       _ -> Right [NMul a b]
     simplify ns _ (NInv a) = case ns IntMap.! a of
@@ -294,11 +323,13 @@ extractNthPower n m =
       remainder = product [p ^ (e `mod` n) | (p, e) <- fs]
    in (fromInteger extracted, fromInteger remainder)
 
--- | DAG-native normalization pass. Performs the algebraic simplifications
--- that dagFoldConstants can't: collecting like terms in Add chains,
--- merging Lit factors in Mul chains, and distributing scalar multiplication.
+-- | DAG-native normalization pass: algebraic simplifications beyond constant folding.
 --
--- Runs in O(n·k) where n = unique nodes and k = max chain length.
+-- Performs like-term collection in 'Add' chains and coefficient merging
+-- in 'Mul' chains -- the DAG equivalents of 'collectTerms' and
+-- 'collectCoefficients' from "Surd.Radical.Normalize".
+--
+-- Runs in O(n*k) where n = unique nodes and k = max chain length.
 -- Unlike tree-based normalize, never breaks DAG sharing.
 dagNormalize :: RadDAG Rational -> RadDAG Rational
 dagNormalize (RadDAG nodes rootId) =
@@ -377,7 +408,7 @@ dagNormalize (RadDAG nodes rootId) =
                   Right ops ->
                     let litOp = NLit lits
                      in Right (ops ++ [litOp, NMul (nxt + length ops) (nxt + length ops - 1)])
-    -- Distribute: Lit * (a + b) → Lit*a + Lit*b
+    -- Distribute: Lit * (a + b) -> Lit*a + Lit*b
     -- Check after Mul normalization
     normStep ns _ op@(NNeg a) = case ns IntMap.! a of
       NLit r -> Right [NLit (negate r)]
@@ -386,9 +417,9 @@ dagNormalize (RadDAG nodes rootId) =
     normStep _ _ op = Right [op]
 
     -- Flatten an Add chain into [(coefficient, base NodeId)].
-    -- Lit r → (r, Nothing) represented as (r, -1) sentinel
-    -- Neg x → negate coefficient
-    -- Mul (Lit c) x → (c, x)
+    -- Lit r -> (r, Nothing) represented as (r, -1) sentinel
+    -- Neg x -> negate coefficient
+    -- Mul (Lit c) x -> (c, x)
     flattenAdd :: IntMap (RadNodeOp Rational) -> NodeId -> [(Rational, NodeId)]
     flattenAdd ns nid = case ns IntMap.! nid of
       NAdd a b -> flattenAdd ns a ++ flattenAdd ns b
@@ -466,7 +497,10 @@ dagNormalize (RadDAG nodes rootId) =
               xs
        in Right (snd chain)
 
--- | Evaluate a DAG to Complex Double. Each node evaluated exactly once.
+-- | Evaluate a DAG to 'Complex Double'. Each node is evaluated exactly once.
+--
+-- Uses lazy 'IntMap' for knot-tying: each node's value references other
+-- entries in the same map. Total work is O(n) in DAG size.
 dagEvalComplex :: RadDAG Rational -> Complex Double
 dagEvalComplex (RadDAG nodes rootId) = vals IntMap.! rootId
   where
@@ -483,12 +517,12 @@ dagEvalComplex (RadDAG nodes rootId) = vals IntMap.! rootId
       | otherwise = 1 / ((vals IntMap.! a) ^ negate n)
 
     complexNthRoot n z =
-      -- Normalize ±0 in imaginary part to avoid IEEE 754 sign-of-zero
+      -- Normalize +/-0 in imaginary part to avoid IEEE 754 sign-of-zero
       -- issues: sqrt(-45e6 + (-0.0)i) would give -6708i instead of +6708i
-      -- because atan2(-0.0, -45e6) = -π instead of +π.
+      -- because atan2(-0.0, -45e6) = -pi instead of +pi.
       let re = realPart z
           im = imagPart z
-          im' = if im == 0 then 0 else im  -- canonicalise -0.0 → +0.0
+          im' = if im == 0 then 0 else im  -- canonicalise -0.0 -> +0.0
           r = magnitude z
           theta = atan2 im' re
        in mkPolar (r ** (1 / fromIntegral n)) (theta / fromIntegral n)
@@ -496,9 +530,13 @@ dagEvalComplex (RadDAG nodes rootId) = vals IntMap.! rootId
         realPart (x :+ _) = x
         imagPart (_ :+ y) = y
 
--- | Evaluate a DAG to ComplexInterval. Each node evaluated exactly once.
--- Uses rational interval arithmetic for rigorous bounds, avoiding the
--- Double precision loss that dagEvalComplex suffers at depth > 50.
+-- | Evaluate a DAG to a rigorous 'ComplexInterval' enclosure.
+--
+-- Each node is evaluated exactly once. Uses rational interval arithmetic
+-- for rigorous bounds, avoiding the Double precision loss that
+-- 'dagEvalComplex' suffers at depth > 50. Fast for constructible angles
+-- (~5ms, width ~1e-18). Slower for complex intermediates due to
+-- rigorous complex nth root computation.
 dagEvalComplexInterval :: RadDAG Rational -> ComplexInterval
 dagEvalComplexInterval (RadDAG nodes rootId) = vals IntMap.! rootId
   where
@@ -524,7 +562,7 @@ dagEvalComplexInterval (RadDAG nodes rootId) = vals IntMap.! rootId
                    in ComplexInterval (Interval (negate (hi pos)) (negate (lo pos))) (I.fromRational' 0)
                 else
                   if lo imPart >= 0 && hi imPart <= 0 && hi rePart <= 0 && n == 2
-                    then -- √(negative) = i·√(|x|)
+                    then -- sqrt(negative) = i*sqrt(|x|)
                       let pos = I.isqrt (Interval (negate (hi rePart)) (negate (lo rePart)))
                        in ComplexInterval (I.fromRational' 0) pos
                     else -- General complex root

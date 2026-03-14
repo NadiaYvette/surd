@@ -70,7 +70,14 @@ cosExact p q
           q' = q `div` g
        in cosReduced p' q'
 
--- | Compute sin(pπ/q) exactly.
+-- | Compute sin(pπ\/q) exactly.
+--
+-- Reduces to sin via standard identities, then either uses direct Gauss
+-- period lookup (for prime denominators with small radical count) or
+-- falls back to @sin = +-sqrt(1 - cos^2)@.
+--
+-- >>> sinExact 1 6   -- sin(π/6) = 1/2
+-- Radical (Lit (1 % 2))
 sinExact :: Integer -> Integer -> TrigResult
 sinExact p q
   | q <= 0 = error "sinExact: non-positive denominator"
@@ -80,7 +87,10 @@ sinExact p q
           q' = q `div` g
        in sinReduced p' q'
 
--- | Compute tan(pπ/q) exactly, as sin/cos.
+-- | Compute tan(pπ\/q) exactly, as sin(pπ\/q) \/ cos(pπ\/q).
+--
+-- Returns 'Nothing' if either sine or cosine falls back to 'MinPoly'
+-- rather than producing a 'Radical' form.
 tanExact :: Integer -> Integer -> Maybe TrigResult
 tanExact p q =
   case (sinExact p q, cosExact p q) of
@@ -267,8 +277,12 @@ simplifyTrigResult (Radical e) =
         else Radical (fromNormExpr (toNormExpr simplified))
 simplifyTrigResult other = other
 
--- | Compute simplified sin from simplified cos for display.
--- sin(x) = ±√(1 - cos²(x)), using the already-simplified cos value.
+-- | Compute simplified sin from an already-simplified cos for display.
+--
+-- @sin(pπ\/q) = +-sqrt(1 - cos^2(pπ\/q))@, using the provided simplified
+-- cos value. The sign is determined by which half of the circle the
+-- angle falls in. For complex cos forms (containing @sqrt(-1)@), skips
+-- the 'NormalForm' round-trip to avoid exponential monomial blowup.
 simplifiedSin :: Integer -> Integer -> TrigResult -> TrigResult
 simplifiedSin p q (Radical c) =
   let p' = (p `mod` (2 * q))

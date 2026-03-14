@@ -1,9 +1,13 @@
--- | Polynomial factoring over Q.
+-- |
+-- Module      : Math.Polynomial.Factoring
+-- Description : Polynomial factoring over the rationals
+-- Stability   : experimental
 --
--- Currently implements Kronecker's method for small-degree polynomials
--- and rational root testing. Sufficient for the radical denesting and
--- trig evaluation use cases where we typically factor cyclotomic
--- polynomials and low-degree minimal polynomials.
+-- Factoring of univariate polynomials over \(\mathbb{Q}\) using the
+-- rational root theorem and Kronecker's method (for quadratic factors).
+-- Sufficient for the radical denesting and trig evaluation use cases,
+-- where the polynomials to be factored are typically cyclotomic or
+-- low-degree minimal polynomials.
 module Math.Polynomial.Factoring
   ( factor
   , rationalRoots
@@ -17,9 +21,16 @@ import Math.Polynomial.Univariate
 import Math.Internal.Positive (Positive)
 import Math.Internal.PrimeFactors (factorise)
 
--- | Factor a polynomial over Q into irreducible factors.
--- Returns a list of (irreducible factor, multiplicity) pairs.
--- The factors are monic; a leading rational coefficient is separated.
+-- | Factor a polynomial over \(\mathbb{Q}\) into irreducible factors.
+--
+-- Returns a list of @(irreducible factor, multiplicity)@ pairs.
+-- The factors are monic; any leading rational coefficient is separated out.
+--
+-- Uses 'squareFree' (Yun's algorithm) to separate multiplicities, then
+-- 'factorSquareFree' on each square-free component.
+--
+-- >>> factor (mkPoly [1, 2, 1] :: Poly Rational)
+-- [(Poly [1 % 1,1 % 1],2)]
 factor :: Poly Rational -> [(Poly Rational, Int)]
 factor p
   | degree p <= 0 = []
@@ -27,7 +38,16 @@ factor p
       let sfFactors = squareFree p
       in concatMap (\(f, m) -> map (\g -> (g, m)) (factorSquareFree f)) sfFactors
 
--- | Factor a square-free polynomial over Q into irreducible factors.
+-- | Factor a square-free polynomial over \(\mathbb{Q}\) into irreducible factors.
+--
+-- Strategy:
+--
+-- 1. Extract linear factors via the rational root theorem.
+-- 2. Attempt to find quadratic factors via Kronecker's method
+--    (evaluation at three points and interpolation).
+-- 3. If no factors are found, the polynomial is assumed irreducible.
+--
+-- Returns a list of monic irreducible factors.
 factorSquareFree :: Poly Rational -> [Poly Rational]
 factorSquareFree p
   | degree p <= 0 = []
@@ -49,7 +69,14 @@ factorSquareFree p
                   -- assume irreducible
                   [f]
 
--- | Find a rational root of a polynomial using the rational root theorem.
+-- | Find all rational roots of a polynomial using the rational root theorem.
+--
+-- If \(p(x) = a_n x^n + \cdots + a_0\) has integer coefficients (after
+-- clearing denominators), then any rational root \(p/q\) (in lowest terms)
+-- satisfies: \(p \mid a_0\) and \(q \mid a_n\).
+--
+-- >>> rationalRoots (mkPoly [-6, 11, -6, 1] :: Poly Rational)
+-- [1 % 1,2 % 1,3 % 1]
 rationalRoots :: Poly Rational -> [Rational]
 rationalRoots p
   | degree p <= 0 = []
@@ -71,7 +98,10 @@ rationalRoots p
                        ]
       in filter (\r -> evalPoly p r == 0) candidates
 
--- | Check if a polynomial is irreducible over Q.
+-- | Test whether a polynomial is irreducible over \(\mathbb{Q}\).
+--
+-- A polynomial is irreducible if it has degree \(\geq 1\) and cannot be
+-- written as a product of two polynomials of lower degree over \(\mathbb{Q}\).
 isIrreducible :: Poly Rational -> Bool
 isIrreducible p
   | degree p <= 1 = degree p == 1
@@ -85,8 +115,11 @@ findLinearFactor p =
     []    -> Nothing
     (r:_) -> Just (r, fst $ divModPoly p (mkPoly [-r, 1]))
 
--- | Try to find a quadratic factor by evaluating at several points
--- and using interpolation (Kronecker's method for degree 2).
+-- | Try to find a quadratic factor using Kronecker's method.
+--
+-- Evaluates the polynomial at 0, 1, and -1 to obtain values, then
+-- enumerates divisor triples and reconstructs candidate quadratic
+-- factors via interpolation.
 findQuadraticFactor :: Poly Rational -> Maybe (Poly Rational, Poly Rational)
 findQuadraticFactor p
   | degree p < 4 = Nothing  -- degree 2 or 3 without linear factors is irreducible over Q...
@@ -101,7 +134,7 @@ findQuadraticFactor p
           d1 = if v1 == 0 then [0] else rationalDivisors v1
           dm1 = if vm1 == 0 then [0] else rationalDivisors vm1
           -- For each triple (f(0), f(1), f(-1)), reconstruct the quadratic
-          -- a + bx + cx² via interpolation:
+          -- a + bx + cx^2 via interpolation:
           -- f(0) = a, f(1) = a+b+c, f(-1) = a-b+c
           -- => c = (f(1) + f(-1))/2 - a, b = (f(1) - f(-1))/2
           candidates = [ mkPoly [a, b, c]
@@ -135,7 +168,9 @@ divisors n =
       let ds = go rest
       in [p^k * d | k <- [0..e], d <- ds]
 
--- | Rational divisors: ±(divisor as rational).
+-- | Rational divisors: all rational numbers whose numerator divides the
+-- given value's numerator and whose denominator divides its denominator,
+-- with both signs.
 rationalDivisors :: Rational -> [Rational]
 rationalDivisors r =
   let n = abs (numerator r)

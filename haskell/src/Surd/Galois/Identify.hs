@@ -1,4 +1,9 @@
-{- | Galois group identification for irreducible polynomials over \(\mathbb{Q}\).
+{- |
+Module      : Surd.Galois.Identify
+Description : Galois group identification for degree-5 polynomials via Stauduhar descent
+Stability   : experimental
+
+Galois group identification for irreducible polynomials over \(\mathbb{Q}\).
 
 = Strategy
 
@@ -75,7 +80,10 @@ in practice to distinguish the two cases.
   DOI: 10.1016\/0022-314X(85)90022-8
 -}
 module Surd.Galois.Identify (
+    -- * Galois group identification
     identifyGaloisGroup5,
+
+    -- * Result type
     GaloisResult (..),
 )
 where
@@ -269,6 +277,8 @@ isCyclicByFrobenius f =
         testPs = take 20 [p | p <- smallPrimes, goodPrime p]
      in not (any (hasNonCyclicPattern intCs) testPs)
 
+-- | Test whether the factorisation pattern of the polynomial modulo @p@ is
+-- inconsistent with a cyclic Galois group (i.e., is neither @{5}@ nor @{1,1,1,1,1}@).
 hasNonCyclicPattern :: [Integer] -> Int -> Bool
 hasNonCyclicPattern intCs p =
     let pI = fromIntegral p
@@ -314,12 +324,15 @@ These are internal helpers used by 'factorPattern' for the
 distinct-degree factorisation.
 -}
 
+-- | Remove trailing zeros from a coefficient list.
 fpTrim :: [Integer] -> [Integer]
 fpTrim = reverse . dropWhile (== 0) . reverse
 
+-- | Degree of a polynomial over @F_p@ (length of trimmed list minus one).
 fpDeg :: [Integer] -> Int
 fpDeg cs = length (fpTrim cs) - 1
 
+-- | Addition of polynomials over @F_p@.
 fpAdd :: [Integer] -> [Integer] -> Integer -> [Integer]
 fpAdd a b p =
     let n = max (length a) (length b)
@@ -327,6 +340,7 @@ fpAdd a b p =
         b' = b ++ replicate (n - length b) 0
      in fpTrim [(x + y) `mod` p | (x, y) <- zip a' b']
 
+-- | Subtraction of polynomials over @F_p@.
 fpSub :: [Integer] -> [Integer] -> Integer -> [Integer]
 fpSub a b p =
     let n = max (length a) (length b)
@@ -334,6 +348,7 @@ fpSub a b p =
         b' = b ++ replicate (n - length b) 0
      in fpTrim [((x - y) `mod` p + p) `mod` p | (x, y) <- zip a' b']
 
+-- | Multiplication of polynomials over @F_p@ (schoolbook convolution).
 fpMul :: [Integer] -> [Integer] -> Integer -> [Integer]
 fpMul a b p
     | null a || null b = []
@@ -350,6 +365,7 @@ fpMul a b p
                 | i <- [0 .. na + nb - 2]
                 ]
 
+-- | Polynomial remainder over @F_p@: @fpMod a b p@ computes @a mod b@ in @F_p[x]@.
 fpMod :: [Integer] -> [Integer] -> Integer -> [Integer]
 fpMod a b p
     | fpDeg a < fpDeg b = fpTrim (map (\x -> ((x `mod` p) + p) `mod` p) a)
@@ -374,6 +390,7 @@ fpMod a b p
                 ]
          in fpMod (fpTrim sub) tb p
 
+-- | Polynomial exact division over @F_p@: @fpDiv a b p@ computes the quotient @a / b@ in @F_p[x]@.
 fpDiv :: [Integer] -> [Integer] -> Integer -> [Integer]
 fpDiv a b p = go [] (fpTrim a)
   where
@@ -397,11 +414,13 @@ fpDiv a b p = go [] (fpTrim a)
                 r' = fpTrim (zipWith (\x y -> ((x - y) `mod` p + p) `mod` p) tr sub)
              in go q' r'
 
+-- | GCD of two polynomials over @F_p@ via the Euclidean algorithm. The result is monic.
 fpGcd :: [Integer] -> [Integer] -> Integer -> [Integer]
 fpGcd a b p
     | null (fpTrim b) || fpDeg b < 0 = fpMakeMonic (fpTrim a) p
     | otherwise = fpGcd b (fpMod a b p) p
 
+-- | Make a polynomial monic over @F_p@ by dividing all coefficients by the leading coefficient.
 fpMakeMonic :: [Integer] -> Integer -> [Integer]
 fpMakeMonic [] _ = []
 fpMakeMonic cs p =
@@ -409,6 +428,8 @@ fpMakeMonic cs p =
         lcInv = fpInv lc p
      in map (\c -> (c * lcInv) `mod` p) cs
 
+-- | Modular exponentiation of a polynomial over @F_p@: @fpPowMod base expo modulus p@
+-- computes @base^expo mod modulus@ in @F_p[x]@ using binary exponentiation.
 fpPowMod :: [Integer] -> Integer -> [Integer] -> Integer -> [Integer]
 fpPowMod base expo modulus p = go [1] base expo
   where
@@ -418,15 +439,18 @@ fpPowMod base expo modulus p = go [1] base expo
             b' = fpMod (fpMul b b p) modulus p
          in go res' b' (e `div` 2)
 
+-- | Modular multiplicative inverse via the extended Euclidean algorithm.
 fpInv :: Integer -> Integer -> Integer
 fpInv a m = ((x `mod` m) + m) `mod` m
   where
     (_, x, _) = eGcd a m
 
+-- | Extended Euclidean algorithm: @eGcd a b@ returns @(g, x, y)@ with @a*x + b*y = g = gcd(a,b)@.
 eGcd :: Integer -> Integer -> (Integer, Integer, Integer)
 eGcd 0 b = (b, 0, 1)
 eGcd a b = let (g, x, y) = eGcd (b `mod` a) a in (g, y - (b `div` a) * x, x)
 
+-- | Small odd primes used for the Frobenius\/Chebotarev test.
 smallPrimes :: [Int]
 smallPrimes =
     [ 3
@@ -460,6 +484,7 @@ smallPrimes =
     , 113
     ]
 
+-- | All permutations of a list (used for generating all 120 permutations of 5 roots).
 perms :: [a] -> [[a]]
 perms [] = [[]]
 perms xs = [x : rest | (x, ys) <- picks xs, rest <- perms ys]

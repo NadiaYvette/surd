@@ -1,3 +1,7 @@
+||| Consolidated integer GCD and LCM, proved total via assert_smaller.
+|||
+||| Provides the foundation for Rational normalization and
+||| polynomial GCD computations.
 module Surd.GCD
 
 %default total
