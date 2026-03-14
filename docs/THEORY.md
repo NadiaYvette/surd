@@ -335,8 +335,7 @@ Arithmetic operations on `NormExpr` maintain the canonical form:
 
 - **Multiplication** ($\text{normMul}$): distribute and multiply each pair
   of monomials. When multiplying atoms, exponents are added and reduced:
-  - $(\sqrt[n]{r})^a \cdot (\sqrt[n]{r})^b = (\sqrt[n]{r})^{(a+b) \bmod n}
-    \cdot r^{\lfloor(a+b)/n\rfloor}$
+  - $(\sqrt[n]{r})^a \cdot (\sqrt[n]{r})^b = (\sqrt[n]{r})^{(a+b) \bmod n} \cdot r^{\lfloor(a+b)/n\rfloor}$
   - $i^a \cdot i^b = i^{(a+b) \bmod 2} \cdot (-1)^{\lfloor(a+b)/2\rfloor}$
 
 - **Inversion** ($\text{normInv}$): for single-monomial expressions, negate
@@ -591,8 +590,7 @@ For cube roots and higher, the situation is more complex. The library
 implements direct cube root denesting for specific patterns and delegates
 the general case to Landau's algorithm.
 
-For cube roots of the form $\sqrt[3]{a + b\sqrt{r}}$ where $a, b, r \in
-\mathbb{Q}$, the approach is:
+For cube roots of the form $\sqrt[3]{a + b\sqrt{r}}$ where $a, b, r \in \mathbb{Q}$, the approach is:
 
 1. The minimal polynomial of $\sqrt[3]{a + b\sqrt{r}}$ over $\mathbb{Q}$
    has degree dividing 6 (since the expression lives in an extension of
@@ -613,8 +611,7 @@ using radicals of lower nesting depth.
 **Algorithm:**
 
 1. **Build the extension.** Collect all radicals appearing in $a$ and
-   construct the algebraic extension $K = \mathbb{Q}(\alpha_1, \ldots,
-   \alpha_r)$ where each $\alpha_i = \sqrt[n_i]{r_i}$ is a radical atom
+   construct the algebraic extension $K = \mathbb{Q}(\alpha_1, \ldots, \alpha_r)$ where each $\alpha_i = \sqrt[n_i]{r_i}$ is a radical atom
    in $a$.
 
 2. **Factor $x^n - a$ over $K$.** Using Trager's algorithm (Section 4.5),
@@ -733,10 +730,8 @@ irreducible over $\mathbb{Q}$.
 
 **Key properties:**
 
-1. The Galois group $\mathrm{Gal}(\mathbb{Q}(\zeta_n)/\mathbb{Q}) \cong
-   (\mathbb{Z}/n\mathbb{Z})^*$, the multiplicative group of integers
-   modulo $n$. An element $a \in (\mathbb{Z}/n\mathbb{Z})^*$ acts by
-   $\sigma_a(\zeta_n) = \zeta_n^a$.
+1. The Galois group $\mathrm{Gal}(\mathbb{Q}(\zeta_n)/\mathbb{Q}) \cong (\mathbb{Z}/n\mathbb{Z})^*$, the multiplicative group of integers
+   modulo $n$. An element $a \in (\mathbb{Z}/n\mathbb{Z})^*$ acts by $\sigma_a(\zeta_n) = \zeta_n^a$.
 
 2. Since $(\mathbb{Z}/n\mathbb{Z})^*$ is abelian, the extension is
    **abelian**, and by the Kronecker--Weber theorem, every abelian
@@ -747,8 +742,7 @@ irreducible over $\mathbb{Q}$.
    degree. This decomposition is the basis for expressing $\zeta_n$ in
    radicals.
 
-4. The real subfield $\mathbb{Q}(\zeta_n + \zeta_n^{-1}) =
-   \mathbb{Q}(\cos(2\pi/n))$ has degree $\varphi(n)/2$ over $\mathbb{Q}$.
+4. The real subfield $\mathbb{Q}(\zeta_n + \zeta_n^{-1}) = \mathbb{Q}(\cos(2\pi/n))$ has degree $\varphi(n)/2$ over $\mathbb{Q}$.
 
 ### 5.3 Gauss Periods
 
@@ -787,8 +781,7 @@ subgroup chain of $(\mathbb{Z}/n\mathbb{Z})^*$.
 
 **Algorithm** (for prime $n$):
 
-1. **Factor $\varphi(n) = n - 1$** into prime factors $q_1, q_2, \ldots,
-   q_s$ (with multiplicity).
+1. **Factor $\varphi(n) = n - 1$** into prime factors $q_1, q_2, \ldots, q_s$ (with multiplicity).
 
 2. **Build the subgroup chain:**
 
@@ -905,8 +898,7 @@ $$
 \eta_2 = \zeta^2 + \zeta^5,
 $$
 
-where $\zeta = e^{2\pi i/7}$. Their sum is $\eta_0 + \eta_1 + \eta_2 =
-\sum_{k=1}^{6} \zeta^k = -1$ (the sum of all non-trivial 7th roots of
+where $\zeta = e^{2\pi i/7}$. Their sum is $\eta_0 + \eta_1 + \eta_2 = \sum_{k=1}^{6} \zeta^k = -1$ (the sum of all non-trivial 7th roots of
 unity). The period equation is:
 
 $$
@@ -1171,8 +1163,7 @@ expression (which grows polynomially with $\varphi(n)$).
 ### 7.1 Definition and Representation
 
 An **algebraic number** $\alpha$ is a root of a nonzero polynomial with
-rational coefficients. The **minimal polynomial** $m_\alpha(x) \in
-\mathbb{Q}[x]$ is the unique monic irreducible polynomial satisfied by
+rational coefficients. The **minimal polynomial** $m_\alpha(x) \in \mathbb{Q}[x]$ is the unique monic irreducible polynomial satisfied by
 $\alpha$.
 
 In the library, a real algebraic number is represented as a pair:
@@ -1253,8 +1244,7 @@ $$
 **Negation.** If $p(x)$ is the minimal polynomial of $\alpha$, then
 $(-1)^{\deg p}\, p(-x)$ (made monic) annihilates $-\alpha$.
 
-**Inversion.** If $p(x)$ annihilates $\alpha$, then $x^{\deg p} \cdot
-p(1/x)$ (the *reciprocal polynomial*, made monic) annihilates $1/\alpha$.
+**Inversion.** If $p(x)$ annihilates $\alpha$, then $x^{\deg p} \cdot p(1/x)$ (the *reciprocal polynomial*, made monic) annihilates $1/\alpha$.
 
 After computing the annihilating polynomial, the library:
 
@@ -1325,8 +1315,7 @@ The **forward direction** (RadExpr $\to$ AlgNum) computes the minimal
 polynomial of a radical expression. Three approaches are tried in order:
 
 1. **Tower-based** (`minimalPolyTower`): build a tower of field extensions
-   $\mathbb{Q} \subset \mathbb{Q}(\alpha_1) \subset \cdots \subset
-   \mathbb{Q}(\alpha_1, \ldots, \alpha_r)$ corresponding to the radicals
+   $\mathbb{Q} \subset \mathbb{Q}(\alpha_1) \subset \cdots \subset \mathbb{Q}(\alpha_1, \ldots, \alpha_r)$ corresponding to the radicals
    in the expression, then compute the minimal polynomial of the
    expression element within this tower. Fast for expressions with
    few radicals ($\leq 6$).
@@ -1417,8 +1406,7 @@ $$
 s(x)\, f(x) + t(x)\, m(x) = 1.
 $$
 
-Since $m(\alpha) = 0$, evaluating at $\alpha$ gives $s(\alpha)\, f(\alpha)
-= 1$, so $f(\alpha)^{-1} = s(\alpha)$.
+Since $m(\alpha) = 0$, evaluating at $\alpha$ gives $s(\alpha)\, f(\alpha) = 1$, so $f(\alpha)^{-1} = s(\alpha)$.
 
 The extended Euclidean algorithm computes $s(x)$ and $t(x)$ via the
 standard recurrence. The GCD is guaranteed to be 1 because $m(x)$ is
@@ -1515,8 +1503,7 @@ sequence) controls coefficient growth by dividing each remainder by a
 known factor:
 
 1. Set $r_0 = f$, $r_1 = g$, $s_0 = 1$, $h_0 = 1$.
-2. For $i \geq 1$: compute $r_{i+1} = \mathrm{prem}(r_{i-1}, r_i) /
-   (s_i \cdot h_i^{d_i})$, where $\mathrm{prem}$ is the
+2. For $i \geq 1$: compute $r_{i+1} = \mathrm{prem}(r_{i-1}, r_i) / (s_i \cdot h_i^{d_i})$, where $\mathrm{prem}$ is the
    pseudo-remainder, $d_i = \deg(r_{i-1}) - \deg(r_i)$, and $s_i, h_i$
    are recursively defined scaling factors.
 3. The last nonzero $r_i$ (made monic) is the GCD.
@@ -1661,8 +1648,7 @@ between:
 - Intermediate fields $\mathbb{Q} \subseteq K \subseteq L$.
 
 Under this bijection:
-- $H$ corresponds to the fixed field $L^H = \{x \in L : \sigma(x) = x
-  \text{ for all } \sigma \in H\}$.
+- $H$ corresponds to the fixed field $L^H = \{x \in L : \sigma(x) = x \text{ for all } \sigma \in H\}$.
 - $K$ corresponds to the stabiliser
   $\mathrm{Gal}(L/K) = \{\sigma : \sigma|_K = \text{id}\}$.
 - Normal subgroups $H \trianglelefteq G$ correspond to Galois
@@ -1673,8 +1659,7 @@ Under this bijection:
 
 **Theorem** (Galois).
 A polynomial $f(x) \in \mathbb{Q}[x]$ is solvable
-by radicals---its roots can be expressed using $+, -, \times,
-\div, \sqrt[n]{\cdot}$ applied to rational numbers---if and only if its
+by radicals---its roots can be expressed using $+, -, \times, \div, \sqrt[n]{\cdot}$ applied to rational numbers---if and only if its
 Galois group $\mathrm{Gal}(f)$ is a **solvable group**.
 
 A finite group $G$ is **solvable** if it admits a **composition series**:
@@ -1786,10 +1771,8 @@ radical expressions for the roots via Lagrange resolvents
 1. **Depress.** Shift the variable to eliminate the $x^4$ term:
    $f(x) \to f(x - a_4/(5a_5))$.
 
-2. **Find cyclic ordering.** Compute the roots $\alpha_0, \ldots,
-   \alpha_4$ numerically and find a permutation such that the Galois
-   generator acts as the cyclic shift $\sigma(\alpha_k) = \alpha_{k+1
-   \bmod 5}$.
+2. **Find cyclic ordering.** Compute the roots $\alpha_0, \ldots, \alpha_4$ numerically and find a permutation such that the Galois
+   generator acts as the cyclic shift $\sigma(\alpha_k) = \alpha_{k+1 \bmod 5}$.
 
 3. **Compute Lagrange resolvents.** With $\omega = e^{2\pi i/5}$:
 
@@ -1914,8 +1897,7 @@ square root:
 
 **Euler Substitution I** ($a > 0$): Set $\sqrt{ax^2 + bx + c} = t - x\sqrt{a}$.
 
-Squaring: $ax^2 + bx + c = t^2 - 2tx\sqrt{a} + ax^2$, so $bx + c =
-t^2 - 2tx\sqrt{a}$, giving:
+Squaring: $ax^2 + bx + c = t^2 - 2tx\sqrt{a} + ax^2$, so $bx + c = t^2 - 2tx\sqrt{a}$, giving:
 
 $$
 x = \frac{t^2 - c}{2t\sqrt{a} + b}, \qquad
@@ -1943,8 +1925,7 @@ $$
 
 ### 11.2 Rational Function Integration
 
-After Euler substitution, the integrand is a rational function $R(t) =
-P(t)/Q(t)$. The library evaluates $\int R(t)\,dt$ via:
+After Euler substitution, the integrand is a rational function $R(t) = P(t)/Q(t)$. The library evaluates $\int R(t)\,dt$ via:
 
 1. **Polynomial division.** Write $R(t) = S(t) + P'(t)/Q(t)$ where
    $\deg P' < \deg Q$. Integrate $S(t)$ directly.
