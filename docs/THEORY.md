@@ -1415,8 +1415,7 @@ $$
 
 Each level is a simple extension of the previous one. The `ExtElem` type
 is nested: an element of $\mathbb{Q}(\alpha)(\beta)$ is an `ExtElem`
-whose coefficients are themselves `ExtElem` values (living in
-$\mathbb{Q}(\alpha)$).
+whose coefficients are themselves `ExtElem` values living in $\mathbb{Q}(\alpha)$.
 
 The `Num` and `Fractional` instances on `ExtElem` enable seamless
 arithmetic at any tower depth (up to depth 5 in practice), with
