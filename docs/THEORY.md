@@ -730,10 +730,10 @@ irreducible over $\mathbb{Q}$.
 
 **Key properties:**
 
-1. The Galois group $\mathrm{Gal}(\mathbb{Q}(\zeta_n)/\mathbb{Q}) \cong (\mathbb{Z}/n\mathbb{Z})^*$, the multiplicative group of integers
-   modulo $n$. An element $a \in (\mathbb{Z}/n\mathbb{Z})^*$ acts by $\sigma_a(\zeta_n) = \zeta_n^a$.
+1. The Galois group $\mathrm{Gal}(\mathbb{Q}(\zeta_n)/\mathbb{Q}) \cong (\mathbb{Z}/n\mathbb{Z})^{\ast}$, the multiplicative group of integers
+   modulo $n$. An element $a \in (\mathbb{Z}/n\mathbb{Z})^{\ast}$ acts by $\sigma_a(\zeta_n) = \zeta_n^a$.
 
-2. Since $(\mathbb{Z}/n\mathbb{Z})^*$ is abelian, the extension is
+2. Since $(\mathbb{Z}/n\mathbb{Z})^{\ast}$ is abelian, the extension is
    **abelian**, and by the Kronecker--Weber theorem, every abelian
    extension of $\mathbb{Q}$ is contained in some cyclotomic field.
 
@@ -750,7 +750,7 @@ irreducible over $\mathbb{Q}$.
 to $\mathbb{Q}$ through intermediate subfields.
 
 **Definition.** Let $n$ be a prime, $g$ a primitive root modulo $n$, and
-$H$ a subgroup of $(\mathbb{Z}/n\mathbb{Z})^*$ of index $e$. The **Gauss
+$H$ a subgroup of $(\mathbb{Z}/n\mathbb{Z})^{\ast}$ of index $e$. The **Gauss
 periods** (of order $e$) are:
 
 $$
@@ -765,7 +765,7 @@ by the coset representatives. When $e$ is prime, this polynomial is called
 the **period equation** and its coefficients can be computed from the
 elementary symmetric functions of the periods.
 
-**Galois-theoretic meaning.** If $H \leq (\mathbb{Z}/n\mathbb{Z})^*$,
+**Galois-theoretic meaning.** If $H \leq (\mathbb{Z}/n\mathbb{Z})^{\ast}$,
 the fixed field of $H$ is $\mathbb{Q}(\eta_0)$. The Gauss periods
 generate intermediate fields in the tower:
 
@@ -777,7 +777,7 @@ $$
 ### 5.4 The Descent Algorithm
 
 The Gauss period descent computes $\cos(2\pi/n)$ by descending through the
-subgroup chain of $(\mathbb{Z}/n\mathbb{Z})^*$.
+subgroup chain of $(\mathbb{Z}/n\mathbb{Z})^{\ast}$.
 
 **Algorithm** (for prime $n$):
 
@@ -786,7 +786,7 @@ subgroup chain of $(\mathbb{Z}/n\mathbb{Z})^*$.
 2. **Build the subgroup chain:**
 
 $$
-\{1\} = H_0 \subset H_1 \subset \cdots \subset H_s = (\mathbb{Z}/n\mathbb{Z})^*,
+\{1\} = H_0 \subset H_1 \subset \cdots \subset H_s = (\mathbb{Z}/n\mathbb{Z})^{\ast},
 $$
 
 where $[H_{i+1} : H_i] = q_i$.
@@ -883,7 +883,7 @@ $3^0 = 1, 3^1 = 3, 3^2 = 2, 3^3 = 6, 3^4 = 4, 3^5 = 5 \pmod{7}$.
 Factor $6 = 2 \times 3$. Subgroup chain:
 
 $$
-\{1\} \subset H_1 = \{1, 6\} \subset H_2 = \{1, 2, 3, 4, 5, 6\} = (\mathbb{Z}/7\mathbb{Z})^*.
+\{1\} \subset H_1 = \{1, 6\} \subset H_2 = \{1, 2, 3, 4, 5, 6\} = (\mathbb{Z}/7\mathbb{Z})^{\ast}.
 $$
 
 Here $[H_2 : H_1] = 3$ and $[H_1 : \{1\}] = 2$.
@@ -942,10 +942,10 @@ radicals---a significant simplification.
 
 ### 5.8 Handling Primes, Prime Powers, and Composites
 
-**Primes.** For a prime $p$, $(\mathbb{Z}/p\mathbb{Z})^*$ is cyclic of
+**Primes.** For a prime $p$, $(\mathbb{Z}/p\mathbb{Z})^{\ast}$ is cyclic of
 order $p - 1$. The algorithm in Section 5.4 applies directly.
 
-**Odd prime powers.** For $n = p^k$ with $p$ odd, $(\mathbb{Z}/p^k\mathbb{Z})^*$
+**Odd prime powers.** For $n = p^k$ with $p$ odd, $(\mathbb{Z}/p^k\mathbb{Z})^{\ast}$
 is cyclic of order $\varphi(p^k) = p^{k-1}(p-1)$. The descent algorithm
 applies with an important modification: the factor of $p$ in the subgroup
 chain must come **first** (to avoid degenerate sub-period sums where all
@@ -955,7 +955,7 @@ periods in a coset collapse to the same value).
 (CRT) gives
 
 $$
-(\mathbb{Z}/n\mathbb{Z})^* \cong \prod_i (\mathbb{Z}/p_i^{k_i}\mathbb{Z})^*
+(\mathbb{Z}/n\mathbb{Z})^{\ast} \cong \prod_i (\mathbb{Z}/p_i^{k_i}\mathbb{Z})^{\ast}
 $$
 
 when $n = \prod_i p_i^{k_i}$. The CRT decomposition expresses
