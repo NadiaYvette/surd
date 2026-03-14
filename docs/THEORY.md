@@ -215,16 +215,16 @@ options, each with trade-offs:
 The theoretical foundation for the NormalForm representation is
 Besicovitch's theorem on the linear independence of radicals.
 
-**Theorem** [Besicovitch 1940]. *Let $n_1, \ldots, n_r$ be positive
+**Theorem** [Besicovitch 1940]. <em>Let $n_1, \ldots, n_r$ be positive
 integers $\geq 2$ and let $a_1, \ldots, a_r$ be positive rationals such
 that for each $i$, no $n_i$-th power of a rational (other than 1) divides
-$a_i$ (that is, $a_i$ is $n_i$-th-power-free). If the radical monomials*
+$a_i$ (that is, $a_i$ is $n_i$-th-power-free). If the radical monomials</em>
 
 $$
 \prod_{i=1}^r a_i^{e_i / n_i}, \qquad 0 \leq e_i < n_i,
 $$
 
-*are all distinct, then they are linearly independent over $\mathbb{Q}$.*
+<em>are all distinct, then they are linearly independent over $\mathbb{Q}$.</em>
 
 This theorem guarantees that the representation of an element of
 $\mathbb{Q}(\sqrt[n_1]{a_1}, \ldots, \sqrt[n_r]{a_r})$ as a
@@ -699,9 +699,9 @@ The problem of expressing trigonometric values at rational multiples of
 $\pi$ in closed form has a long history, beginning with the ancient
 Greek construction of regular polygons.
 
-**Theorem** (Gauss--Wantzel). *A regular $n$-gon is constructible by
+**Theorem** (Gauss--Wantzel). <em>A regular $n$-gon is constructible by
 compass and straightedge if and only if $n = 2^a p_1 p_2 \cdots p_k$
-where the $p_i$ are distinct Fermat primes* ($p = 2^{2^m} + 1$).
+where the $p_i$ are distinct Fermat primes</em> ($p = 2^{2^m} + 1$).
 
 The known Fermat primes are $3, 5, 17, 257, 65537$. For constructible
 angles, $\cos(2\pi/n)$ can be expressed using only square roots over
@@ -1201,16 +1201,16 @@ $$
 where $\mathrm{rem}$ denotes the polynomial remainder. (Note the
 negation: this ensures sign variation counting works correctly.)
 
-**Theorem** (Sturm, 1829). *Let $f$ be a square-free polynomial and
+**Theorem** (Sturm, 1829). <em>Let $f$ be a square-free polynomial and
 $(f_0, f_1, \ldots, f_m)$ its Sturm sequence. For any $a < b$ not roots
-of $f$, the number of distinct real roots of $f$ in $(a, b)$ equals*
+of $f$, the number of distinct real roots of $f$ in $(a, b)$ equals</em>
 
 $$
 V(a) - V(b),
 $$
 
-*where $V(c) = \#\{i : \mathrm{sign}(f_i(c)) \neq \mathrm{sign}(f_{i+1}(c))\}$
-is the number of sign variations in the sequence evaluated at $c$.*
+<em>where $V(c) = \#\{i : \mathrm{sign}(f_i(c)) \neq \mathrm{sign}(f_{i+1}(c))\}$
+is the number of sign variations in the sequence evaluated at $c$.</em>
 
 The library uses Sturm's theorem in `Surd.Algebraic.RootIsolation` for:
 - **Root isolation:** starting with a large interval and bisecting until
