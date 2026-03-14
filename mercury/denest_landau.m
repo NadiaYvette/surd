@@ -34,6 +34,12 @@
     %
 :- func denest_radical(int, rad_expr(rational)) = maybe(rad_expr(rational)).
 
+    % Enumerate all possible Landau denestings of an expression.
+    % Produces alternatives via backtracking (nondet).
+    %
+:- pred denest_landau_multi(rad_expr(rational)::in,
+    rad_expr(rational)::out) is nondet.
+
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 
@@ -915,6 +921,36 @@ mk_term3(C, I, J, K, A, B, D) = Result :-
 try_denest_depth4(_, _, _, _, _, _) = no.
     % Depth 4 denesting requires 4-level tower nesting which is
     % extremely expensive. Deferred — depth 1-3 covers most practical cases.
+
+%---------------------------------------------------------------------------%
+% Multi-determinism: enumerate Landau denesting alternatives
+%---------------------------------------------------------------------------%
+
+denest_landau_multi(Expr, Result) :-
+    % Try Landau denesting at each root node
+    Expr = re_root(N, Radicand),
+    denest_radical(N, Radicand) = yes(Result).
+denest_landau_multi(Expr, Result) :-
+    % Recurse into sub-expressions
+    Expr = re_root(N, Inner),
+    denest_landau_multi(Inner, DenestedInner),
+    Result = re_root(N, DenestedInner).
+denest_landau_multi(Expr, Result) :-
+    Expr = re_add(A, B),
+    denest_landau_multi(A, DA),
+    Result = re_add(DA, B).
+denest_landau_multi(Expr, Result) :-
+    Expr = re_add(A, B),
+    denest_landau_multi(B, DB),
+    Result = re_add(A, DB).
+denest_landau_multi(Expr, Result) :-
+    Expr = re_mul(A, B),
+    denest_landau_multi(A, DA),
+    Result = re_mul(DA, B).
+denest_landau_multi(Expr, Result) :-
+    Expr = re_mul(A, B),
+    denest_landau_multi(B, DB),
+    Result = re_mul(A, DB).
 
 %---------------------------------------------------------------------------%
 :- end_module denest_landau.

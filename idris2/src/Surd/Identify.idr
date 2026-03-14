@@ -18,15 +18,27 @@ import Data.List
 ||| Result of Galois group identification.
 public export
 data GaloisResult : Type where
-  ||| Successfully identified the Galois group.
-  Identified : TransGroup -> GaloisResult
+  ||| Successfully identified the Galois group of a degree-5 polynomial.
+  Identified5 : TransGroup 5 -> GaloisResult
+  ||| Successfully identified with ad-hoc info (small degrees).
+  IdentifiedAdHoc : String -> Integer -> Bool -> GaloisResult
   ||| Could not identify (unsupported degree or other issue).
   Unidentified : String -> GaloisResult
 
 export
 Show GaloisResult where
-  show (Identified tg) = "Galois group: " ++ show tg
+  show (Identified5 tg) = "Galois group: " ++ show tg
+  show (IdentifiedAdHoc name order solv) =
+    "Galois group: " ++ name ++ " (order " ++ show order ++ ", "
+    ++ (if solv then "solvable" else "non-solvable") ++ ")"
   show (Unidentified msg) = "Unidentified: " ++ msg
+
+||| Check if a Galois result is solvable.
+export
+isSolvableResult : GaloisResult -> Bool
+isSolvableResult (Identified5 tg) = tgSolvable tg
+isSolvableResult (IdentifiedAdHoc _ _ solv) = solv
+isSolvableResult (Unidentified _) = False
 
 ------------------------------------------------------------------------
 -- Frobenius test
@@ -51,12 +63,12 @@ identifyGaloisGroup5 p =
       let discSquare = isDiscriminantSquare p
           sexticRoot = hasSexticRationalRoot p
       in case (discSquare, sexticRoot) of
-           (False, False) => Identified s5
-           (True, False)  => Identified a5
-           (False, True)  => Identified f20
+           (False, False) => Identified5 s5
+           (True, False)  => Identified5 a5
+           (False, True)  => Identified5 f20
            (True, True)   =>
-             if frobeniusTestC5 p then Identified c5
-             else Identified d5
+             if frobeniusTestC5 p then Identified5 c5
+             else Identified5 d5
     d => Unidentified ("Unsupported degree: " ++ show d)
 
 ------------------------------------------------------------------------
@@ -68,9 +80,9 @@ export
 identifyGaloisGroup : Poly Rational -> GaloisResult
 identifyGaloisGroup p =
   case degreeInt p of
-    1 => Identified (MkTransGroup 1 1 "trivial" 1 True [])
-    2 => Identified (MkTransGroup 2 1 "C2" 2 True [])
-    3 => Identified (MkTransGroup 3 1 "S3_or_C3" 6 True [])
+    1 => IdentifiedAdHoc "trivial" 1 True
+    2 => IdentifiedAdHoc "C2" 2 True
+    3 => IdentifiedAdHoc "S3_or_C3" 6 True
     4 => Unidentified "Degree 4: not yet fully implemented"
     5 => identifyGaloisGroup5 p
     d => Unidentified ("Degree " ++ show d ++ " not supported")
@@ -78,7 +90,4 @@ identifyGaloisGroup p =
 ||| Check if a polynomial is solvable by radicals.
 export
 isSolvableByRadicals : Poly Rational -> Bool
-isSolvableByRadicals p =
-  case identifyGaloisGroup p of
-    Identified tg => tgSolvable tg
-    Unidentified _ => False
+isSolvableByRadicals p = isSolvableResult (identifyGaloisGroup p)

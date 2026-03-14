@@ -90,14 +90,19 @@ def complexNthRoot (n : Int) (z : Complex Float) : Complex Float :=
     ⟨rn * Float.cos an, rn * Float.sin an⟩
 
 /-- Complex power by repeated squaring. -/
-partial def complexPow (z : Complex Float) (n : Int) : Complex Float :=
+def complexPow (z : Complex Float) (n : Int) : Complex Float :=
   if n == 0 then Complex.one
-  else if n < 0 then Complex.inv (complexPow z (-n))
-  else if n == 1 then z
-  else if n % 2 == 0 then
-    let half := complexPow z (n / 2)
-    Complex.mul half half
-  else Complex.mul z (complexPow z (n - 1))
+  else if n < 0 then Complex.inv (complexPowNat z (-n).toNat)
+  else complexPowNat z n.toNat
+where
+  complexPowNat (z : Complex Float) : Nat → Complex Float
+    | 0 => Complex.one
+    | 1 => z
+    | n + 2 =>
+      if (n + 2) % 2 == 0 then
+        let half := complexPowNat z ((n + 2) / 2)
+        Complex.mul half half
+      else Complex.mul z (complexPowNat z (n + 1))
 
 /-- Evaluate a RadExpr to Complex Float. -/
 def evalComplex : RadExpr Rat → Complex Float

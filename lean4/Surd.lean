@@ -49,3 +49,5 @@ import Surd.Galois.RadicalTower
 import Surd.Galois.Solve
 import Surd.Integration.Euler
 import Surd.Integration.Elliptic
+import Surd.Notation
+import Surd.Poly.Lemmas

@@ -40,6 +40,12 @@ object Factoring:
     else
       (BigInt(1) to abs.min(BigInt(1000))).filter(d => abs % d == 0).toVector
 
+  /** Square-free factorization, returning typed SquareFreePoly factors.
+    * Each factor is guaranteed to be square-free.
+    */
+  def squareFree(f: Poly[Rational])(using Field[Rational]): Vector[(SquareFreePoly, Int)] =
+    Poly.squareFree(f).map { case (sf, mult) => (SquareFreePoly(sf), mult) }
+
   /** Factor a polynomial over Q into irreducible factors.
     * Returns (factor, multiplicity) pairs.
     *

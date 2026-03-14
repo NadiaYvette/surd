@@ -47,3 +47,7 @@ squareFree :: !(Poly k) -> [(Poly k, Int)] | == k & zero k & one k & + k & ~ k &
 
 instance == (Poly k) | == k
 instance toString (Poly k) | toString k
+
+// Algebraic structure instance (see Algebra module).
+// Poly k is a Ring when k is a Ring with == and zero.
+from Algebra import class Ring

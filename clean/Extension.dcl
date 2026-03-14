@@ -29,3 +29,6 @@ extGcdPoly :: !(Poly Rational) !(Poly Rational) -> (Poly Rational, Poly Rational
 
 instance == ExtElem
 instance toString ExtElem
+
+// Algebraic structure instances (see Algebra module).
+from Algebra import class Ring, class Field

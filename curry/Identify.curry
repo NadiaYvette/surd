@@ -1,9 +1,9 @@
 --- Galois group identification for irreducible polynomials over Q.
 ---
---- Uses the Stauduhar descent approach for degree 5:
---- discriminant test (A5 vs S5) and sextic resolvent (F20 containment).
+--- Uses multi-clause function definitions with guards — Curry's overlapping
+--- rules provide clean dispatch without if-then-else chains.
 ---
---- Decision tree:
+--- Decision tree for degree 5:
 ---   disc square?  sextic root?   result
 ---   no            no             S5
 ---   yes           no             A5
@@ -29,25 +29,23 @@ data GaloisResult
   | NotSupported String
 
 --- Identify the Galois group of a degree-5 irreducible polynomial.
+---
+--- Multi-clause with guards replaces the if-then-else chain.
+--- Curry's pattern matching dispatches to the first matching clause.
 identifyGaloisGroup5 :: Poly -> GaloisResult
 identifyGaloisGroup5 p
-  | degree p /= 5 = NotSupported "only degree 5 supported"
-  | otherwise =
-      let discSq = isDiscSquare p
-          -- Sextic resolvent test (stub: uses rational root test on f itself)
-          sextic = sexticResolvent p
-          hasSexticRoot = hasRationalRoot sextic
-      in if not discSq && not hasSexticRoot
-         then Identified tgS5
-         else if discSq && not hasSexticRoot
-         then Identified tgA5
-         else if not discSq && hasSexticRoot
-         then Identified tgF20
-         else -- discSq && hasSexticRoot: D5 or C5
-           -- Frobenius test to distinguish
-           if frobeniusTestC5 p
-           then Identified tgC5
-           else Identified tgD5
+  | degree p /= 5
+  = NotSupported "only degree 5 supported"
+  | not (isDiscSquare p) && not (hasRationalRoot (sexticResolvent p))
+  = Identified tgS5
+  | isDiscSquare p && not (hasRationalRoot (sexticResolvent p))
+  = Identified tgA5
+  | not (isDiscSquare p) && hasRationalRoot (sexticResolvent p)
+  = Identified tgF20
+  | isDiscSquare p && hasRationalRoot (sexticResolvent p) && frobeniusTestC5 p
+  = Identified tgC5
+  | isDiscSquare p && hasRationalRoot (sexticResolvent p)
+  = Identified tgD5
 
 --- Frobenius/Chebotarev test to distinguish C5 from D5.
 --- For C5, factorization mod p is either {5} or {1,1,1,1,1}.

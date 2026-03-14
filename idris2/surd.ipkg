@@ -2,7 +2,8 @@ package surd
 version = 0.1.0
 sourcedir = "src"
 
-modules = Surd.Rational,
+modules = Surd.GCD,
+          Surd.Rational,
           Surd.Positive,
           Surd.PrimeFactors,
           Surd.Poly,
@@ -39,4 +40,8 @@ modules = Surd.Rational,
           Demo.TrigTable,
           Demo.EulerIntegral,
           Demo.EllipticIntegral,
-          Demo.SolvableQuintic
+          Demo.SolvableQuintic,
+          Test
+
+main = Test
+executable = "surd-test"

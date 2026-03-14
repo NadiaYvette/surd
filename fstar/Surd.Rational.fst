@@ -28,15 +28,50 @@ noeq type rational = {
   den: d:int{d > 0};
 }
 
+/// gcd_nat a b <= b when b > 0.
+let rec gcd_nat_le_second (a b : nat)
+  : Lemma (requires b > 0)
+          (ensures gcd_nat a b <= b)
+          (decreases b) =
+  (* gcd(a, b) = gcd(b, a%b). a%b < b.
+     If a%b = 0: gcd(b, 0) = b, so gcd(a,b) = b <= b. Done.
+     If a%b > 0: gcd(b, a%b) and by IH on (b, a%b) with second arg a%b < b:
+       but that gives gcd(b, a%b) <= a%b, which is <= b-1 < b. But IH
+       requires (a%b) > 0, and we're in that case. Actually the IH gives
+       gcd(b, a%b) <= a%b. Since a%b < b, we get gcd(b, a%b) < b. *)
+  if a % b = 0 then ()
+  else begin
+    assert (a % b > 0);
+    assert (a % b < b);
+    gcd_nat_le_second b (a % b);
+    (* IH gives: gcd(b, a%b) <= a%b. Since a%b < b, done. *)
+    assert (gcd_nat b (a % b) <= a % b);
+    assert (a % b < b)
+  end
+
+/// sign_int q * q > 0 when q <> 0.
+let sign_mul_pos (q: int{q <> 0})
+  : Lemma (op_Multiply (sign_int q) q > 0) =
+  ()
+
 /// Normalize a fraction: ensure den > 0 and gcd = 1.
 let mk_rational (p q : int) : Pure rational (requires q <> 0) (ensures fun _ -> True) =
   let g = gcd_int p q in
   let g' : int = if g = 0 then 1 else g in
   let sn = sign_int q in
   let p' = op_Multiply sn p / g' in
-  let q' = op_Multiply sn q / g' in
-  (* q' > 0 because sn flips sign of q to make it positive, then divides by positive g' *)
-  assume (q' > 0);
+  let sq = op_Multiply sn q in
+  sign_mul_pos q;
+  assert (sq > 0);
+  assert (g' >= 1);
+  FStar.Math.Lemmas.nat_over_pos_is_nat sq g';
+  (* gcd(|p|, |q|) <= |q| = sq, since q <> 0 implies |q| > 0 *)
+  gcd_nat_le_second (abs_int p) (abs_int q);
+  assert (g <= sq);
+  assert (g' <= sq);
+  FStar.Math.Lemmas.lemma_div_le 1 sq g';
+  let q' = sq / g' in
+  assert (q' >= 1);
   { num = p'; den = q' }
 
 /// Zero rational.

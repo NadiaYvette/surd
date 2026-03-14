@@ -25,3 +25,7 @@ lean_exe «surd-elliptic-integral» where
 lean_exe «surd-solvable-quintic» where
   root := `Demo.SolvableQuintic
   supportInterpreter := true
+
+lean_exe «surd-test» where
+  root := `Test.Main
+  supportInterpreter := true

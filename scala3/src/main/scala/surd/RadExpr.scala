@@ -42,6 +42,22 @@ object RadExpr:
   /** Lift a BigInt into a radical expression over Rational. */
   def intE(n: BigInt): RadExpr[Rational] = Lit(Rational(n))
 
+  /** Bottom-up expression transformer combinator.
+    *
+    * Recursively transforms all children first, then applies f to the result.
+    * Useful for normalization passes that work on already-transformed subtrees.
+    */
+  def transform[K](f: RadExpr[K] => RadExpr[K])(expr: RadExpr[K]): RadExpr[K] =
+    val transformed = expr match
+      case Lit(_)      => expr
+      case Neg(a)      => Neg(transform(f)(a))
+      case Add(a, b)   => Add(transform(f)(a), transform(f)(b))
+      case Mul(a, b)   => Mul(transform(f)(a), transform(f)(b))
+      case Inv(a)      => Inv(transform(f)(a))
+      case Root(n, a)  => Root(n, transform(f)(a))
+      case Pow(a, n)   => Pow(transform(f)(a), n)
+    f(transformed)
+
   /** Map over coefficients (Functor). */
   def map[A, B](expr: RadExpr[A])(f: A => B): RadExpr[B] = expr match
     case Lit(v)      => Lit(f(v))

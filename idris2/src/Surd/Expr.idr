@@ -52,10 +52,10 @@ freeOf p (Pow a _)  = freeOf p a
 ||| Collect distinct (rootIndex, radicand) pairs from an expression.
 ||| Uses nub to deduplicate while preserving order.
 export
-collectRadicals : Eq k => RadExpr k -> List (Int, RadExpr k)
+collectRadicals : Eq k => RadExpr k -> List (Nat, RadExpr k)
 collectRadicals = nub . go
   where
-    go : RadExpr k -> List (Int, RadExpr k)
+    go : RadExpr k -> List (Nat, RadExpr k)
     go (Lit _)    = []
     go (Neg a)    = go a
     go (Add a b)  = go a ++ go b
@@ -71,7 +71,7 @@ collectRadicals = nub . go
 ||| Check whether all Root subexpressions in a radicand are present
 ||| in the resolved set.
 export
-allRootsResolved : Eq k => List (Int, RadExpr k) -> RadExpr k -> Bool
+allRootsResolved : Eq k => List (Nat, RadExpr k) -> RadExpr k -> Bool
 allRootsResolved _        (Lit _)    = True
 allRootsResolved resolved (Neg a)    = allRootsResolved resolved a
 allRootsResolved resolved (Add a b)  = allRootsResolved resolved a && allRootsResolved resolved b
@@ -85,10 +85,10 @@ allRootsResolved resolved (Root n a) = elem (n, a) resolved
 ||| earlier radicals. Unresolvable radicals (cyclic dependencies) are
 ||| appended at the end.
 export
-topoSortRadicals : Eq k => List (Int, RadExpr k) -> List (Int, RadExpr k)
+topoSortRadicals : Eq k => List (Nat, RadExpr k) -> List (Nat, RadExpr k)
 topoSortRadicals = go []
   where
-    go : List (Int, RadExpr k) -> List (Int, RadExpr k) -> List (Int, RadExpr k)
+    go : List (Nat, RadExpr k) -> List (Nat, RadExpr k) -> List (Nat, RadExpr k)
     go sorted [] = sorted
     go sorted remaining =
       let ready = filter (\r => allRootsResolved sorted (snd r)) remaining

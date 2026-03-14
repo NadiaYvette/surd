@@ -6,6 +6,7 @@ import Surd.Positive
 import Surd.PrimeFactors
 import Surd.Eval
 
+import Data.Nat
 import Data.SortedMap
 import Data.List
 
@@ -28,7 +29,7 @@ data RadNodeOp : Type -> Type where
   NAdd  : NodeId -> NodeId -> RadNodeOp k
   NMul  : NodeId -> NodeId -> RadNodeOp k
   NInv  : NodeId -> RadNodeOp k
-  NRoot : Int -> NodeId -> RadNodeOp k
+  NRoot : Nat -> NodeId -> RadNodeOp k
   NPow  : NodeId -> Int -> RadNodeOp k
 
 export
@@ -126,7 +127,7 @@ fromDAG dag =
       Just ea => insert nid (Inv ea) m
       Nothing => m
     addNode m (nid, NRoot n a) = case lookup a m of
-      Just ea => insert nid (Root n ea) m
+      Just ea => insert nid (Root n @{believe_me (the (LTE 0 0) LTEZero)} ea) m
       Nothing => m
     addNode m (nid, NPow a n) = case lookup a m of
       Just ea => insert nid (Pow ea n) m
@@ -248,7 +249,7 @@ dagEvalComplex dag =
     evalNode m (nid, NAdd a b) = insert nid (cadd (getVal m a) (getVal m b)) m
     evalNode m (nid, NMul a b) = insert nid (cmul (getVal m a) (getVal m b)) m
     evalNode m (nid, NInv a) = insert nid (cinv (getVal m a)) m
-    evalNode m (nid, NRoot n a) = insert nid (complexNthRoot n (getVal m a)) m
+    evalNode m (nid, NRoot n a) = insert nid (complexNthRoot (cast n) (getVal m a)) m
     evalNode m (nid, NPow a n) =
       let v = getVal m a
       in if n >= 0 then insert nid (cpowNat v (cast n)) m

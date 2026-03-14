@@ -1,0 +1,1 @@
+lib/surd.ml: Alg_num Convert Cyclotomic Denest Elliptic_integration Equality Euler_integration Eval Extension Factoring Field_sig Galois_solve Identify Interval Latex Minimal_poly Normal_form Normalize Order Permutation Poly Positive Pretty Prime_factors Rad_expr Radical_tower Rational Resolvent Resultant Root_isolation Root_of_unity Transitive_group Trig Trig_galois

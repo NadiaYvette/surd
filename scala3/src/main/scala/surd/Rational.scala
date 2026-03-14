@@ -82,8 +82,8 @@ object Rational:
   given Ordering[Rational] = (a, b) => a.compare(b)
 
   given Field[Rational] with
-    def zero: Rational = Rational.zero
-    def one: Rational = Rational.one
+    inline def zero: Rational = Rational.zero
+    inline def one: Rational = Rational.one
     def add(a: Rational, b: Rational): Rational = a + b
     def mul(a: Rational, b: Rational): Rational = a * b
     def negate(a: Rational): Rational = -a

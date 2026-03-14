@@ -36,16 +36,12 @@ object Normalize:
   // flattenArith: cancel double negations and double inverses
   // ---------------------------------------------------------------
 
-  def flattenArith[K](expr: RadExpr[K]): RadExpr[K] = expr match
-    case Neg(Neg(a))   => flattenArith(a)
-    case Neg(a)        => Neg(flattenArith(a))
-    case Add(a, b)     => Add(flattenArith(a), flattenArith(b))
-    case Mul(a, b)     => Mul(flattenArith(a), flattenArith(b))
-    case Inv(Inv(a))   => flattenArith(a)
-    case Inv(a)        => Inv(flattenArith(a))
-    case Root(n, a)    => Root(n, flattenArith(a))
-    case Pow(a, n)     => Pow(flattenArith(a), n)
-    case e             => e
+  def flattenArith[K](expr: RadExpr[K]): RadExpr[K] =
+    RadExpr.transform[K] {
+      case Neg(Neg(a)) => a
+      case Inv(Inv(a)) => a
+      case e           => e
+    }(expr)
 
   // ---------------------------------------------------------------
   // foldConstants: evaluate pure-literal subtrees
@@ -97,20 +93,15 @@ object Normalize:
   // simplifyPowers
   // ---------------------------------------------------------------
 
-  def simplifyPowers(expr: RadExpr[Rational]): RadExpr[Rational] = expr match
-    // (sqrt(a))^2 via Mul
-    case Mul(Root(2, a), Root(2, b)) if a == b => simplifyPowers(a)
-    case Pow(Pow(a, m), n)                     => simplifyPowers(Pow(a, m * n))
-    case Pow(Root(n, a), m) if m == n          => simplifyPowers(a)
-    case Root(n, Pow(a, m)) if m == n          => simplifyPowers(a)
-    case Root(m, Root(n, a))                   => Root(m * n, simplifyPowers(a))
-    case Neg(a)                                => Neg(simplifyPowers(a))
-    case Add(a, b)                             => Add(simplifyPowers(a), simplifyPowers(b))
-    case Mul(a, b)                             => Mul(simplifyPowers(a), simplifyPowers(b))
-    case Inv(a)                                => Inv(simplifyPowers(a))
-    case Root(n, a)                            => Root(n, simplifyPowers(a))
-    case Pow(a, n)                             => Pow(simplifyPowers(a), n)
-    case e                                     => e
+  def simplifyPowers(expr: RadExpr[Rational]): RadExpr[Rational] =
+    RadExpr.transform[Rational] {
+      case Mul(Root(2, a), Root(2, b)) if a == b => a
+      case Pow(Pow(a, m), n)                     => Pow(a, m * n)
+      case Pow(Root(n, a), m) if m == n          => a
+      case Root(n, Pow(a, m)) if m == n          => a
+      case Root(m, Root(n, a))                   => Root(m * n, a)
+      case e                                     => e
+    }(expr)
 
   // ---------------------------------------------------------------
   // extractPerfectPowers

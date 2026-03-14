@@ -4,6 +4,7 @@ import Surd.Rational
 import Surd.Poly
 import Surd.Cyclotomic  -- for Ring/Field Rational instances
 import Surd.RootBound
+import Surd.GCD
 
 import Data.List
 
@@ -58,14 +59,6 @@ primitivePart p =
       primCoeffs = map (\c => mkRat c g') intCoeffs
       content = mkRat g' lcmDens
   in (content, mkPoly primCoeffs)
-  where
-    gcdInteger : Integer -> Integer -> Integer
-    gcdInteger a 0 = a
-    gcdInteger a b = assert_total $ gcdInteger b (mod a b)
-
-    lcmInteger : Integer -> Integer -> Integer
-    lcmInteger a b = if a == 0 || b == 0 then 0
-                     else div (abs (a * b)) (gcdInteger (abs a) (abs b))
 
 ------------------------------------------------------------------------
 -- Kronecker factoring over Q

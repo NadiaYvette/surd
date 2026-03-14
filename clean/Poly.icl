@@ -158,3 +158,12 @@ listToString [x:xs] = "[" +++ toString x +++ concatStrs (map (\e -> "," +++ toSt
 concatStrs :: [{#Char}] -> {#Char}
 concatStrs [] = ""
 concatStrs [s:ss] = s +++ concatStrs ss
+
+import Algebra
+
+instance Ring (Poly Rational) where
+    rzero     = zeroPoly
+    rone      = constPoly one
+    radd  a b = addPoly a b
+    rmul  a b = mulPoly a b
+    rneg  a   = negatePoly a

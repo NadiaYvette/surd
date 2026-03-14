@@ -6,6 +6,7 @@ import Surd.Positive
 import Surd.PrimeFactors
 import Surd.Cyclotomic
 
+import Data.Nat
 import Data.List
 
 %default covering

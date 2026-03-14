@@ -8,6 +8,7 @@ import Surd.Normalize
 import Surd.Pretty
 import Surd.LaTeX
 
+import Data.Nat
 import Data.List
 
 %default covering

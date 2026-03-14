@@ -10,6 +10,23 @@ import RadExpr.*
   *   - Landau's general denesting framework (simplified)
   *   - Dispatcher that tries all applicable methods
   */
+/** Extractor for the a + b*sqrt(c) pattern in radical expressions. */
+object SqrtForm:
+  def unapply(e: RadExpr[Rational]): Option[(Rational, Rational, Rational)] = e match
+    case RadExpr.Add(RadExpr.Lit(a), RadExpr.Mul(RadExpr.Lit(b), RadExpr.Root(2, RadExpr.Lit(c)))) =>
+      Some((a, b, c))
+    case RadExpr.Add(RadExpr.Lit(a), RadExpr.Root(2, RadExpr.Lit(c))) =>
+      Some((a, Rational.one, c))
+    case RadExpr.Add(RadExpr.Lit(a), RadExpr.Neg(RadExpr.Mul(RadExpr.Lit(b), RadExpr.Root(2, RadExpr.Lit(c))))) =>
+      Some((a, -b, c))
+    case RadExpr.Add(RadExpr.Lit(a), RadExpr.Neg(RadExpr.Root(2, RadExpr.Lit(c)))) =>
+      Some((a, -Rational.one, c))
+    case RadExpr.Add(RadExpr.Mul(RadExpr.Lit(b), RadExpr.Root(2, RadExpr.Lit(c))), RadExpr.Lit(a)) =>
+      Some((a, b, c))
+    case RadExpr.Add(RadExpr.Root(2, RadExpr.Lit(c)), RadExpr.Lit(a)) =>
+      Some((a, Rational.one, c))
+    case _ => None
+
 object Denest:
 
   /** Try to denest a radical expression. Returns the simplified form
@@ -71,16 +88,11 @@ object Denest:
             case None => None
       case None => None
 
-  /** Decompose an expression as a + b*sqrt(c). */
+  /** Decompose an expression as a + b*sqrt(c). Delegates to SqrtForm extractor. */
   private def decomposeSqrt(expr: RadExpr[Rational]): Option[(Rational, Rational, Rational)] =
     expr match
-      case Add(Lit(a), Mul(Lit(b), Root(2, Lit(c)))) => Some((a, b, c))
-      case Add(Lit(a), Root(2, Lit(c))) => Some((a, Rational.one, c))
-      case Add(Lit(a), Neg(Mul(Lit(b), Root(2, Lit(c))))) => Some((a, -b, c))
-      case Add(Lit(a), Neg(Root(2, Lit(c)))) => Some((a, -Rational.one, c))
-      case Add(Mul(Lit(b), Root(2, Lit(c))), Lit(a)) => Some((a, b, c))
-      case Add(Root(2, Lit(c)), Lit(a)) => Some((a, Rational.one, c))
-      case _ => None
+      case SqrtForm(a, b, c) => Some((a, b, c))
+      case _                 => None
 
   // --- Cube root denesting ---
 

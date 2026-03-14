@@ -8,43 +8,53 @@ namespace Surd
 /-- A prime factorization: list of (prime, exponent) pairs. -/
 def Factorization := List (Nat × Nat)
 
-/-- Extract all factors of d from n, returning (n/d^e, e). -/
-private partial def extractFactor (n d : Nat) : Nat × Nat :=
-  go n 0
+/-- Extract all factors of d from n, returning (n/d^e, e).
+    Terminates because n strictly decreases when d ≥ 2 divides n. -/
+private def extractFactor (n d : Nat) : Nat × Nat :=
+  go n 0 n
 where
-  go (n e : Nat) : Nat × Nat :=
-    if d == 0 then (n, e)
-    else if n % d == 0 then go (n / d) (e + 1)
-    else (n, e)
+  go (n e fuel : Nat) : Nat × Nat :=
+    match fuel with
+    | 0 => (n, e)
+    | fuel' + 1 =>
+      if d ≤ 1 then (n, e)
+      else if n % d == 0 then go (n / d) (e + 1) fuel'
+      else (n, e)
 
 /-- Trial-division factorization of a natural number.
     Returns a list of (prime, exponent) pairs in ascending order. -/
-partial def factoriseNat (n : Nat) : Factorization :=
+def factoriseNat (n : Nat) : Factorization :=
   if n ≤ 1 then []
-  else go n 2
+  else go n 2 n
 where
-  go (n d : Nat) : Factorization :=
-    if n ≤ 1 then []
-    else if d * d > n then [(n, 1)]
-    else if n % d == 0 then
-      let (n', e) := extractFactor n d
-      (d, e) :: go n' (d + 1)
-    else
-      go n (d + 1)
+  go (n d fuel : Nat) : Factorization :=
+    match fuel with
+    | 0 => if n > 1 then [(n, 1)] else []
+    | fuel' + 1 =>
+      if n ≤ 1 then []
+      else if d * d > n then [(n, 1)]
+      else if n % d == 0 then
+        let (n', e) := extractFactor n d
+        (d, e) :: go n' (d + 1) fuel'
+      else
+        go n (d + 1) fuel'
 
 /-- Factorize a Positive. -/
 def Positive.factorise (p : Positive) : Factorization :=
   factoriseNat p.val
 
 /-- Check if a natural number is prime. -/
-partial def isPrime (n : Nat) : Bool :=
+def isPrime (n : Nat) : Bool :=
   if n < 2 then false
-  else go 2
+  else go 2 n
 where
-  go (d : Nat) : Bool :=
-    if d * d > n then true
-    else if n % d == 0 then false
-    else go (d + 1)
+  go (d fuel : Nat) : Bool :=
+    match fuel with
+    | 0 => true
+    | fuel' + 1 =>
+      if d * d > n then true
+      else if n % d == 0 then false
+      else go (d + 1) fuel'
 
 /-- List of distinct prime factors (without exponents). -/
 def primeFactors (n : Nat) : List Nat :=

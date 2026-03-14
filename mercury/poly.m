@@ -191,6 +191,8 @@
 % Typeclass instances for rational
 %---------------------------------------------------------------------------%
 
+:- pragma inline(func(poly.eval/2)).
+
 :- instance ring(rational) where [
     (ring_zero = rational.zero),
     (ring_one = rational.one),

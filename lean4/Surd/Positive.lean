@@ -4,27 +4,18 @@
 namespace Surd
 
 /-- A strictly positive natural number. -/
-def Positive := { n : Nat // n > 0 }
+structure Positive where
+  val : Nat
+  pos : val > 0
+  deriving Repr, BEq, Hashable
 
 namespace Positive
-
-/-- Extract the underlying Nat. -/
-def val (p : Positive) : Nat := p.1
-
-instance : Repr Positive where
-  reprPrec p n := reprPrec p.val n
 
 instance : ToString Positive where
   toString p := toString p.val
 
-instance : BEq Positive where
-  beq a b := a.val == b.val
-
 instance : Ord Positive where
   compare a b := compare a.val b.val
-
-instance : Hashable Positive where
-  hash p := hash p.val
 
 /-- Smart constructor: returns none for zero. -/
 def mk? (n : Nat) : Option Positive :=
@@ -38,11 +29,17 @@ instance (n : Nat) : OfNat Positive (n + 1) where
 
 /-- Addition of positive numbers is positive. -/
 instance : Add Positive where
-  add a b := ⟨a.val + b.val, Nat.add_pos_left a.2 b.val⟩
+  add a b := ⟨a.val + b.val, Nat.add_pos_left a.pos b.val⟩
 
 /-- Multiplication of positive numbers is positive. -/
 instance : Mul Positive where
-  mul a b := ⟨a.val * b.val, Nat.mul_pos a.2 b.2⟩
+  mul a b := ⟨a.val * b.val, Nat.mul_pos a.pos b.pos⟩
+
+@[simp] theorem Positive.add_pos_val (a b : Positive) : (a + b).val > 0 :=
+  Nat.add_pos_left a.pos b.val
+
+@[simp] theorem Positive.mul_pos_val (a b : Positive) : (a * b).val > 0 :=
+  Nat.mul_pos a.pos b.pos
 
 /-- Convert to Int. -/
 def toInt (p : Positive) : Int := p.val

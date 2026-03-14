@@ -46,6 +46,13 @@
     %
 :- func identify_galois_group_5(poly(rational)) = maybe(galois_result).
 
+    % Identify the Galois group using committed choice.
+    % Once a group is identified, no backtracking is needed since the
+    % discriminant/resolvent decision tree is deterministic.
+    %
+:- pred identify_group_cc(poly(rational)::in, galois_result::out)
+    is cc_nondet.
+
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 
@@ -695,6 +702,13 @@ zipwith_mod_sub([A | As], [B | Bs], P, [R | Rs]) :-
 small_primes = [3, 5, 7, 11, 13, 17, 19, 23, 29, 31,
     37, 41, 43, 47, 53, 59, 61, 67, 71, 73,
     79, 83, 89, 97, 101, 103, 107, 109, 113].
+
+%---------------------------------------------------------------------------%
+% Committed-choice identification
+%---------------------------------------------------------------------------%
+
+identify_group_cc(F, Result) :-
+    identify_galois_group_5(F) = yes(Result).
 
 %---------------------------------------------------------------------------%
 :- end_module galois_identify.

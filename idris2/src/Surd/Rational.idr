@@ -1,5 +1,8 @@
 module Surd.Rational
 
+import Surd.GCD
+import Decidable.Equality
+
 %default total
 
 ||| A rational number num/den, kept in lowest terms with den > 0.
@@ -9,15 +12,10 @@ record Rational where
   num : Integer
   den : Integer
 
-||| GCD of two non-negative integers (Euclidean algorithm).
-gcdInteger : Integer -> Integer -> Integer
-gcdInteger a 0 = a
-gcdInteger a b = assert_total $ gcdInteger b (a `mod` b)
-
 ||| Smart constructor: normalises sign and divides out GCD.
 export
 mkRat : Integer -> Integer -> Rational
-mkRat _ 0 = MkRational 0 1  -- division by zero → 0 (or could error)
+mkRat _ 0 = MkRational 0 1  -- division by zero -> 0 (or could error)
 mkRat 0 _ = MkRational 0 1
 mkRat n d =
   let s  : Integer = if d < 0 then -1 else 1
@@ -54,6 +52,14 @@ fromInteger n = MkRational n 1
 export
 Eq Rational where
   (MkRational a b) == (MkRational c d) = a == c && b == d
+
+export
+DecEq Rational where
+  decEq (MkRational a b) (MkRational c d) =
+    case (decEq a c, decEq b d) of
+      (Yes pa, Yes pd) => Yes (rewrite pa in rewrite pd in Refl)
+      (No contra, _)   => No (\eq => contra (cong num eq))
+      (_, No contra)   => No (\eq => contra (cong den eq))
 
 export
 Ord Rational where

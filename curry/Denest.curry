@@ -1,10 +1,16 @@
 --- Radical denesting: simplifying nested radical expressions.
 ---
+--- Uses Curry's nondeterminism for sqrt denesting: the decomposition of
+--- a radicand into a + b*sqrt(r) and the integer square root check are
+--- expressed as nondeterministic functions. Encapsulated search (allValues)
+--- collects successful denestings.
+---
 --- Implements sqrt denesting (Borodin et al.) and a dispatcher
 --- for general denesting.
 module Denest
   ( denest
   , denestSqrt
+  , denestSqrtND
   , trySqrtDenest
   , isRationalSqrt
   ) where
@@ -12,6 +18,7 @@ module Denest
 import Rational
 import RadExpr
 import Normalize (normalize)
+import Control.Search.Unsafe (allValues)
 
 --- Local aliases.
 rZero :: Rational
@@ -19,6 +26,9 @@ rZero = Rational.fromInt 0
 
 rOne :: Rational
 rOne = Rational.fromInt 1
+
+rTwo :: Rational
+rTwo = Rational.fromInt 2
 
 --- Try to denest sqrt(a + b*sqrt(r)) into sqrt(x) +/- sqrt(y).
 ---
@@ -32,8 +42,8 @@ trySqrtDenest a b r =
      else case isRationalSqrt disc of
             Nothing -> Nothing
             Just sd ->
-              let x = ratDiv (ratAdd a sd) (Rational.fromInt 2)
-                  y = ratDiv (ratSub a sd) (Rational.fromInt 2)
+              let x = ratDiv (ratAdd a sd) rTwo
+                  y = ratDiv (ratSub a sd) rTwo
                   sign = if ratGt b rZero then 1 else negate 1
               in if ratGe x rZero && ratGe y rZero
                  then Just (sign, x, y)
@@ -72,6 +82,60 @@ isqrt n
       let x' = (x + n `div` x) `div` 2
       in if x' >= x then x else go x'
 
+--- Nondeterministic integer square root.
+--- Succeeds (returns d) only if d*d == n and d >= 0.
+--- Fails (via failed) if n is not a perfect square.
+intSqrtND :: Int -> Int
+intSqrtND n
+  | n < 0     = failed
+  | n == 0    = 0
+  | otherwise =
+      let s = isqrt n
+      in if s * s == n then s else failed
+
+--- Nondeterministic sqrt denesting.
+--- Given sqrt(inner), tries to decompose inner as a + b*sqrt(r) and
+--- denest into sqrt(x) + sign*sqrt(y). Fails nondeterministically
+--- if denesting is not possible (no matching decomposition or
+--- discriminant is not a perfect square).
+denestSqrtND :: RadExpr Rational -> RadExpr Rational
+denestSqrtND (Root 2 inner) = result
+  where
+    (a, b, r) = matchSqrtNestedND inner  -- may fail nondeterministically
+    disc = ratSub (ratMul a a) (ratMul (ratMul b b) r)
+    sd = ratSqrtND disc              -- nondeterministic: fails if not a perfect square
+    x = ratDiv (ratAdd a sd) rTwo
+    y = ratDiv (ratSub a sd) rTwo
+    sign = if ratGt b rZero then 1 else negate 1
+    result = if ratGe x rZero && ratGe y rZero
+             then if sign > 0
+                  then Add (Root 2 (Lit x)) (Root 2 (Lit y))
+                  else Add (Root 2 (Lit x)) (Neg (Root 2 (Lit y)))
+             else failed
+
+--- Nondeterministic rational square root.
+--- Returns sqrt(q) if q is a non-negative perfect square, fails otherwise.
+ratSqrtND :: Rational -> Rational
+ratSqrtND q
+  | ratLt q rZero = failed
+  | q == rZero    = rZero
+  | otherwise =
+      let sn = intSqrtND (numerator q)
+          sd = intSqrtND (denominator q)
+      in mkRat sn sd
+
+--- Nondeterministic pattern matching for a + b*sqrt(r).
+--- Uses Curry's overlapping rules: each clause is a nondeterministic branch.
+matchSqrtNestedND :: RadExpr Rational -> (Rational, Rational, Rational)
+matchSqrtNestedND (Add (Lit a) (Mul (Lit b) (Root 2 (Lit r)))) = (a, b, r)
+matchSqrtNestedND (Add (Mul (Lit b) (Root 2 (Lit r))) (Lit a)) = (a, b, r)
+matchSqrtNestedND (Add (Lit a) (Root 2 (Lit r)))               = (a, rOne, r)
+matchSqrtNestedND (Add (Root 2 (Lit r)) (Lit a))               = (a, rOne, r)
+matchSqrtNestedND (Add (Lit a) (Neg (Mul (Lit b) (Root 2 (Lit r))))) =
+  (a, ratNeg b, r)
+matchSqrtNestedND (Add (Lit a) (Neg (Root 2 (Lit r)))) =
+  (a, Rational.fromInt (negate 1), r)
+
 --- Try to denest a radical expression that is a square root.
 --- Looks for the pattern sqrt(a + b*sqrt(r)).
 denestSqrt :: RadExpr Rational -> Maybe (RadExpr Rational)
@@ -88,7 +152,7 @@ denestSqrt expr = case expr of
     Nothing -> Nothing
   _ -> Nothing
 
---- Match the pattern a + b*sqrt(r) in a radical expression.
+--- Match the pattern a + b*sqrt(r) in a radical expression (deterministic).
 matchSqrtNested :: RadExpr Rational -> Maybe (Rational, Rational, Rational)
 matchSqrtNested expr = case expr of
   Add (Lit a) (Mul (Lit b) (Root 2 (Lit r))) -> Just (a, b, r)
@@ -102,13 +166,19 @@ matchSqrtNested expr = case expr of
   _ -> Nothing
 
 --- General denesting dispatcher.
---- Tries various denesting strategies and returns the simplest result.
+--- First tries the nondeterministic denesting (via encapsulated search),
+--- then falls back to the deterministic version.
 denest :: RadExpr Rational -> RadExpr Rational
 denest expr = case expr of
   Root 2 _ ->
-    case denestSqrt expr of
-      Just e' -> denest (normalize e')
-      Nothing -> descend expr
+    -- Try nondeterministic denesting first
+    case allValues (denestSqrtND expr) of
+      (r:_) -> denest (normalize r)
+      []    ->
+        -- Fall back to deterministic denesting
+        case denestSqrt expr of
+          Just e' -> denest (normalize e')
+          Nothing -> descend expr
   Root n (Lit r) ->
     -- Try to simplify nth root of a rational
     normalize (Root n (Lit r))

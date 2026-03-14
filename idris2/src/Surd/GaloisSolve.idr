@@ -33,8 +33,9 @@ solveByRadicals p =
       if d <= 4 then Unsupported "Degree <= 4: use direct formulas"
       else if d == 5 then
         case identifyGaloisGroup5 p of
-          Identified tg => solveViaTower p tg
+          Identified5 tg => solveViaTower p tg
           Unidentified msg => Unsupported msg
+          _ => Unsupported "Unexpected identification result"
       else Unsupported ("Degree " ++ show d ++ " not supported")
 
 ||| Solve for a specific algebraic number.

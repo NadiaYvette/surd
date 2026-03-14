@@ -11,6 +11,7 @@ import Surd.AlgNum
 import Surd.MinimalPoly
 import Surd.Factoring
 
+import Data.Nat
 import Data.List
 
 %default covering

@@ -13,7 +13,7 @@ object Convert:
   def radExprToAlgNum(expr: RadExpr[Rational]): Option[AlgNum] =
     MinimalPoly.minimalPoly(expr).flatMap { mp =>
       val approx = Eval.evalComplex(expr).re
-      AlgNum.fromMinPoly(mp, approx)
+      AlgNum.fromMinPoly(mp.underlying, approx)
     }
 
   /** Convert an algebraic number to a radical expression (if degree <= 4). */

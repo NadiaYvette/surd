@@ -112,27 +112,38 @@ def shift (p : Poly k) (n : Nat) : Poly k :=
   if p.isZero then zero
   else ⟨(Array.mkArray n (0 : k)) ++ p.coeffs⟩
 
-/-- Polynomial division with remainder: divMod p q = (quotient, remainder). -/
-partial def divMod (p q : Poly k) : Poly k × Poly k :=
+/-- Polynomial division with remainder: divMod p q = (quotient, remainder).
+    Terminates because remainder degree strictly decreases. -/
+def divMod (p q : Poly k) : Poly k × Poly k :=
   if q.isZero then (zero, p)
-  else go p zero
+  else go p zero p.coeffs.size
 where
-  go (rem quot : Poly k) : Poly k × Poly k :=
-    if rem.degreeInt < q.degreeInt then (quot, rem)
-    else
-      match rem.leadCoeff, q.leadCoeff with
-      | some rlc, some qlc =>
-        let d := rem.coeffs.size - q.coeffs.size
-        let c := rlc / qlc
-        let term : Poly k := ⟨(Array.mkArray d (0 : k)).push c⟩
-        let rem' := Poly.sub rem (Poly.mul term q)
-        go rem' (Poly.add quot term)
-      | _, _ => (quot, rem)
+  go (rem quot : Poly k) (fuel : Nat) : Poly k × Poly k :=
+    match fuel with
+    | 0 => (quot, rem)
+    | fuel' + 1 =>
+      if rem.degreeInt < q.degreeInt then (quot, rem)
+      else
+        match rem.leadCoeff, q.leadCoeff with
+        | some rlc, some qlc =>
+          let d := rem.coeffs.size - q.coeffs.size
+          let c := rlc / qlc
+          let term : Poly k := ⟨(Array.mkArray d (0 : k)).push c⟩
+          let rem' := Poly.sub rem (Poly.mul term q)
+          go rem' (Poly.add quot term) fuel'
+        | _, _ => (quot, rem)
 
-/-- Polynomial GCD via the Euclidean algorithm. -/
-partial def gcd (p q : Poly k) : Poly k :=
-  if q.isZero then p
-  else gcd q (divMod p q).2
+/-- Polynomial GCD via the Euclidean algorithm.
+    Terminates because degree of second argument strictly decreases. -/
+def gcd (p q : Poly k) : Poly k :=
+  go p q (p.coeffs.size + q.coeffs.size + 1)
+where
+  go (a b : Poly k) (fuel : Nat) : Poly k :=
+    match fuel with
+    | 0 => a
+    | fuel' + 1 =>
+      if b.isZero then a
+      else go b (divMod a b).2 fuel'
 
 /-- Make a polynomial monic (leading coefficient = 1). -/
 def monic (p : Poly k) : Poly k :=

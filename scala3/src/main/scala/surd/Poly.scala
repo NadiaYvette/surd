@@ -58,7 +58,7 @@ object Poly:
   // --- Arithmetic operations ---
 
   /** Evaluate at a point via Horner's method. */
-  def eval[K](p: Poly[K], at: K)(using r: Ring[K]): K =
+  inline def eval[K](p: Poly[K], at: K)(using r: Ring[K]): K =
     if p.isZero then r.zero
     else p.coeffs.foldRight(r.zero)((c, acc) => r.add(c, r.mul(at, acc)))
 

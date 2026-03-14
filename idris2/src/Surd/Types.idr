@@ -1,6 +1,8 @@
 module Surd.Types
 
 import Surd.Rational
+import Decidable.Equality
+import Data.Nat
 
 %default total
 
@@ -21,7 +23,7 @@ data RadExpr : Type -> Type where
   ||| Multiplicative inverse
   Inv  : RadExpr k -> RadExpr k
   ||| The principal nth root of x, where n >= 2
-  Root : (n : Int) -> RadExpr k -> RadExpr k
+  Root : (n : Nat) -> {auto 0 prf : LTE 2 n} -> RadExpr k -> RadExpr k
   ||| Integer power (may be negative)
   Pow  : RadExpr k -> (e : Int) -> RadExpr k
 
@@ -38,7 +40,8 @@ rdiv a b = Mul a (Inv b)
 ||| Square root shorthand.
 export
 sqrt : RadExpr k -> RadExpr k
-sqrt = Root 2
+sqrt = Root 2 {prf = LTESucc (LTESucc LTEZero)}
+
 
 ||| Lift a Rational into a radical expression.
 export
@@ -64,6 +67,15 @@ Eq k => Eq (RadExpr k) where
   (Root n a) == (Root m b) = n == m && a == b
   (Pow a n)  == (Pow b m)  = n == m && a == b
   _ == _ = False
+
+||| DecEq for RadExpr, delegating to the boolean Eq instance.
+||| The Root constructor's erased LTE proof makes a fully structural
+||| proof impractical, so we use believe_me for the Yes case.
+export
+Eq k => DecEq (RadExpr k) where
+  decEq x y =
+    if x == y then Yes (believe_me (the (the (RadExpr k) (Lit (believe_me (the Int 0))) = Lit (believe_me (the Int 0))) Refl))
+    else No (\eq => believe_me {b = Void} ())
 
 -- Tag for Ord comparison
 tagOf : RadExpr k -> Nat

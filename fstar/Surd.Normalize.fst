@@ -182,8 +182,8 @@ let fold_constants (e: rad_expr rational) : Tot (rad_expr rational) (decreases e
 // Simplify powers
 // ---------------------------------------------------------------------------
 
-val simplify_powers : rad_expr rational -> Dv (rad_expr rational)
-let rec simplify_powers (e: rad_expr rational) : Dv (rad_expr rational) =
+val simplify_powers : e:rad_expr rational -> Tot (rad_expr rational) (decreases (expr_size e))
+let rec simplify_powers (e: rad_expr rational) =
   match e with
   | Mul (Root 2 a) (Root 2 b) ->
     if expr_eq a b then simplify_powers a
@@ -227,8 +227,11 @@ let rec extract_perfect_powers (e: rad_expr rational) : Dv (rad_expr rational) =
     if rat_gt r rat_zero then
       let num = abs_int r.num in
       let den = r.den in
-      assume (num > 0);
-      assume (den > 0);
+      (* rat_gt r rat_zero means r.num * 1 > 0 * r.den, i.e. r.num > 0,
+         so abs_int r.num = r.num > 0. den > 0 by the rational type's refinement. *)
+      assert (r.num > 0);
+      assert (num > 0);
+      assert (den > 0);
       let (num_out, num_in) = extract_nth_power n num in
       let (den_out, den_in) = extract_nth_power n den in
       let outer_coeff =
@@ -242,8 +245,7 @@ let rec extract_perfect_powers (e: rad_expr rational) : Dv (rad_expr rational) =
           (* Re-extract from new_inner *)
           let ni = abs_int new_inner.num in
           if ni > 0 then
-            (assume (ni > 0);
-             let (num_out2, _) = extract_nth_power n ni in
+            (let (num_out2, _) = extract_nth_power n ni in
              rat_mul outer num_out2)
           else outer
       in
@@ -255,8 +257,7 @@ let rec extract_perfect_powers (e: rad_expr rational) : Dv (rad_expr rational) =
           let new_inner = rat_mul num_in den_in_pow in
           let ni = abs_int new_inner.num in
           if ni > 0 then
-            (assume (ni > 0);
-             let (_, num_in2) = extract_nth_power n ni in
+            (let (_, num_in2) = extract_nth_power n ni in
              num_in2)
           else new_inner
       in
@@ -482,10 +483,36 @@ let rec flatten_sum (#k:Type) (e: rad_expr k) : Tot (list (rad_expr k)) (decreas
   | Neg a -> map Neg (flatten_sum a)
   | e -> [e]
 
-/// Build Add from a non-empty list.
-let rebuild_add (#k:Type) (xs: list (rad_expr k)) : rad_expr k =
+/// flatten_sum always returns a non-empty list.
+let rec flatten_sum_nonempty (#k:Type) (e: rad_expr k)
+  : Lemma (ensures Cons? (flatten_sum e))
+          (decreases e) =
+  match e with
+  | Add a b ->
+    flatten_sum_nonempty a;
+    FStar.List.Tot.Properties.append_l_cons (List.Tot.hd (flatten_sum a))
+                                            (List.Tot.tl (flatten_sum a))
+                                            (flatten_sum b)
+  | Neg a ->
+    flatten_sum_nonempty a;
+    FStar.List.Tot.Properties.map_lemma Neg (flatten_sum a)
+  | _ -> ()
+
+/// map preserves non-emptiness.
+let map_cons (#a #b:Type) (f: a -> b) (xs: list a{Cons? xs})
+  : Lemma (ensures Cons? (map f xs)) =
+  ()
+
+/// Build Add from a possibly-empty list, with a fallback for the empty case.
+let rebuild_add_safe (#k:Type) {| ring k |} (xs: list (rad_expr k)) : rad_expr k =
   match xs with
-  | [] -> Lit #k (admit ()) (* should not happen *)
+  | [] -> Lit r_zero
+  | [x] -> x
+  | x :: rest -> fold_left Add x rest
+
+/// Build Add from a non-empty list.
+let rebuild_add (#k:Type) (xs: list (rad_expr k){Cons? xs}) : rad_expr k =
+  match xs with
   | [x] -> x
   | x :: rest -> fold_left Add x rest
 
@@ -501,28 +528,36 @@ let rec distribute (e: rad_expr rational) : Dv (rad_expr rational) =
   match e with
   (* Lit * (a + b + ...) -> distribute *)
   | Mul (Lit c) r ->
-    if is_sum r then
+    if is_sum r then begin
       let terms = flatten_sum r in
+      flatten_sum_nonempty r;
       let distributed = map (fun t -> Mul (Lit c) t) terms in
+      map_cons (fun t -> Mul (Lit c) t) terms;
       rebuild_add distributed
+    end
     else Mul (Lit c) (distribute r)
   (* (a + b + ...) * Lit -> distribute *)
   | Mul l (Lit c) ->
-    if is_sum l then
+    if is_sum l then begin
       let terms = flatten_sum l in
+      flatten_sum_nonempty l;
       let distributed = map (fun t -> Mul t (Lit c)) terms in
+      map_cons (fun t -> Mul t (Lit c)) terms;
       rebuild_add distributed
+    end
     else Mul (distribute l) (Lit c)
   (* (a + b) * x when sum is tiny *)
   | Mul l r ->
-    if is_sum l && count_addends l <= 2 && not (is_sum r) then
+    if is_sum l && count_addends l <= 2 && not (is_sum r) then begin
       let terms = flatten_sum l in
       let distributed = map_dv (fun t -> distribute (Mul t r)) terms in
-      rebuild_add distributed
-    else if is_sum r && count_addends r <= 2 && not (is_sum l) then
+      rebuild_add_safe #rational #ring_rational distributed
+    end
+    else if is_sum r && count_addends r <= 2 && not (is_sum l) then begin
       let terms = flatten_sum r in
       let distributed = map_dv (fun t -> distribute (Mul l t)) terms in
-      rebuild_add distributed
+      rebuild_add_safe #rational #ring_rational distributed
+    end
     else Mul (distribute l) (distribute r)
   (* c * (-a) -> -(c*a) handled via general recursion *)
   | Neg a -> Neg (distribute a)

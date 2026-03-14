@@ -13,8 +13,13 @@ object MinimalPoly:
 
   /** Compute the minimal polynomial of a radical expression.
     * Returns None if the computation fails or times out.
+    * The result is guaranteed to be monic.
     */
-  def minimalPoly(expr: RadExpr[Rational]): Option[Poly[Rational]] =
+  def minimalPoly(expr: RadExpr[Rational]): Option[MonicPoly] =
+    minimalPolyRaw(expr).map(MonicPoly(_))
+
+  /** Internal: compute minimal polynomial as a raw Poly. */
+  private def minimalPolyRaw(expr: RadExpr[Rational]): Option[Poly[Rational]] =
     // Collect radicals and try tower-based approach
     val radicals = Expr.collectRadicals(expr)
     if radicals.isEmpty then

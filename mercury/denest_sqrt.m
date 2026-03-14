@@ -39,6 +39,13 @@
     %
 :- func denest_sqrt(rad_expr(rational)) = rad_expr(rational).
 
+    % Enumerate all possible denestings of a square root expression.
+    % Unlike denest_sqrt_expr (which is semidet), this is nondet and
+    % produces alternative denestings via backtracking.
+    %
+:- pred denest_sqrt_multi(rad_expr(rational)::in,
+    rad_expr(rational)::out) is nondet.
+
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 
@@ -176,6 +183,19 @@ denest_sqrt(Expr) = Result :-
     else
         Result = Expr
     ).
+
+%---------------------------------------------------------------------------%
+% Multi-determinism: enumerate denesting alternatives
+%---------------------------------------------------------------------------%
+
+denest_sqrt_multi(Expr, Result) :-
+    % Alternative 1: Borodin denesting
+    denest_sqrt_expr(Expr, Result).
+denest_sqrt_multi(Expr, Result) :-
+    % Alternative 2: recurse into sub-expressions
+    Expr = re_root(2, Inner),
+    denest_sqrt_multi(Inner, DenestedInner),
+    Result = re_root(2, DenestedInner).
 
 %---------------------------------------------------------------------------%
 :- end_module denest_sqrt.

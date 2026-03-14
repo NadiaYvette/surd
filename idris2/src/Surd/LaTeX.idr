@@ -3,6 +3,7 @@ module Surd.LaTeX
 import Surd.Rational
 import Surd.Types
 
+import Data.Nat
 import Data.List
 
 %default covering

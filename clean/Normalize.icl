@@ -267,6 +267,9 @@ splitCoeff (Lit r) = (r, Lit one)
 splitCoeff e = (one, e)
 
 // Group terms by base, summing coefficients.
+// PERFORMANCE NOTE: The accumulator Map is used linearly (each intermediate
+// result consumed once by the next foldl step). With a unique-capable map
+// (*Map), the put operations would be destructive in-place updates.
 groupTerms :: ![RadExpr Rational] -> [(RadExpr Rational, Rational)]
 groupTerms terms = mapToList (foldl addTerm newMap terms)
 where

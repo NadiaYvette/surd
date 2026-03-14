@@ -2,6 +2,21 @@
 ---
 --- Uses Sturm's theorem with bisection to separate and refine roots
 --- of square-free polynomials.
+---
+--- Note on Curry nondeterminism: ideally, root finding could be expressed
+--- as a constraint narrowing problem:
+---
+---   findRootIn :: Poly -> Rational -> Rational -> Rational
+---   findRootIn p lo hi = x
+---     where x free
+---           ratLe lo x =:= True
+---           ratLe x hi =:= True
+---           evalPoly p x =:= rZero
+---
+--- However, PAKCS does not support constraint solving over rationals
+--- (free variables must be bound before evaluation, and the search space
+--- is infinite). The bisection approach below is therefore necessary.
+--- Sturm counting remains the right tool for isolating roots in intervals.
 module RootIsolation
   ( IsolatingInterval(..)
   , isolateRealRoots

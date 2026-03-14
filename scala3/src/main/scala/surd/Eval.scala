@@ -49,17 +49,8 @@ object Eval:
     * Note: expressions involving even roots of negative numbers will produce NaN.
     * Use evalComplex for expressions with complex intermediates.
     */
-  def eval(expr: RadExpr[Rational]): Double = expr match
-    case Lit(r)     => r.toDouble
-    case Neg(a)     => -eval(a)
-    case Add(a, b)  => eval(a) + eval(b)
-    case Mul(a, b)  => eval(a) * eval(b)
-    case Inv(a)     => 1.0 / eval(a)
-    case Root(n, a) => math.pow(eval(a), 1.0 / n)
-    case Pow(a, n)  =>
-      val base = eval(a)
-      if n >= 0 then math.pow(base, n.toDouble)
-      else 1.0 / math.pow(base, (-n).toDouble)
+  def eval(expr: RadExpr[Rational]): Double =
+    Evaluator.eval[Double](expr)
 
   // --------------------------------------------------------------------------
   // evalComplex: RadExpr[Rational] => Complex
@@ -70,17 +61,8 @@ object Eval:
     * Handles expressions that pass through complex intermediates,
     * such as those arising from the casus irreducibilis.
     */
-  def evalComplex(expr: RadExpr[Rational]): Complex = expr match
-    case Lit(r)     => Complex.fromDouble(r.toDouble)
-    case Neg(a)     => -evalComplex(a)
-    case Add(a, b)  => evalComplex(a) + evalComplex(b)
-    case Mul(a, b)  => evalComplex(a) * evalComplex(b)
-    case Inv(a)     => evalComplex(a).inverse
-    case Root(n, a) => complexNthRoot(n, evalComplex(a))
-    case Pow(a, n)  =>
-      val z = evalComplex(a)
-      if n >= 0 then z.pow(n)
-      else z.inverse.pow(-n)
+  def evalComplex(expr: RadExpr[Rational]): Complex =
+    Evaluator.eval[Complex](expr)
 
   /** Principal nth root of a complex number via polar form.
     * z = r * e^(i*theta) => z^(1/n) = r^(1/n) * e^(i*theta/n)

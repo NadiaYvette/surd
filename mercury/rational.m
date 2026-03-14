@@ -131,6 +131,12 @@ from_integers(Num, Den) = rational_norm(Num, Den).
 % float(r(Num, Den)) =
 %   float:'/'(integer.float(Num), integer.float(Den)).
 
+:- pragma inline(func(rational.(+)/1)).
+:- pragma inline(func(rational.(-)/1)).
+:- pragma inline(func(rational.(+)/2)).
+:- pragma inline(func(rational.(*)/2)).
+:- pragma inline(func(rational.(-)/2)).
+
 '+'(Rat) = Rat.
 
 '-'(r(Num, Den)) = r(-Num, Den).

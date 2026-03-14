@@ -93,44 +93,55 @@ def extMul (a b : ExtElem k) : ExtElem k :=
   ⟨reduce f (Poly.mul a.elemPoly b.elemPoly), f⟩
 
 /-- Extended Euclidean algorithm for polynomials.
-    Returns (g, s, t) such that g = s·a + t·b, with g monic. -/
-partial def extGcd (a b : Poly k) : Poly k × Poly k × Poly k :=
+    Returns (g, s, t) such that g = s·a + t·b, with g monic.
+    Terminates because degree of r1 strictly decreases. -/
+def extGcd (a b : Poly k) : Poly k × Poly k × Poly k :=
   go a b (Poly.mkPoly #[1]) (Poly.mkPoly #[]) (Poly.mkPoly #[]) (Poly.mkPoly #[1])
+    (a.coeffs.size + b.coeffs.size + 1)
 where
-  go (r0 r1 s0 s1 t0 t1 : Poly k) : Poly k × Poly k × Poly k :=
-    if r1.coeffs.size == 0 then
-      match Poly.leadCoeff r0 with
-      | some lc =>
-        let g := Poly.scale (1 / lc) r0
-        let s := Poly.scale (1 / lc) s0
-        let t := Poly.scale (1 / lc) t0
-        (g, s, t)
-      | none => (r0, s0, t0)
-    else
-      let (q, r) := Poly.divMod r0 r1
-      let s2 := Poly.sub s0 (Poly.mul q s1)
-      let t2 := Poly.sub t0 (Poly.mul q t1)
-      go r1 r s1 s2 t1 t2
+  go (r0 r1 s0 s1 t0 t1 : Poly k) (fuel : Nat) : Poly k × Poly k × Poly k :=
+    match fuel with
+    | 0 => (r0, s0, t0)
+    | fuel' + 1 =>
+      if r1.coeffs.size == 0 then
+        match Poly.leadCoeff r0 with
+        | some lc =>
+          let g := Poly.scale (1 / lc) r0
+          let s := Poly.scale (1 / lc) s0
+          let t := Poly.scale (1 / lc) t0
+          (g, s, t)
+        | none => (r0, s0, t0)
+      else
+        let (q, r) := Poly.divMod r0 r1
+        let s2 := Poly.sub s0 (Poly.mul q s1)
+        let t2 := Poly.sub t0 (Poly.mul q t1)
+        go r1 r s1 s2 t1 t2 fuel'
 
 /-- Multiplicative inverse via extended Euclidean algorithm. -/
-partial def extInv (a : ExtElem k) : ExtElem k :=
+def extInv (a : ExtElem k) : ExtElem k :=
   if a.elemPoly.coeffs.size == 0 then a  -- division by zero, return as-is
   else
     let (_, s, _) := extGcd a.elemPoly a.elemField.genMinPoly
     ⟨reduce a.elemField s, a.elemField⟩
 
 /-- Division. -/
-partial def extDiv (a b : ExtElem k) : ExtElem k :=
+def extDiv (a b : ExtElem k) : ExtElem k :=
   extMul a (extInv b)
 
-/-- Exponentiation. -/
-partial def extPow (e : ExtElem k) (n : Int) : ExtElem k :=
+/-- Exponentiation by squaring. Terminates because |n| strictly decreases. -/
+def extPow (e : ExtElem k) (n : Int) : ExtElem k :=
   if n == 0 then embed e.elemField 1
-  else if n < 0 then extPow (extInv e) (-n)
-  else if n % 2 == 0 then
-    let half := extPow e (n / 2)
-    extMul half half
-  else extMul e (extPow e (n - 1))
+  else if n < 0 then extPowPos (extInv e) (-n).toNat
+  else extPowPos e n.toNat
+where
+  extPowPos (base : ExtElem k) : Nat → ExtElem k
+    | 0 => embed base.elemField 1
+    | 1 => base
+    | n + 2 =>
+      if (n + 2) % 2 == 0 then
+        let half := extPowPos base ((n + 2) / 2)
+        extMul half half
+      else extMul base (extPowPos base (n + 1))
 
 /-- Equality check. -/
 def extEq (a b : ExtElem k) : Bool :=

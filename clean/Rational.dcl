@@ -39,3 +39,6 @@ instance fromInt Rational
 
 // Integer power
 ratPow :: !Rational !Int -> Rational
+
+// Algebraic structure instances (see Algebra module)
+from Algebra import class Ring, class Field

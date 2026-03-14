@@ -15,6 +15,7 @@ fun gcd-rec(a : int, b : int) : div int
   if b == 0 then a
   else gcd-rec(b, a % b)
 
+// Safe: Euclidean GCD terminates since abs(b) strictly decreases each step.
 pub fun gcd-int(a : int, b : int) : int
   pretend-no-div{ gcd-rec(abs(a), abs(b)) }
 
@@ -99,6 +100,7 @@ pub fun rational/signum(r : rational) : rational
   else Rational(0, 1)
 
 // Integer power.
+// Safe: binary exponentiation terminates since n halves or decreases each step.
 pub fun rational/pow(r : rational, n : int) : rational
   pretend-no-div{ pow-rec(r, n) }
 

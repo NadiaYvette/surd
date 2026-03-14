@@ -91,20 +91,21 @@ def iabs (a : Interval) : Interval :=
   else if a.hi ≤ 0 then ⟨-a.hi, -a.lo⟩
   else ⟨0, max (-a.lo) a.hi⟩
 
-/-- Interval integer power (simple repeated multiplication). -/
-partial def ipow (a : Interval) (n : Nat) : Interval :=
+/-- Interval integer power by squaring. -/
+def ipow (a : Interval) (n : Nat) : Interval :=
   match n with
   | 0 => fromRat 1
   | 1 => a
-  | _ =>
-    if n % 2 == 0 then
-      let half := ipow a (n / 2)
+  | n + 2 =>
+    if (n + 2) % 2 == 0 then
+      let half := ipow a ((n + 2) / 2)
       imul half half
     else
-      imul a (ipow a (n - 1))
+      imul a (ipow a (n + 1))
+  termination_by n
 
 /-- Rational Newton iteration for square root upper bound. -/
-private partial def ratSqrtHi (r : Rat) (iters : Nat) : Rat :=
+private def ratSqrtHi (r : Rat) (iters : Nat) : Rat :=
   if r ≤ 0 then 0
   else go (max r 1) iters
 where
@@ -113,7 +114,7 @@ where
     | n + 1 => go ((x + r / x) / 2) n
 
 /-- Rational Newton iteration for square root lower bound. -/
-private partial def ratSqrtLo (r : Rat) (iters : Nat) : Rat :=
+private def ratSqrtLo (r : Rat) (iters : Nat) : Rat :=
   if r ≤ 0 then 0
   else go (r / (1 + r)) iters
 where
@@ -131,7 +132,7 @@ def isqrt (a : Interval) : Interval :=
     ⟨ratSqrtLo a'.lo 20, ratSqrtHi a'.hi 20⟩
 
 /-- Interval nth root (n ≥ 2, non-negative interval). -/
-partial def inth (n : Nat) (a : Interval) : Interval :=
+def inth (n : Nat) (a : Interval) : Interval :=
   if n == 2 then isqrt a
   else
     let lo := nthRootBound a.lo n 20 false

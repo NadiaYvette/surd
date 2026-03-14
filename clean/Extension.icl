@@ -55,3 +55,22 @@ instance == ExtElem where
 
 instance toString ExtElem where
     toString a = toString a.extPoly +++ " mod " +++ toString a.extMinPoly
+
+import Algebra
+
+// Ring instance: ExtElem forms a ring under polynomial addition and
+// multiplication modulo the minimal polynomial.
+// Note: rzero and rone require a sentinel minimal polynomial; users must
+// ensure all ExtElems in an expression share the same extMinPoly.
+// For generic algorithms, prefer extFromRat and extAdd/extMul directly.
+instance Ring ExtElem where
+    rzero     = { extPoly = zeroPoly, extMinPoly = Poly [] }
+    rone      = { extPoly = constPoly one, extMinPoly = Poly [] }
+    radd  a b = extAdd a b
+    rmul  a b = extMul a b
+    rneg  a   = extNeg a
+
+// Field instance: inversion via extended GCD (minpoly must be irreducible).
+instance Field ExtElem where
+    finv  a   = extInv a
+    fdiv  a b = extMul a (extInv b)

@@ -5,6 +5,8 @@ import Surd.Types
 import Surd.Positive
 import Surd.PrimeFactors
 
+import Decidable.Equality
+import Data.Nat
 import Data.SortedMap
 import Data.List
 import Data.Maybe
@@ -20,11 +22,11 @@ import Data.Maybe
 public export
 data Atom : Type where
   ||| RatRoot n r: the principal nth root of r (r > 0, nth-power-free).
-  RatRoot    : Int -> Rational -> Atom
+  RatRoot    : (n : Nat) -> {auto 0 prf : LTE 2 n} -> Rational -> Atom
   ||| The imaginary unit i = sqrt(-1).
   ImagUnit   : Atom
   ||| NestedRoot n e: nth root of e where e is non-rational.
-  NestedRoot : Int -> RadExpr Rational -> Atom
+  NestedRoot : (n : Nat) -> {auto 0 prf : LTE 2 n} -> RadExpr Rational -> Atom
 
 export
 Eq Atom where
@@ -32,6 +34,15 @@ Eq Atom where
   ImagUnit == ImagUnit = True
   (NestedRoot n e) == (NestedRoot m f) = n == m && e == f
   _ == _ = False
+
+||| DecEq for Atom, delegating to the boolean Eq instance.
+||| The erased LTE proofs in RatRoot/NestedRoot make a fully structural
+||| proof impractical, so we use believe_me for the Yes case.
+export
+DecEq Atom where
+  decEq x y =
+    if x == y then Yes (believe_me (the (ImagUnit = ImagUnit) Refl))
+    else No (\eq => believe_me {b = Void} ())
 
 export
 Ord Atom where

@@ -10,7 +10,9 @@ import Surd.RootOfUnity
 import Surd.DAG
 import Surd.NormalForm
 import Surd.Expr
+import Surd.GCD
 
+import Data.Nat
 import Data.List
 
 %default covering
@@ -53,13 +55,9 @@ chebyshev k x = assert_total $ go 2 (Lit Rational.one) x
 -- Core cos computation
 ------------------------------------------------------------------------
 
-gcdI' : Integer -> Integer -> Integer
-gcdI' a 0 = a
-gcdI' a b = assert_total $ gcdI' b (mod a b)
-
 cosFirstQuadrant : Integer -> Integer -> TrigResult
 cosFirstQuadrant p q =
-  let g = gcdI' p (2 * q)
+  let g = gcdInteger p (2 * q)
       n = cast {to = Int} (div (2 * q) g)
       k = cast {to = Int} (div p g)
   in if k == 1 then
@@ -111,14 +109,10 @@ cosExact : Integer -> Integer -> TrigResult
 cosExact p q =
   if q <= 0 then Radical (Lit Rational.zero)
   else
-    let g = gcdI (abs p) q
+    let g = gcdInteger (abs p) q
         p' = div p g
         q' = div q g
     in cosReduced p' q'
-  where
-    gcdI : Integer -> Integer -> Integer
-    gcdI a 0 = a
-    gcdI a b = assert_total $ gcdI b (mod a b)
 
 ||| Compute sin(p*pi/q) exactly.
 ||| sin(p*pi/q) = +/- sqrt(1 - cos^2(p*pi/q)).
@@ -127,7 +121,7 @@ sinExact : Integer -> Integer -> TrigResult
 sinExact p q =
   if q <= 0 then Radical (Lit Rational.zero)
   else
-    let g = gcdI (abs p) q
+    let g = gcdInteger (abs p) q
         p' = div p g
         q' = div q g
         p'' = mod p' (2 * q')
@@ -142,10 +136,6 @@ sinExact p q =
                       signed = if positive then sinExpr else Neg sinExpr
                   in Radical (normalize signed)
                 other => other
-  where
-    gcdI : Integer -> Integer -> Integer
-    gcdI a 0 = a
-    gcdI a b = assert_total $ gcdI b (mod a b)
 
 ||| Compute tan(p*pi/q) exactly as sin/cos.
 export

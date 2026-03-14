@@ -5,6 +5,8 @@ import Surd.Types
 import Surd.Normalize
 import Surd.Eval
 
+import Data.Nat
+
 %default covering
 
 ------------------------------------------------------------------------
@@ -48,9 +50,10 @@ denestSqrtSimple (Root 2 inner) =
                     x = (a + sqrtDisc) / Rational.fromInteger 2
                     y = (a - sqrtDisc) / Rational.fromInteger 2
                 in if x >= Rational.zero && y >= Rational.zero then
-                     let result = if b >= Rational.zero
-                                    then Add (Root 2 (Lit x)) (Root 2 (Lit y))
-                                    else Add (Root 2 (Lit x)) (Neg (Root 2 (Lit y)))
+                     let lte22 : LTE 2 2 = LTESucc (LTESucc LTEZero)
+                         result = if b >= Rational.zero
+                                    then Add (Root 2 @{lte22} (Lit x)) (Root 2 @{lte22} (Lit y))
+                                    else Add (Root 2 @{lte22} (Lit x)) (Neg (Root 2 @{lte22} (Lit y)))
                      in Just result
                    else Nothing
               else Nothing

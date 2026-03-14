@@ -6,6 +6,7 @@ import Surd.Eval
 import Surd.Positive
 import Surd.PrimeFactors
 import Surd.Cyclotomic
+import Surd.GCD
 
 import Data.SortedMap
 import Data.List
@@ -28,13 +29,9 @@ modExp base exp m =
     in if mod exp 2 == 0 then sq
        else mod (sq * base) m
 
-gcdI : Integer -> Integer -> Integer
-gcdI a 0 = a
-gcdI a b = assert_total $ gcdI b (mod a b)
-
 isPrimRoot : Integer -> Integer -> Integer -> List Integer -> Bool
 isPrimRoot g n phi factors =
-  gcdI g n == 1 &&
+  gcdInteger g n == 1 &&
   all (\p => modExp g (div phi p) n /= 1) factors
 
 ||| Find a primitive root modulo n (if one exists).

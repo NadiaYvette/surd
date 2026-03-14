@@ -39,7 +39,7 @@ eval (Neg a)    = negate (eval a)
 eval (Add a b)  = eval a + eval b
 eval (Mul a b)  = eval a * eval b
 eval (Inv a)    = 1.0 / eval a
-eval (Root n a) = pow (eval a) (1.0 / cast n)
+eval (Root n a) = pow (eval a) (1.0 / cast (cast {to = Integer} n))
 eval (Pow a n)  = powDouble (eval a) n
 
 ------------------------------------------------------------------------
@@ -119,7 +119,7 @@ evalComplex (Neg a)    = cneg (evalComplex a)
 evalComplex (Add a b)  = cadd (evalComplex a) (evalComplex b)
 evalComplex (Mul a b)  = cmul (evalComplex a) (evalComplex b)
 evalComplex (Inv a)    = cinv (evalComplex a)
-evalComplex (Root n a) = complexNthRoot n (evalComplex a)
+evalComplex (Root n a) = complexNthRoot (cast n) (evalComplex a)
 evalComplex (Pow a n)  =
   if n >= 0 then cpowNat (evalComplex a) (cast n)
   else cinv (cpowNat (evalComplex a) (cast (negate n)))

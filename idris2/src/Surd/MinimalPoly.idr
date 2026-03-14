@@ -55,8 +55,7 @@ annihilatingPoly (Neg a) =
   in mkPoly (negateOddCoeffs False cs)
 annihilatingPoly (Root n (Lit r)) =
   -- nth root of r: minimal poly is x^n - r
-  let ni = cast {to = Nat} (abs n)
-      zeros = replicate (minus ni 1) Rational.zero
+  let zeros = replicate (minus n 1) Rational.zero
   in mkPoly (negate r :: zeros ++ [Rational.one])
 annihilatingPoly (Add (Lit r) b) =
   -- alpha + r: if f(beta) = 0 then f(x - r) has root alpha + r

@@ -8,11 +8,17 @@ from Data.Map import :: Map(..), newMap, get, put, fromList, foldrWithKey
 
 // Convert RadExpr to DAG via structural equality CSE.
 // Uses a Map from RadExpr to NodeId for deduplication.
+//
+// Threading discipline: the (nextId, cache) state tuple is threaded linearly --
+// each intermediate cache`/cache`` is consumed exactly once. If Data.Map
+// supported uniqueness (*Map), only type annotations would need changing.
 toDAG :: !(RadExpr Rational) -> RadDAG
 toDAG expr
     # (rootId, nodes, _) = buildDAG expr 0 newMap
     = { dagNodes = nodes, dagRootId = rootId }
 
+// With a unique-capable map, the return type would be:
+//   ... -> (!Int, ![(NodeId, RadNodeOp)], !(!Int, !*Map ...))
 buildDAG :: !(RadExpr Rational) !Int !(Map (RadExpr Rational) Int) -> (Int, [(NodeId, RadNodeOp)], (Int, Map (RadExpr Rational) Int))
 buildDAG expr nextId cache
     = case get expr cache of

@@ -42,7 +42,7 @@ Show SolveResult where
 
 ||| Solve a solvable quintic via radical tower.
 export
-solveViaTower : Poly Rational -> TransGroup -> SolveResult
+solveViaTower : Poly Rational -> TransGroup 5 -> SolveResult
 solveViaTower p tg =
   if not (tgSolvable tg) then NotSolvable
   else

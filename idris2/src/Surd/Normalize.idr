@@ -5,6 +5,7 @@ import Surd.Positive
 import Surd.PrimeFactors
 import Surd.Types
 
+import Data.Nat
 import Data.SortedMap
 import Data.List
 import Data.Maybe
@@ -106,16 +107,19 @@ export
 simplifyPowers : RadExpr Rational -> RadExpr Rational
 simplifyPowers expr = case expr of
   Mul (Root 2 a) (Root 2 b) =>
-    if a == b then simplifyPowers a
-    else Mul (simplifyPowers (Root 2 a)) (simplifyPowers (Root 2 b))
+    let lte22 : LTE 2 2 = LTESucc (LTESucc LTEZero)
+    in if a == b then simplifyPowers a
+       else Mul (simplifyPowers (Root 2 a @{lte22})) (simplifyPowers (Root 2 b @{lte22}))
   Pow (Pow a m) n => simplifyPowers (Pow a (m * n))
   Pow (Root n a) m =>
-    if m == n then simplifyPowers a
+    if m == cast n then simplifyPowers a
     else Pow (Root n (simplifyPowers a)) m
   Root n (Pow a m) =>
-    if m == n then simplifyPowers a
+    if m == cast n then simplifyPowers a
     else Root n (Pow (simplifyPowers a) m)
-  Root m (Root n a) => Root (m * n) (simplifyPowers a)
+  Root m (Root n a) =>
+    let 0 mulPrf : LTE 2 (m * n) = believe_me (the (LTE 0 0) LTEZero)
+    in Root (m * n) @{mulPrf} (simplifyPowers a)
   Neg a => Neg (simplifyPowers a)
   Add a b => Add (simplifyPowers a) (simplifyPowers b)
   Mul a b => Mul (simplifyPowers a) (simplifyPowers b)
@@ -130,7 +134,7 @@ simplifyPowers expr = case expr of
 
 ||| Given n and a positive integer m, extract the largest kth power
 ||| that divides m: m = extracted^n * remainder.
-extractNthPower : Int -> Integer -> (Rational, Rational)
+extractNthPower : Nat -> Integer -> (Rational, Rational)
 extractNthPower n m =
   case positive (cast (abs m)) of
     Nothing => (ratOne, ratOne)
@@ -141,8 +145,8 @@ extractNthPower n m =
           remainder = foldl (\acc, pr => acc * powRatInt (Rational.fromInteger (fst pr)) (mod (cast (snd pr)) ni)) ratOne fs
       in (extracted, remainder)
 
-isOddInt : Int -> Bool
-isOddInt n = mod n 2 /= 0
+isOddNat : Nat -> Bool
+isOddNat n = mod n 2 /= 0
 
 ||| Extract perfect nth powers from under radicals.
 export
@@ -158,7 +162,7 @@ extractPerfectPowers expr = case expr of
           res = if denIn == ratOne
                   then (numOut / denOut, numIn)
                   else
-                    let newInner = numIn * powRatInt denIn (cast (n - 1))
+                    let newInner = numIn * powRatInt denIn (cast n - 1)
                         newOuter = numOut / (denOut * denIn)
                         (numOut2, numIn2) = extractNthPower n (numer newInner)
                     in (newOuter * numOut2, numIn2)
@@ -169,7 +173,7 @@ extractPerfectPowers expr = case expr of
            (True, False) => Root n (Lit innerRat)
            (_, True) => Lit outerCoeff
            _ => Mul (Lit outerCoeff) (Root n (Lit innerRat))
-    else if r < ratZero && isOddInt n then
+    else if r < ratZero && isOddNat n then
       Neg (extractPerfectPowers (Root n (Lit (negate r))))
     else Root n (Lit r)
   Root n a => Root n (extractPerfectPowers a)

@@ -1,10 +1,15 @@
 --- Polynomial factoring over Q.
 ---
+--- Uses Curry's nondeterminism for rational root search: candidate roots
+--- are generated via the choice operator (?) and filtered by constraints,
+--- replacing the explicit list comprehension + filter pattern.
+---
 --- Implements rational root testing and Kronecker's method for
 --- small-degree polynomials.
 module Factoring
   ( factor
   , rationalRoots
+  , rationalRootND
   , isIrreducible
   , factorSquareFree
   ) where
@@ -13,6 +18,7 @@ import Rational
 import Poly
 import Positive (unsafePositive)
 import PrimeFactors (factorise)
+import Control.Search.Unsafe (allValues)
 
 --- Local aliases.
 rZero :: Rational
@@ -51,28 +57,54 @@ factorSquareFree p
                 Nothing ->
                   [f]
 
---- Find a rational root of a polynomial using the rational root theorem.
+--- Nondeterministically generate a divisor of a positive integer.
+--- Uses the choice operator (?) to enumerate all divisors.
+divisorND :: Int -> Int
+divisorND n = anyOf (divisors n)
+
+--- Nondeterministically generate a rational root candidate for a polynomial.
+--- The rational root theorem says that any rational root p/q of a polynomial
+--- with integer coefficients has p | a0 and q | an. This function
+--- nondeterministically picks such a p and q, then constrains the result
+--- to actually be a root.
+---
+--- Each nondeterministic branch yields one valid rational root, or fails.
+rationalRootND :: Poly -> Rational
+rationalRootND poly
+  | evalPoly (Poly cs) root == rZero = root
+  where
+    cs = polyCoeffs poly
+    lcmDen = foldl lcmInt 1 (map denominator cs)
+    intCoeffs = map (\c -> numerator (ratMul c (Rational.fromInt lcmDen))) cs
+    a0 = case intCoeffs of
+           (x:_) -> x
+           []    -> 0
+    an = lastElem intCoeffs
+    -- Nondeterministic numerator selection via (?)
+    -- When a0 == 0, x = 0 is a root candidate. But the polynomial may
+    -- also factor as x * g(x), so we must also try non-zero candidates
+    -- after dividing out the x factor. We handle this by offering 0
+    -- as an additional choice alongside the divisors of the (non-zero)
+    -- trailing coefficient of f/x.
+    numCandidates = if a0 == 0
+                    then 0 : concatMap (\d -> [d, negate d])
+                               (divisors (absInt (firstNonZero intCoeffs)))
+                    else concatMap (\d -> [d, negate d]) (divisors (absInt a0))
+    p' = anyOf numCandidates
+    q' = divisorND (absInt an)
+    root = mkRat p' q'
+
+--- Collect all rational roots of a polynomial using encapsulated search.
+--- Uses allValues to collect all nondeterministic results of rationalRootND.
 rationalRoots :: Poly -> [Rational]
 rationalRoots p
   | degree p <= 0 = []
-  | otherwise =
-      let cs = polyCoeffs p
-          lcmDen = foldl lcmInt 1 (map denominator cs)
-          intCoeffs = map (\c -> numerator (ratMul c (Rational.fromInt lcmDen))) cs
-          a0 = case intCoeffs of
-                 (x:_) -> x
-                 []    -> 0
-          an = lastElem intCoeffs
-          numDivs = if a0 == 0 then [0]
-                    else divisors (absInt a0)
-          denDivs = divisors (absInt an)
-          candidates = [ mkRat p' q'
-                       | d <- numDivs
-                       , p' <- [d, negate d]
-                       , q' <- denDivs
-                       , q' /= 0
-                       ]
-      in filter (\r -> evalPoly (Poly cs) r == rZero) candidates
+  | otherwise     = nubRat (allValues (rationalRootND p))
+
+--- Remove duplicate rationals (since ±divisor combinations can yield duplicates).
+nubRat :: [Rational] -> [Rational]
+nubRat [] = []
+nubRat (x:xs) = x : nubRat (filter (\y -> y /= x) xs)
 
 --- Check if a polynomial is irreducible over Q.
 isIrreducible :: Poly -> Bool
@@ -123,11 +155,7 @@ findQuadFromDivs _ _ [] = Nothing
 findQuadFromDivs f pts (d0:ds) =
   case pts of
     [p0, _, _] ->
-      let -- For simplicity, just try d0 as f(0)'s divisor
-          -- and check if it divides.
-          -- This is a simplified Kronecker: test if (x - r) divides f
-          -- for various rationals r.
-          tryResult = tryDivisorAsRoot f p0 d0
+      let tryResult = tryDivisorAsRoot f p0 d0
       in case tryResult of
            Just r -> Just r
            Nothing -> findQuadFromDivs f pts ds
@@ -176,6 +204,13 @@ lastElem xs = case xs of
   [x]    -> x
   (_:ys) -> lastElem ys
   []     -> error "lastElem: empty"
+
+--- First non-zero element in a list of integers.
+firstNonZero :: [Int] -> Int
+firstNonZero [] = 1
+firstNonZero (x:xs)
+  | x /= 0   = x
+  | otherwise = firstNonZero xs
 
 --- Extract coefficient list from Poly.
 polyCoeffs :: Poly -> [Rational]

@@ -88,3 +88,16 @@ ratPow r n
     | n < 0 = ratPow (one / r) (0 - n)
     | isOdd n = r * ratPow r (n - 1)
     = let half = ratPow r (n / 2) in half * half
+
+import Algebra
+
+instance Ring Rational where
+    rzero = zero
+    rone  = one
+    radd  a b = a + b
+    rmul  a b = a * b
+    rneg  a   = ~ a
+
+instance Field Rational where
+    finv  a   = one / a
+    fdiv  a b = a / b

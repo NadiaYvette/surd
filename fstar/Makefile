@@ -1,8 +1,8 @@
 FSTAR=$(HOME)/opt/fstar/bin/fstar.exe
-FSTAR_FLAGS=--cache_checked_modules
+FSTAR_FLAGS=--cache_checked_modules --z3rlimit 300
 
 MODULES=Surd.Ring Surd.Rational Surd.Positive Surd.PrimeFactors Surd.Poly Surd.Types Surd.Interval \
-        Surd.Normalize Surd.Pretty Surd.LaTeX Surd.Eval Surd.Expr \
+        Surd.Normalize Surd.Lemmas Surd.Pretty Surd.LaTeX Surd.Eval Surd.Expr \
         Surd.Cyclotomic Surd.Resultant Surd.RootBound Surd.Factoring Surd.Extension \
         Surd.DAG Surd.NormalForm Surd.Denest \
         Surd.RootIsolation Surd.AlgNum Surd.MinimalPoly Surd.Convert \
@@ -11,7 +11,8 @@ MODULES=Surd.Ring Surd.Rational Surd.Positive Surd.PrimeFactors Surd.Poly Surd.T
         Surd.RadicalTower Surd.GaloisSolve \
         Surd.EulerIntegration Surd.EllipticIntegration \
         Surd.Demo.TrigTable Surd.Demo.EulerIntegral \
-        Surd.Demo.EllipticIntegral Surd.Demo.SolvableQuintic
+        Surd.Demo.EllipticIntegral Surd.Demo.SolvableQuintic \
+        Surd.Test
 
 .PHONY: all clean verify
 
@@ -180,6 +181,15 @@ Surd.Demo.EllipticIntegral.checked: Surd.Demo.EllipticIntegral.fst Surd.Elliptic
 	touch $@
 
 Surd.Demo.SolvableQuintic.checked: Surd.Demo.SolvableQuintic.fst Surd.GaloisSolve.checked Surd.TransitiveGroup.checked Surd.Identify.checked Surd.Pretty.checked
+	$(FSTAR) $(FSTAR_FLAGS) --include . $<
+	touch $@
+
+# Lemmas and tests
+Surd.Lemmas.checked: Surd.Lemmas.fst Surd.Rational.checked
+	$(FSTAR) $(FSTAR_FLAGS) --include . $<
+	touch $@
+
+Surd.Test.checked: Surd.Test.fst Surd.Rational.checked Surd.Lemmas.checked Surd.Positive.checked Surd.Types.checked
 	$(FSTAR) $(FSTAR_FLAGS) --include . $<
 	touch $@
 

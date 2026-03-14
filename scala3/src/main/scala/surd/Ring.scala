@@ -28,24 +28,24 @@ object Ring:
   def apply[K](using r: Ring[K]): Ring[K] = r
 
   given Ring[Int] with
-    def zero: Int = 0
-    def one: Int = 1
+    inline def zero: Int = 0
+    inline def one: Int = 1
     def add(a: Int, b: Int): Int = a + b
     def mul(a: Int, b: Int): Int = a * b
     def negate(a: Int): Int = -a
     def fromInt(n: Int): Int = n
 
   given Ring[BigInt] with
-    def zero: BigInt = BigInt(0)
-    def one: BigInt = BigInt(1)
+    inline def zero: BigInt = BigInt(0)
+    inline def one: BigInt = BigInt(1)
     def add(a: BigInt, b: BigInt): BigInt = a + b
     def mul(a: BigInt, b: BigInt): BigInt = a * b
     def negate(a: BigInt): BigInt = -a
     def fromInt(n: Int): BigInt = BigInt(n)
 
   given Field[Double] with
-    def zero: Double = 0.0
-    def one: Double = 1.0
+    inline def zero: Double = 0.0
+    inline def one: Double = 1.0
     def add(a: Double, b: Double): Double = a + b
     def mul(a: Double, b: Double): Double = a * b
     def negate(a: Double): Double = -a
