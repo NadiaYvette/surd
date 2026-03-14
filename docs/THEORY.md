@@ -549,15 +549,11 @@ perfect square in $\mathbb{Q}$.
    squares of integers.
 4. If $\Delta = d^2$ with $d \in \mathbb{Q}$, set:
 
-$$
-x = \frac{a + d}{2}, \qquad y = \frac{a - d}{2}.
-$$
+   $$x = \frac{a + d}{2}, \qquad y = \frac{a - d}{2}.$$
 
 5. If $x \geq 0$ and $y \geq 0$, the denested form is:
 
-$$
-\sqrt{a + b\sqrt{r}} = \sqrt{x} + \mathrm{sgn}(b) \cdot \sqrt{y}.
-$$
+   $$\sqrt{a + b\sqrt{r}} = \sqrt{x} + \mathrm{sgn}(b) \cdot \sqrt{y}.$$
 
 **Proof sketch.** Suppose $\sqrt{a + b\sqrt{r}} = \sqrt{x} + \sqrt{y}$.
 Squaring both sides: $a + b\sqrt{r} = x + y + 2\sqrt{xy}$. Matching
@@ -573,9 +569,7 @@ Here $a = 3$, $b = 2$, $r = 2$.
 2. $x = (3 + 1)/2 = 2$, $y = (3 - 1)/2 = 1$.
 3. Both non-negative, $b > 0$, so:
 
-$$
-\sqrt{3 + 2\sqrt{2}} = \sqrt{2} + \sqrt{1} = 1 + \sqrt{2}.
-$$
+   $$\sqrt{3 + 2\sqrt{2}} = \sqrt{2} + \sqrt{1} = 1 + \sqrt{2}.$$
 
 **Verification:** $(1 + \sqrt{2})^2 = 1 + 2\sqrt{2} + 2 = 3 + 2\sqrt{2}$. Correct.
 
@@ -785,11 +779,9 @@ subgroup chain of $(\mathbb{Z}/n\mathbb{Z})^{\ast}$.
 
 2. **Build the subgroup chain:**
 
-$$
-\{1\} = H_0 \subset H_1 \subset \cdots \subset H_s = (\mathbb{Z}/n\mathbb{Z})^{\ast},
-$$
+   $$\{1\} = H_0 \subset H_1 \subset \cdots \subset H_s = (\mathbb{Z}/n\mathbb{Z})^{\ast},$$
 
-where $[H_{i+1} : H_i] = q_i$.
+   where $[H_{i+1} : H_i] = q_i$.
 
 3. **At each step $i$**, the periods for $H_i$ split into $q_i$ periods
    for $H_{i-1}$. These $q_i$ sub-periods satisfy a degree-$q_i$
@@ -1776,21 +1768,17 @@ radical expressions for the roots via Lagrange resolvents
 
 3. **Compute Lagrange resolvents.** With $\omega = e^{2\pi i/5}$:
 
-$$
-R_j = \sum_{k=0}^{4} \omega^{jk} \alpha_k, \qquad j = 0, 1, \ldots, 4.
-$$
+   $$R_j = \sum_{k=0}^{4} \omega^{jk} \alpha_k, \qquad j = 0, 1, \ldots, 4.$$
 
-Then $R_j^5$ is fixed by $\sigma$ (since $\sigma(R_j) = \omega^{-j} R_j$),
-so $R_j^5$ lies in the base field.
+   Then $R_j^5$ is fixed by $\sigma$ (since $\sigma(R_j) = \omega^{-j} R_j$),
+   so $R_j^5$ lies in the base field.
 
 4. **DFT coefficient recovery.** Express each $R_j^5$ as a known element
    of the base field. Write:
 
-$$
-R_j^5 = \sum_{s=0}^{4} d_s\, \omega^{js},
-$$
+   $$R_j^5 = \sum_{s=0}^{4} d_s\, \omega^{js},$$
 
-and recover the $d_s$ from numerical evaluation.
+   and recover the $d_s$ from numerical evaluation.
 
 5. **Branch selection.** For each $R_j$, determine the correct 5th root
    branch by comparing $\omega^{b_j} \sqrt[5]{R_j^5}$ against the
@@ -1798,9 +1786,7 @@ and recover the $d_s$ from numerical evaluation.
 
 6. **Root recovery by inverse DFT:**
 
-$$
-\alpha_k = \frac{1}{5} \sum_{j=0}^{4} \omega^{-jk} R_j.
-$$
+   $$\alpha_k = \frac{1}{5} \sum_{j=0}^{4} \omega^{-jk} R_j.$$
 
 7. **Undo depression.** Shift back by $a_4/(5a_5)$.
 
@@ -1851,28 +1837,21 @@ to a resolvent cubic plus quadratic factors.
 
 1. Introduce an auxiliary variable $y$ and write:
 
-$$
-x^4 + bx^2 + cx + d = (x^2 + y)^2 - \bigl[(2y - b)x^2 - cx + (y^2 - d)\bigr].
-$$
+   $$x^4 + bx^2 + cx + d = (x^2 + y)^2 - \bigl[(2y - b)x^2 - cx + (y^2 - d)\bigr].$$
 
 2. The bracketed expression is a perfect square in $x$ when its
    discriminant (as a quadratic in $x$) vanishes:
 
-$$
-c^2 - 4(2y - b)(y^2 - d) = 0.
-$$
+   $$c^2 - 4(2y - b)(y^2 - d) = 0.$$
 
-This is the **resolvent cubic** $8y^3 - 4by^2 - 8dy + (4bd - c^2) = 0$.
+   This is the **resolvent cubic** $8y^3 - 4by^2 - 8dy + (4bd - c^2) = 0$.
 
 3. Choose any root $y_0$ of the resolvent cubic. Then the quartic factors
    into two quadratics:
 
-$$
-x^4 + bx^2 + cx + d = \left(x^2 + y_0 - \sqrt{2y_0 - b}\cdot x\right)
-  \cdot \left(x^2 + y_0 + \sqrt{2y_0 - b}\cdot x\right) + \text{linear corrections},
-$$
+   $$x^4 + bx^2 + cx + d = \left(x^2 + y_0 - \sqrt{2y_0 - b}\cdot x\right) \cdot \left(x^2 + y_0 + \sqrt{2y_0 - b}\cdot x\right) + \text{linear corrections},$$
 
-and each quadratic is solved by the quadratic formula.
+   and each quadratic is solved by the quadratic formula.
 
 The library implements Ferrari's method in `Surd.Algebraic.Convert`,
 using Cardano's formula for the resolvent cubic.
@@ -1935,12 +1914,9 @@ After Euler substitution, the integrand is a rational function $R(t) = P(t)/Q(t)
 3. **Hermite reduction.** For repeated factors $Q_i^k$ with $k > 1$,
    reduce the multiplicity by computing:
 
-$$
-\frac{P(t)}{Q_i(t)^k} = \frac{d}{dt}\!\left(\frac{A(t)}{Q_i(t)^{k-1}}\right)
-  + \frac{B(t)}{Q_i(t)^{k-1}},
-$$
+   $$\frac{P(t)}{Q_i(t)^k} = \frac{d}{dt}\!\left(\frac{A(t)}{Q_i(t)^{k-1}}\right) + \frac{B(t)}{Q_i(t)^{k-1}},$$
 
-where $A$ and $B$ are found by the extended Euclidean algorithm applied
+   where $A$ and $B$ are found by the extended Euclidean algorithm applied
 to $Q_i$ and $Q_i'$.
 
 4. **Partial fraction decomposition** of the remaining simple-fraction
@@ -1987,9 +1963,7 @@ $$
    to Legendre form. The **elliptic modulus** $k$ is determined by the
    **cross-ratio** of the roots:
 
-$$
-k^2 = \frac{(r_2 - r_1)(r_4 - r_3)}{(r_3 - r_1)(r_4 - r_2)}.
-$$
+   $$k^2 = \frac{(r_2 - r_1)(r_4 - r_3)}{(r_3 - r_1)(r_4 - r_2)}.$$
 
 4. **Exact modulus computation.** The cross-ratio involves algebraic
    numbers, and the library computes $k$ as an exact radical expression
@@ -1997,9 +1971,7 @@ $$
 
 5. **Amplitude.** The Legendre amplitude is expressed symbolically as:
 
-$$
-\varphi = \arcsin\sqrt{\frac{x - r_1}{r_2 - r_1}}.
-$$
+   $$\varphi = \arcsin\sqrt{\frac{x - r_1}{r_2 - r_1}}.$$
 
 The output is a list of `LegendreForm` terms with exact radical
 coefficients and moduli. Results can optionally be expressed using inverse
