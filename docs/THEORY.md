@@ -71,7 +71,7 @@ The prototypical example is the cubic $x^3 - 3x - 1 = 0$, whose three
 roots are all real:
 
 $$
-x = 2\cos\!\left(\frac{2\pi k}{9}\right), \quad k = 1, 2, 3.
+x = 2\cos\left(\frac{2\pi k}{9}\right), \quad k = 1, 2, 3.
 $$
 
 Cardano's formula gives
@@ -367,7 +367,7 @@ The tree-based normalisation pipeline in `Surd.Radical.Normalize` applies
 eight rewrite passes in sequence:
 
 $$
-\text{normalize} = \text{fix}_{10}\!\bigl(\text{collectTerms} \circ
+\text{normalize} = \text{fix}_{10}\bigl(\text{collectTerms} \circ
   \text{collectCoefficients} \circ \text{distribute} \circ
   \text{sortCommutative} \circ \text{extractPerfectPowers} \circ
   \text{simplifyPowers} \circ \text{foldConstants} \circ
@@ -913,14 +913,13 @@ $R_2^3 = \overline{R_1^3}$ (complex conjugate).
 **Step 4: Recover the periods.**
 
 $$
-\eta_k = \frac{1}{3}\!\left(-1 + \omega^{-k}\sqrt[3]{R_1^3}
-  + \omega^k \sqrt[3]{R_2^3}\right).
+\eta_k = \frac{1}{3}\left(-1 + \omega^{-k}\sqrt[3]{R_1^3} + \omega^k \sqrt[3]{R_2^3}\right).
 $$
 
 In particular:
 
 $$
-\cos(2\pi/7) = \frac{\eta_0}{2} = \frac{1}{2}\!\left(\zeta + \zeta^{-1}\right).
+\cos(2\pi/7) = \frac{\eta_0}{2} = \frac{1}{2}\left(\zeta + \zeta^{-1}\right).
 $$
 
 The minimal polynomial of $\cos(2\pi/7)$ is $8x^3 + 4x^2 - 4x - 1 = 0$.
@@ -980,8 +979,8 @@ For the CRT assembly, if $n = n_1 n_2$ with $\gcd(n_1, n_2) = 1$ and
 $s n_1 + t n_2 = 1$ (Bezout coefficients), then
 
 $$
-\cos\!\left(\frac{2\pi}{n}\right)
-  = 2\cos\!\left(\frac{2\pi s}{n_2}\right)\cos\!\left(\frac{2\pi t}{n_1}\right) - \cos\!\left(\frac{2\pi(s n_2 - t n_1)}{n}\right).
+\cos\left(\frac{2\pi}{n}\right)
+  = 2\cos\left(\frac{2\pi s}{n_2}\right)\cos\left(\frac{2\pi t}{n_1}\right) - \cos\left(\frac{2\pi(s n_2 - t n_1)}{n}\right).
 $$
 
 More directly, the product-to-sum identity gives:
@@ -1219,7 +1218,7 @@ polynomial $q(x)$:
 **Composed sum.** An annihilating polynomial for $\alpha + \beta$ is:
 
 $$
-\mathrm{ComposedSum}(p, q)(x) = \mathrm{Res}_y\!\bigl(p(x - y),\, q(y)\bigr).
+\mathrm{ComposedSum}(p, q)(x) = \mathrm{Res}_y\bigl(p(x - y),\, q(y)\bigr).
 $$
 
 This polynomial has degree $\deg(p) \cdot \deg(q)$ and has $\alpha + \beta$
@@ -1230,7 +1229,7 @@ $q$).
 is:
 
 $$
-\mathrm{ComposedProduct}(p, q)(x) = \mathrm{Res}_y\!\bigl(y^{\deg p} \cdot p(x/y),\, q(y)\bigr).
+\mathrm{ComposedProduct}(p, q)(x) = \mathrm{Res}_y\bigl(y^{\deg p} \cdot p(x/y),\, q(y)\bigr).
 $$
 
 **Negation.** If $p(x)$ is the minimal polynomial of $\alpha$, then
@@ -1253,7 +1252,7 @@ This gives `AlgNum` its `Num` and `Fractional` instances.
 The composed sum polynomial can be computed via the **resultant**:
 
 $$
-\mathrm{Res}_y\!\bigl(p(x - y),\, q(y)\bigr) = \prod_{i,j} (x - \alpha_i - \beta_j),
+\mathrm{Res}_y\bigl(p(x - y),\, q(y)\bigr) = \prod_{i,j} (x - \alpha_i - \beta_j),
 $$
 
 where $\alpha_i$ are roots of $p$ and $\beta_j$ are roots of $q$. The
@@ -1263,7 +1262,7 @@ avoids computing the roots explicitly.
 For the composed product:
 
 $$
-\mathrm{Res}_y\!\left(y^n\, p\!\left(\frac{x}{y}\right),\, q(y)\right)
+\mathrm{Res}_y\left(y^n\, p\left(\frac{x}{y}\right),\, q(y)\right)
   = \prod_{i,j} (x - \alpha_i \beta_j).
 $$
 
@@ -1795,8 +1794,7 @@ radical expressions for the roots via Lagrange resolvents
 For a depressed cubic $x^3 + px + q = 0$, Cardano's formula gives:
 
 $$
-x = \sqrt[3]{-\frac{q}{2} + \sqrt{\frac{q^2}{4} + \frac{p^3}{27}}}
-  + \sqrt[3]{-\frac{q}{2} - \sqrt{\frac{q^2}{4} + \frac{p^3}{27}}}.
+x = \sqrt[3]{-\frac{q}{2} + \sqrt{\frac{q^2}{4} + \frac{p^3}{27}}} + \sqrt[3]{-\frac{q}{2} - \sqrt{\frac{q^2}{4} + \frac{p^3}{27}}}.
 $$
 
 **Critical implementation detail.** The two cube roots are NOT
@@ -1822,9 +1820,7 @@ $$
 Since $D < 0$, this is the casus irreducibilis. Cardano gives:
 
 $$
-x = \sqrt[3]{\frac{1}{2} + \frac{\sqrt{3}}{2}\,i}
-  + \sqrt[3]{\frac{1}{2} - \frac{\sqrt{3}}{2}\,i}
-= \sqrt[3]{e^{i\pi/3}} + \sqrt[3]{e^{-i\pi/3}}
+x = \sqrt[3]{\frac{1}{2} + \frac{\sqrt{3}}{2}\,i} + \sqrt[3]{\frac{1}{2} - \frac{\sqrt{3}}{2}\,i} = \sqrt[3]{e^{i\pi/3}} + \sqrt[3]{e^{-i\pi/3}}
 = e^{i\pi/9} + e^{-i\pi/9} = 2\cos(\pi/9).
 $$
 
@@ -1914,7 +1910,7 @@ After Euler substitution, the integrand is a rational function $R(t) = P(t)/Q(t)
 3. **Hermite reduction.** For repeated factors $Q_i^k$ with $k > 1$,
    reduce the multiplicity by computing:
 
-   $$\frac{P(t)}{Q_i(t)^k} = \frac{d}{dt}\!\left(\frac{A(t)}{Q_i(t)^{k-1}}\right) + \frac{B(t)}{Q_i(t)^{k-1}},$$
+   $$\frac{P(t)}{Q_i(t)^k} = \frac{d}{dt}\left(\frac{A(t)}{Q_i(t)^{k-1}}\right) + \frac{B(t)}{Q_i(t)^{k-1}},$$
 
    where $A$ and $B$ are found by the extended Euclidean algorithm applied
 to $Q_i$ and $Q_i'$.
