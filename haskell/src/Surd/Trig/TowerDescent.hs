@@ -24,6 +24,7 @@ import Data.Complex (Complex (..), magnitude, mkPolar, phase)
 import Data.List (minimumBy)
 import Data.Map.Strict qualified as Map
 import Data.Ord (comparing)
+import Data.Set qualified as Set
 import Math.Internal.Positive (Positive)
 import Math.Internal.PrimeFactors (factorise)
 import Surd.Field.DynTower
@@ -390,17 +391,15 @@ towerSolveResolvent
           periodValues
           p
     | otherwise =
-        -- Fallback for q > 5: match sub-periods numerically.
-        -- Works when sub-periods are in K (single-element periods).
-        let subPeriodTower =
-              map
-                (matchToTowerElem allPeriods (map (sumRootsOfUnity p . tpElems) allPeriods) p)
-                subPeriodValues
-         in ( [ TPeriodState {tpElem = te, tpElems = es, tpP = p}
-                | (te, es) <- zip subPeriodTower subPeriodElems
-              ],
-              nextId
-            )
+        towerSolveQGeneral
+          q
+          allPeriods
+          nextId
+          parent
+          subPeriodElems
+          subPeriodValues
+          periodValues
+          p
 
 -- ---------------------------------------------------------------------------
 -- Tower-native quintic resolvent (q = 5)
@@ -515,6 +514,166 @@ towerSolveQ5
           ],
           nid4
         )
+
+-- ---------------------------------------------------------------------------
+-- General resolvent solver for arbitrary prime q
+-- ---------------------------------------------------------------------------
+
+-- | Tower-native resolvent for general prime q.
+--
+-- Recursively uses 'allPeriodsViaTower' to build ω_q as a tower element,
+-- then applies the same Lagrange resolvent pipeline as 'towerSolveQ5':
+-- compute DFT coefficients, match to tower elements, reconstruct R_j^q,
+-- adjoin q-th roots with branch selection, and recover sub-periods via
+-- inverse DFT.
+towerSolveQGeneral ::
+  Int ->
+  [TPeriodState] ->
+  Int ->
+  TPeriodState ->
+  [[Integer]] ->
+  [Complex Double] ->
+  [Complex Double] ->
+  Integer ->
+  ([TPeriodState], Int)
+towerSolveQGeneral
+  q
+  allPeriods
+  nextId
+  parent
+  subPeriodElems
+  subPeriodValues
+  periodValues
+  p =
+    let -- Build all powers ω_q^k (k = 0..q-1) as tower elements by
+        -- recursively using the tower descent machinery. allPeriodsViaTower q
+        -- produces all ζ_q^k via Gauss period descent, so we use the
+        -- precomputed map directly (avoiding expensive iterated multiplication).
+        (omPows, nextId') = case allPeriodsViaTower q of
+          Just tr ->
+            let -- Count distinct levels across all period elements
+                allTowerElems = Map.elems (trPeriods tr)
+                nLevels = Set.size $ Set.unions $ map collectAllLevelIds allTowerElems
+                renumber = renumberTowerIds nextId
+                -- ω^0 = 1, ω^k = ζ_q^k from the period map
+                pows =
+                  [ if k == 0
+                      then TRat 1
+                      else case Map.lookup k (trPeriods tr) of
+                        Just te -> renumber te
+                        Nothing -> error $ "towerSolveQGeneral: missing ζ^" ++ show k
+                    | k <- [0 .. q - 1]
+                  ]
+             in (pows, nextId + nLevels)
+          Nothing ->
+            let omega = fallbackOmegaTower q nextId
+             in (take q $ iterate (* omega) (TRat 1), nextId + 1)
+
+        -- Numerical DFT to get d_s coefficients
+        omegaC = exp (0 :+ (2 * pi / fromIntegral q)) :: Complex Double
+        resolventVals =
+          [ sum
+              [ omegaC ^ ((j * k) `mod` q) * subPeriodValues !! k
+                | k <- [0 .. q - 1]
+              ]
+            | j <- [0 .. q - 1]
+          ]
+        resolventPowers = [rv ^ q | rv <- resolventVals]
+        dCoeffsNum =
+          [ (1 / fromIntegral q)
+              * sum
+                [ omegaC ^ (negate (j * s) `mod` q) * resolventPowers !! j
+                  | j <- [0 .. q - 1]
+                ]
+            | s <- [0 .. q - 1]
+          ]
+        dCoeffs = map (matchToTowerElem allPeriods periodValues p) dCoeffsNum
+
+        -- R_j^q = Σ_s d_s · ω_q^{js} as tower elements
+        rjq =
+          [ sum [dCoeffs !! s * omPows !! ((j * s) `mod` q) | s <- [0 .. q - 1]]
+            | j <- [0 .. q - 1]
+          ]
+
+        -- R₀ = parent (known); adjoin q-th roots for j = 1..q-1
+        r0 = tpElem parent
+
+        adjoinAndSelect nid j =
+          let radicand = rjq !! j
+              (_, alpha) = adjoinTowerRoot nid q radicand
+              -- q candidate roots: ω_q^m · α for m = 0..q-1
+              candidates = [omPows !! m * alpha | m <- [0 .. q - 1]]
+              target = resolventVals !! j
+              candVals = map (`evalTowerApprox` p) candidates
+              bestM =
+                snd $
+                  minimumBy
+                    (comparing fst)
+                    [ (magnitude (cv - target), m)
+                      | (cv, m) <- zip candVals [0 :: Int ..]
+                    ]
+           in (candidates !! bestM, nid + 1)
+
+        -- Adjoin all q-1 resolvent roots
+        (rjRest, finalNid) =
+          foldl
+            (\(acc, nid) j ->
+              let (rj, nid') = adjoinAndSelect nid j
+               in (acc ++ [rj], nid'))
+            ([], nextId')
+            [1 .. q - 1]
+
+        rjs = r0 : rjRest
+
+        -- Inverse DFT: η_k = (1/q) Σ_j ω_q^{-jk} · R_j
+        subPeriodTower =
+          [ TRat (1 / fromIntegral q)
+              * sum
+                [ omPows !! (negate (j * k) `mod` q) * rjs !! j
+                  | j <- [0 .. q - 1]
+                ]
+            | k <- [0 .. q - 1]
+          ]
+
+        assigned = assignTowerByValue subPeriodTower subPeriodValues
+     in ( [ TPeriodState {tpElem = r, tpElems = es, tpP = p}
+            | (r, es) <- zip assigned subPeriodElems
+          ],
+          finalNid
+        )
+
+-- | Shift all tower level IDs in a 'TowerElem' by a given offset.
+-- This avoids ID collisions when embedding a tower element from a
+-- recursive 'allPeriodsViaTower' call into an outer tower.
+renumberTowerIds :: Int -> TowerElem -> TowerElem
+renumberTowerIds _ t@(TRat _) = t
+renumberTowerIds offset (TExt cs level) =
+  let cs' = map (renumberTowerIds offset) cs
+      radicand' = renumberTowerIds offset (tlRadicand level)
+      level' = level { tlId = tlId level + offset, tlRadicand = radicand' }
+   in TExt cs' level'
+
+-- | Collect all distinct tower level IDs in a 'TowerElem'.
+collectAllLevelIds :: TowerElem -> Set.Set Int
+collectAllLevelIds (TRat _) = Set.empty
+collectAllLevelIds (TExt cs level) =
+  Set.insert (tlId level) $
+    Set.unions (collectAllLevelIds (tlRadicand level) : map collectAllLevelIds cs)
+
+-- | Count the number of distinct tower level IDs in a 'TowerElem'.
+countTowerLevels :: TowerElem -> Int
+countTowerLevels = Set.size . collectAllLevelIds
+
+-- | Fallback ω_q as cos(2π/q) + i·sin(2π/q) using tower adjunctions
+-- for cos and sin from rational approximations. Used when
+-- allPeriodsViaGauss returns Nothing.
+fallbackOmegaTower :: Int -> Int -> TowerElem
+fallbackOmegaTower q nextId =
+  let theta = 2 * pi / fromIntegral q
+      cosApprox = TRat (toRational (cos theta :: Double))
+      sinApprox = TRat (toRational (sin theta :: Double))
+      (_, iUnit) = adjoinTowerRoot nextId 2 (TRat (-1))
+   in cosApprox + iUnit * sinApprox
 
 -- ---------------------------------------------------------------------------
 -- Embedding and matching
