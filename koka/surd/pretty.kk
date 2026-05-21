@@ -45,10 +45,10 @@ pub fun pretty-prec(p : int, e : rad-expr<rational>) : div string
       parens-if(p > prec-mul, "1/" ++ pretty-prec(prec-pow, x))
     Root(2, Lit(r)) ->
       if r == Rational(-1, 1) then "i"
-      else "\x221A" ++ pretty-radicand-basic(Lit(r))  // sqrt symbol
-    Root(2, x) -> "\x221A" ++ pretty-radicand-basic(x)
-    Root(3, x) -> "\x221B" ++ pretty-radicand-basic(x)  // cube root symbol
-    Root(n, x) -> n.show ++ "\x221A" ++ pretty-radicand-basic(x)
+      else "√" ++ pretty-radicand-basic(Lit(r))  // sqrt symbol
+    Root(2, x) -> "√" ++ pretty-radicand-basic(x)
+    Root(3, x) -> "∛" ++ pretty-radicand-basic(x)  // cube root symbol
+    Root(n, x) -> n.show ++ "√" ++ pretty-radicand-basic(x)
     Pow(_, 0) -> "1"
     Pow(x, n) ->
       if n < 0 then pretty-prec(p, Inv(Pow(x, 0 - n)))
@@ -244,10 +244,10 @@ fun render-with-inner(names : list<(rad-expr<rational>, string)>, p : int, e : r
     Inv(x)   -> parens-if(p > prec-mul, "1/" ++ render-with(names, prec-pow, x))
     Root(2, Lit(r)) ->
       if r == Rational(-1, 1) then "i"
-      else "\x221A" ++ render-radicand-with(names, Lit(r))
-    Root(2, x) -> "\x221A" ++ render-radicand-with(names, x)
-    Root(3, x) -> "\x221B" ++ render-radicand-with(names, x)
-    Root(n, x) -> n.show ++ "\x221A" ++ render-radicand-with(names, x)
+      else "√" ++ render-radicand-with(names, Lit(r))
+    Root(2, x) -> "√" ++ render-radicand-with(names, x)
+    Root(3, x) -> "∛" ++ render-radicand-with(names, x)
+    Root(n, x) -> n.show ++ "√" ++ render-radicand-with(names, x)
     Pow(_, 0) -> "1"
     Pow(x, n) ->
       if n < 0 then render-with(names, p, Inv(Pow(x, 0 - n)))

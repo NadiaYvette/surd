@@ -318,10 +318,10 @@ pub fun main() : <console,div,exn> ()
   check("pretty_neg", pp-neg == "-3")
 
   val pp-sum = pretty(RAdd(int-expr(1), sq2))
-  check("pretty_sum", pp-sum == "1 + \x221A2")
+  check("pretty_sum", pp-sum == "1 + √2")
 
   val pp-inv = pretty(Inv(sq2))
-  check("pretty_inv", pp-inv == "1/\x221A2")
+  check("pretty_inv", pp-inv == "1/√2")
 
   // ---- DAG ----
   section("DAG")
