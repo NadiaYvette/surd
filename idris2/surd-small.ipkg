@@ -1,0 +1,8 @@
+package surd-small
+version = 0.1.0
+sourcedir = "src"
+
+modules = Surd.Rational, Surd.GCD, Demo.SmallTest
+
+main = Demo.SmallTest
+executable = "surd-small"
