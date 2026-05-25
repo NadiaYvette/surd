@@ -45,6 +45,25 @@
     %
 :- pred is_irreducible(poly(rational)::in) is semidet.
 
+    % Rational divisors of a rational number (internal, exposed for tests).
+    %
+:- func rational_divisors(rational) = list(rational).
+
+    % Try to divide P by F; succeeds when F has degree >= 1 and remainder zero.
+    %
+:- pred try_divide(poly(rational)::in, poly(rational)::in,
+    poly(rational)::out) is semidet.
+
+    % Find the first candidate in the list that divides P.
+    %
+:- pred find_dividing(poly(rational)::in, list(poly(rational))::in,
+    poly(rational)::out, poly(rational)::out) is semidet.
+
+    % Find a quadratic factor of P (Kronecker's method, degree >= 4).
+    %
+:- pred find_quadratic_factor(poly(rational)::in,
+    poly(rational)::out, poly(rational)::out) is semidet.
+
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 
@@ -227,9 +246,6 @@ find_linear_factor(P, Root, Quotient) :-
     LinPoly = mk_poly([-Root, rational.one]),
     div_mod(P, LinPoly, Quotient, _).
 
-:- pred find_quadratic_factor(poly(rational)::in,
-    poly(rational)::out, poly(rational)::out) is semidet.
-
 find_quadratic_factor(P, MonicFac, Quotient) :-
     degree(P) >= 4,
     V0 = eval(P, rational.zero),
@@ -261,9 +277,6 @@ triples(As, Bs, Cs) = list.condense(list.map(
         ), Bs))
     ), As)).
 
-:- pred find_dividing(poly(rational)::in, list(poly(rational))::in,
-    poly(rational)::out, poly(rational)::out) is semidet.
-
 find_dividing(P, [F | Fs], MonicFac, Quotient) :-
     ( if try_divide(P, F, Q) then
         MonicFac = monic(F),
@@ -271,9 +284,6 @@ find_dividing(P, [F | Fs], MonicFac, Quotient) :-
     else
         find_dividing(P, Fs, MonicFac, Quotient)
     ).
-
-:- pred try_divide(poly(rational)::in, poly(rational)::in,
-    poly(rational)::out) is semidet.
 
 try_divide(P, F, Q) :-
     degree(F) >= 1,
@@ -314,8 +324,6 @@ divisors_from_factors(Fs) = Result :-
     else
         unexpected($pred, "impossible")
     ).
-
-:- func rational_divisors(rational) = list(rational).
 
 rational_divisors(R) = Result :-
     N = integer.abs(numer(R)),
